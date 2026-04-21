@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Unity.VectorGraphics;
 using UnityEngine;
 
@@ -25,6 +26,12 @@ public class SDFSampler : MonoBehaviour
     public float CellSize { get; private set; }
 
     private ISDF _sdf;
+    public bool IsDirty { get; private set; } = true;
+
+    public void MarkDirty()
+    {
+        IsDirty = true;
+    }
 
     // evaluate SDF in local space
     public float EvaluateLocal(Vector3 localPos)
@@ -34,7 +41,7 @@ public class SDFSampler : MonoBehaviour
 
         return _sdf.Evaluate(localPos);
     }
-    
+
     // approximate normal via central differences
     public Vector3 EstimateNormalLocal(Vector3 localPos)
     {
@@ -47,10 +54,7 @@ public class SDFSampler : MonoBehaviour
         float dz = EvaluateLocal(localPos + new Vector3(0f, 0f, e)) - EvaluateLocal(localPos - new Vector3(0f, 0f, e));
 
         Vector3 n = new Vector3(dx, dy, dz);
-        if (n.sqrMagnitude < 0.000001f)
-            return Vector3.up;
-
-        return n.normalized;
+        return n.sqrMagnitude < 1e-6f ? Vector3.up : n.normalized;
     }
 
     public void RebuildSamples()
@@ -93,6 +97,7 @@ public class SDFSampler : MonoBehaviour
                 }
             }
         }
+        IsDirty = false;
     }
 
     private void BuildSDF()
@@ -130,6 +135,8 @@ public class SDFSampler : MonoBehaviour
     {
         if (resolution < 1)
             resolution = 1;
+
+        MarkDirty();
     }
 
     private Vector3 GetEffectiveGridExtent()
@@ -148,4 +155,14 @@ public class SDFSampler : MonoBehaviour
                 return new Vector3(r * 2f, r * 2f, r * 2f);
         }
     }
+
+    private void Update()
+    {
+        if (transform.hasChanged)
+        {
+            MarkDirty();
+            transform.hasChanged = false;
+        }
+    }
 }
+
