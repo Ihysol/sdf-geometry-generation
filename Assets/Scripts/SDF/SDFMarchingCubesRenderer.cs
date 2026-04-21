@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 [RequireComponent(typeof(SDFSampler))]
 [RequireComponent(typeof(MeshFilter))]
@@ -8,7 +9,7 @@ using UnityEngine;
 public class SDFMarchingCubesRenderer : MonoBehaviour
 {
     [Header("Iso Surface")]
-    public float isoLevel = 0f;
+    public float isoLevel = 1e-6f;
     [Header("Rebuild")]
     public bool rebuildEveryFrame = true;
 
@@ -67,6 +68,13 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         if (rebuildEveryFrame)
         {
             RebuildMesh();
+        }
+    }
+    private void OnValidate()
+    {
+        if(isoLevel== 0f)
+        {
+            isoLevel = 1e-6f;
         }
     }
 
@@ -147,48 +155,80 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
     private void PolygonizeTetrahedron(VertexSample a, VertexSample b, VertexSample c, VertexSample d, List<Vector3> vertices, List<int> triangles)
     {
-        bool aInside = a.Value < isoLevel;
-        bool bInside = b.Value < isoLevel;
-        bool cInside = c.Value < isoLevel;
-        bool dInside = d.Value < isoLevel;
+        int mask = 0;
+        if (a.Value < isoLevel) mask |= 1;
+        if (b.Value < isoLevel) mask |= 2;
+        if (c.Value < isoLevel) mask |= 4;
+        if (d.Value < isoLevel) mask |= 8;
 
-        int insideCount = (aInside ? 1 : 0) + (bInside ? 1 : 0) + (cInside ? 1 : 0) + (dInside ? 1 : 0);
-
-        if (insideCount == 0 || insideCount == 4) // if empty space or full, skip
-            return;
-
-        VertexSample[] inside = new VertexSample[4];
-        VertexSample[] outside = new VertexSample[4];
-        int insideIndex = 0;
-        int outsideIndex = 0;
-
-        AddBySide(a, aInside, inside, outside, ref insideIndex, ref outsideIndex);
-        AddBySide(b, bInside, inside, outside, ref insideIndex, ref outsideIndex);
-        AddBySide(c, cInside, inside, outside, ref insideIndex, ref outsideIndex);
-        AddBySide(d, dInside, inside, outside, ref insideIndex, ref outsideIndex);
-
-        if (insideCount == 1)
+        switch (mask)
         {
-            Vector3 p0 = Interpolate(inside[0], outside[0]);
-            Vector3 p1 = Interpolate(inside[0], outside[1]);
-            Vector3 p2 = Interpolate(inside[0], outside[2]);
-            AddTriangle(vertices, triangles, p0, p1, p2);
-        }
-        else if (insideCount == 3)
-        {
-            Vector3 p0 = Interpolate(outside[0], inside[0]);
-            Vector3 p1 = Interpolate(outside[0], inside[1]);
-            Vector3 p2 = Interpolate(outside[0], inside[2]);
-            AddTriangle(vertices, triangles, p0, p2, p1);
-        }
-        else if (insideCount == 2)
-        {
-            Vector3 p0 = Interpolate(inside[0], outside[0]);
-            Vector3 p1 = Interpolate(inside[0], outside[1]);
-            Vector3 p2 = Interpolate(inside[1], outside[0]);
-            Vector3 p3 = Interpolate(inside[1], outside[1]);
-            AddTriangle(vertices, triangles, p0, p1, p2);
-            AddTriangle(vertices, triangles, p2, p1, p3);
+            case 0:
+            case 15:
+                return;
+            // 1 inside
+            case 1:
+                AddTriangle(vertices, triangles, Interpolate(a, b), Interpolate(a, c), Interpolate(a, d));
+                break;
+            case 2:
+                AddTriangle(vertices, triangles, Interpolate(b, a), Interpolate(b, d), Interpolate(b, c));
+                break;
+            case 4:
+                AddTriangle(vertices, triangles, Interpolate(c, a), Interpolate(c, b), Interpolate(c, d));
+                break;
+            case 8:
+                AddTriangle(vertices, triangles, Interpolate(d, a), Interpolate(d, c), Interpolate(d, b));
+                break;
+            // 3 inside = inverse of 1 inside
+            case 14:
+                AddTriangle(vertices, triangles, Interpolate(a, b), Interpolate(a, d), Interpolate(a, c));
+                break;
+            case 13:
+                AddTriangle(vertices, triangles, Interpolate(b, a), Interpolate(b, c), Interpolate(b, d));
+                break;
+            case 11:
+                AddTriangle(vertices, triangles, Interpolate(c, a), Interpolate(c, d), Interpolate(c, b));
+                break;
+            case 7:
+                AddTriangle(vertices, triangles, Interpolate(d, a), Interpolate(d, b), Interpolate(d, c));
+                break;
+            // 3 inside
+            case 3:
+            case 12:
+                {
+                    Vector3 p0 = Interpolate(a, c);
+                    Vector3 p1 = Interpolate(a, d);
+                    Vector3 p2 = Interpolate(b, c);
+                    Vector3 p3 = Interpolate(b, d);
+                    AddTriangle(vertices, triangles, p0, p1, p2);
+                    AddTriangle(vertices, triangles, p2, p1, p3);
+                    break;
+                }
+            case 5:
+            case 10:
+                {
+                    Vector3 p0 = Interpolate(a, b);
+                    Vector3 p1 = Interpolate(a, d);
+                    Vector3 p2 = Interpolate(c, b);
+                    Vector3 p3 = Interpolate(c, d);
+                    AddTriangle(vertices, triangles, p0, p1, p2);
+                    AddTriangle(vertices, triangles, p2, p1, p3);
+                    break;
+                }
+
+            case 6:
+            case 9:
+                {
+                    Vector3 p0 = Interpolate(a, b);
+                    Vector3 p1 = Interpolate(a, c);
+                    Vector3 p2 = Interpolate(d, b);
+                    Vector3 p3 = Interpolate(d, c);
+
+                    AddTriangle(vertices, triangles, p0, p1, p2);
+                    AddTriangle(vertices, triangles, p2, p1, p3);
+                    break;
+                }
+
         }
     }
 
@@ -208,29 +248,57 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
     private Vector3 Interpolate(VertexSample a, VertexSample b)
     {
-        float delta = b.Value - a.Value;
-        if (Mathf.Abs(delta) < 0.000001f)
+        const float epsilon = 1e-6f;
+
+        // if a is already on iso surface -> use directly
+        if (Mathf.Abs(isoLevel - a.Value) < epsilon)
             return a.Position;
 
+        // if b is already on iso surface -> use directly
+        if (Mathf.Abs(isoLevel - b.Value) < epsilon)
+            return b.Position;
+
+        float delta = b.Value - a.Value;
+
+        // avoid division by ~0 (flat field / identical values)
+        if (Mathf.Abs(delta) < epsilon)
+            return a.Position;
+
+        // linear interpolation factor along edge (iso crossing)
         float t = (isoLevel - a.Value) / delta;
+
+        // clamp to avoid numeric overshoot
         t = Mathf.Clamp01(t);
+
+        // interpolate position along edge
         return Vector3.Lerp(a.Position, b.Position, t);
     }
 
     private void AddTriangle(List<Vector3> vertices, List<int> triangles, Vector3 a, Vector3 b, Vector3 c)
     {
-        Vector3 normal = Vector3.Cross(b - a, c - a).normalized;
+        Vector3 ab = b - a;
+        Vector3 ac = c - a;
+        Vector3 faceNormal = Vector3.Cross(ab, ac);
+
+        // skip tiny/invalid triangles
+        // if (faceNormal.sqrMagnitude < 1e-8f)
+        //     return;
+
+        faceNormal.Normalize();
+
         Vector3 center = (a + b + c) / 3f;
 
-        // for shapes centered around local origin:
-        // if normal points inward, flip winding
-        if(Vector3.Dot(normal, center.normalized) < 0f)
+        // get SDF normal at triangle center
+        Vector3 sdfNormal = _sampler.EstimateNormalLocal(center);
+
+        // flip if facing wrong direction
+        if (Vector3.Dot(faceNormal, sdfNormal) < 0f)
         {
-            Vector3 temp = b;
+            Vector3 tmp = b;
             b = c;
-            c = temp;    
+            c = tmp;
         }
-        
+
         int start = vertices.Count;
         vertices.Add(a);
         vertices.Add(b);

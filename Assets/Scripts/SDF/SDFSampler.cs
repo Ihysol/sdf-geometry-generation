@@ -26,6 +26,33 @@ public class SDFSampler : MonoBehaviour
 
     private ISDF _sdf;
 
+    // evaluate SDF in local space
+    public float EvaluateLocal(Vector3 localPos)
+    {
+        if (_sdf == null)
+            BuildSDF();
+
+        return _sdf.Evaluate(localPos);
+    }
+    
+    // approximate normal via central differences
+    public Vector3 EstimateNormalLocal(Vector3 localPos)
+    {
+        float e = CellSize * 0.5f;
+        if (e <= 0f)
+            e = 0.001f;
+
+        float dx = EvaluateLocal(localPos + new Vector3(e, 0f, 0f)) - EvaluateLocal(localPos - new Vector3(e, 0f, 0f));
+        float dy = EvaluateLocal(localPos + new Vector3(0f, e, 0f)) - EvaluateLocal(localPos - new Vector3(0f, e, 0f));
+        float dz = EvaluateLocal(localPos + new Vector3(0f, 0f, e)) - EvaluateLocal(localPos - new Vector3(0f, 0f, e));
+
+        Vector3 n = new Vector3(dx, dy, dz);
+        if (n.sqrMagnitude < 0.000001f)
+            return Vector3.up;
+
+        return n.normalized;
+    }
+
     public void RebuildSamples()
     {
         BuildSDF();
@@ -110,15 +137,15 @@ public class SDFSampler : MonoBehaviour
         if (!useAutomaticBounds)
             return gridExtent;
 
-        switch(shapeMode)
+        switch (shapeMode)
         {
             case ShapeMode.Box:
-                return(boxHalfExtents + Vector3.one * boundsPadding) *2f;
+                return (boxHalfExtents + Vector3.one * boundsPadding) * 2f;
 
             case ShapeMode.Sphere:
             default:
                 float r = sphereRadius + boundsPadding;
-                return new Vector3(r * 2f, r* 2f, r*2f);
+                return new Vector3(r * 2f, r * 2f, r * 2f);
         }
     }
 }
