@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -24,8 +25,8 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     private readonly List<Vector3> _vertices = new();
     private readonly List<int> _triangles = new();
     private readonly VertexSample[] _cube = new VertexSample[8];
-    private readonly Dictionary<EdgeKey, int> _localEdgeCache = new();
-    // cache previous state to detect changes
+    private readonly Dictionary<EdgeKey, int> _globalEdgeCache = new();
+    private readonly Dictionary<(int, int), int> _localDiagonalCache = new();
     private float _lastIsoLevel;
     private Vector3 _lastScale;
     private Vector3Int _lastGridSize;
@@ -63,22 +64,38 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     // identifies an edge between two cube corners (order-independent)
     private struct EdgeKey
     {
-        public int A;
-        public int B;
+        public int X;
+        public int Y;
+        public int Z;
+        public byte Axis; // 0 = X, 1 = Y, 2 = Z
 
-        public EdgeKey(int a, int b)
+        public EdgeKey(int x, int y, int z, byte axis)
         {
-            // normalize order so (a,b) == (b,a)
-            if (a < b)
+            X = x;
+            Y = y;
+            Z = z;
+            Axis = axis;
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
             {
-                A = a;
-                B = b;
+                int hash = X;
+                hash = (hash * 397) ^ Y;
+                hash = (hash * 397) ^ Z;
+                hash = (hash * 397) ^ Axis;
+                return hash;
             }
-            else
-            {
-                A = b;
-                B = a;
-            }
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is EdgeKey other &&
+                   X == other.X &&
+                   Y == other.Y &&
+                   Z == other.Z &&
+                   Axis == other.Axis;
         }
     }
 
@@ -145,6 +162,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
         _vertices.Clear();
         _triangles.Clear();
+        _globalEdgeCache.Clear();
         Vector3Int gridSize = _sampler.GridSize;
 
         for (int x = 0; x < gridSize.x - 1; x++)
@@ -191,7 +209,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         if (minValue > isoLevel || maxValue < isoLevel)
             return;
 
-        _localEdgeCache.Clear();
+        _localDiagonalCache.Clear();
 
         for (int t = 0; t < 6; t++)
         {
@@ -200,11 +218,49 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
             int i2 = Tetrahedra[t, 2];
             int i3 = Tetrahedra[t, 3];
 
-            PolygonizeTetrahedron(_cube[i0], _cube[i1], _cube[i2], _cube[i3], i0, i1, i2, i3, _localEdgeCache);
+            PolygonizeTetrahedron(
+                x, y, z,
+                _cube[i0], _cube[i1], _cube[i2], _cube[i3],
+                i0, i1, i2, i3);
         }
     }
 
-    private void PolygonizeTetrahedron(VertexSample a, VertexSample b, VertexSample c, VertexSample d, int ia, int ib, int ic, int id, Dictionary<EdgeKey, int> edgeCache)
+    private static bool TryGetGlobalEdgeKey(int cubeX, int cubeY, int cubeZ, int a, int b, out EdgeKey key)
+    {
+        key = default;
+
+        int min = Mathf.Min(a, b);
+        int max = Mathf.Max(a, b);
+
+        switch (min, max)
+        {
+            // bottom face
+            case (0, 1): key = new EdgeKey(cubeX, cubeY, cubeZ, 0); return true; // X
+            case (1, 2): key = new EdgeKey(cubeX + 1, cubeY, cubeZ, 1); return true; // Y
+            case (2, 3): key = new EdgeKey(cubeX, cubeY + 1, cubeZ, 0); return true; // X
+            case (0, 3): key = new EdgeKey(cubeX, cubeY, cubeZ, 1); return true; // Y
+
+            // top face
+            case (4, 5): key = new EdgeKey(cubeX, cubeY, cubeZ + 1, 0); return true; // X
+            case (5, 6): key = new EdgeKey(cubeX + 1, cubeY, cubeZ + 1, 1); return true; // Y
+            case (6, 7): key = new EdgeKey(cubeX, cubeY + 1, cubeZ + 1, 0); return true; // X
+            case (4, 7): key = new EdgeKey(cubeX, cubeY, cubeZ + 1, 1); return true; // Y
+
+            // verticals
+            case (0, 4): key = new EdgeKey(cubeX, cubeY, cubeZ, 2); return true; // Z
+            case (1, 5): key = new EdgeKey(cubeX + 1, cubeY, cubeZ, 2); return true; // Z
+            case (2, 6): key = new EdgeKey(cubeX + 1, cubeY + 1, cubeZ, 2); return true; // Z
+            case (3, 7): key = new EdgeKey(cubeX, cubeY + 1, cubeZ, 2); return true; // Z
+
+            default:
+                return false; // diagonal / internal tetra edge
+        }
+    }
+
+    private void PolygonizeTetrahedron(
+        int cubeX, int cubeY, int cubeZ,
+        VertexSample a, VertexSample b, VertexSample c, VertexSample d,
+        int ia, int ib, int ic, int id)
     {
         int mask = 0;
         if (a.Value < isoLevel) mask |= 1;
@@ -220,61 +276,61 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
             // 1 inside
             case 1:
                 AddTriangle(
-                    GetOrCreateVertex(a, b, ia, ib, edgeCache),
-                    GetOrCreateVertex(a, c, ia, ic, edgeCache),
-                    GetOrCreateVertex(a, d, ia, id, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id));
                 break;
             case 2:
                 AddTriangle(
-                    GetOrCreateVertex(b, a, ib, ia, edgeCache),
-                    GetOrCreateVertex(b, d, ib, id, edgeCache),
-                    GetOrCreateVertex(b, c, ib, ic, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, a, ib, ia),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, d, ib, id),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, c, ib, ic));
                 break;
             case 4:
                 AddTriangle(
-                    GetOrCreateVertex(c, a, ic, ia, edgeCache),
-                    GetOrCreateVertex(c, b, ic, ib, edgeCache),
-                    GetOrCreateVertex(c, d, ic, id, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, a, ic, ia),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, b, ic, ib),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, d, ic, id));
                 break;
             case 8:
                 AddTriangle(
-                    GetOrCreateVertex(d, a, id, ia, edgeCache),
-                    GetOrCreateVertex(d, c, id, ic, edgeCache),
-                    GetOrCreateVertex(d, b, id, ib, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, a, id, ia),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, c, id, ic),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, b, id, ib));
                 break;
             // 3 inside = inverse of 1 inside
             case 14:
                 AddTriangle(
-                    GetOrCreateVertex(a, b, ia, ib, edgeCache),
-                    GetOrCreateVertex(a, d, ia, id, edgeCache),
-                    GetOrCreateVertex(a, c, ia, ic, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic));
                 break;
             case 13:
                 AddTriangle(
-                    GetOrCreateVertex(b, a, ib, ia, edgeCache),
-                    GetOrCreateVertex(b, c, ib, ic, edgeCache),
-                    GetOrCreateVertex(b, d, ib, id, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, a, ib, ia),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, c, ib, ic),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, d, ib, id));
                 break;
             case 11:
                 AddTriangle(
-                    GetOrCreateVertex(c, a, ic, ia, edgeCache),
-                    GetOrCreateVertex(c, d, ic, id, edgeCache),
-                    GetOrCreateVertex(c, b, ic, ib, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, a, ic, ia),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, d, ic, id),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, b, ic, ib));
                 break;
             case 7:
                 AddTriangle(
-                    GetOrCreateVertex(d, a, id, ia, edgeCache),
-                    GetOrCreateVertex(d, b, id, ib, edgeCache),
-                    GetOrCreateVertex(d, c, id, ic, edgeCache));
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, a, id, ia),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, b, id, ib),
+                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, c, id, ic));
                 break;
             // 3 inside
             case 3:
             case 12:
                 {
-                    int p0 = GetOrCreateVertex(a, c, ia, ic, edgeCache);
-                    int p1 = GetOrCreateVertex(a, d, ia, id, edgeCache);
-                    int p2 = GetOrCreateVertex(b, c, ib, ic, edgeCache);
-                    int p3 = GetOrCreateVertex(b, d, ib, id, edgeCache);
+                    int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic);
+                    int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id);
+                    int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, b, c, ib, ic);
+                    int p3 = GetOrCreateVertex(cubeX, cubeY, cubeZ, b, d, ib, id);
                     AddTriangle(p0, p1, p2);
                     AddTriangle(p2, p1, p3);
                     break;
@@ -282,10 +338,10 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
             case 5:
             case 10:
                 {
-                    int p0 = GetOrCreateVertex(a, b, ia, ib, edgeCache);
-                    int p1 = GetOrCreateVertex(a, d, ia, id, edgeCache);
-                    int p2 = GetOrCreateVertex(c, b, ic, ib, edgeCache);
-                    int p3 = GetOrCreateVertex(c, d, ic, id, edgeCache);
+                    int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib);
+                    int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id);
+                    int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, c, b, ic, ib);
+                    int p3 = GetOrCreateVertex(cubeX, cubeY, cubeZ, c, d, ic, id);
                     AddTriangle(p0, p1, p2);
                     AddTriangle(p2, p1, p3);
                     break;
@@ -294,10 +350,10 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
             case 6:
             case 9:
                 {
-                    int p0 = GetOrCreateVertex(a, b, ia, ib, edgeCache);
-                    int p1 = GetOrCreateVertex(a, c, ia, ic, edgeCache);
-                    int p2 = GetOrCreateVertex(d, b, id, ib, edgeCache);
-                    int p3 = GetOrCreateVertex(d, c, id, ic, edgeCache);
+                    int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib);
+                    int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic);
+                    int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, d, b, id, ib);
+                    int p3 = GetOrCreateVertex(cubeX, cubeY, cubeZ, d, c, id, ic);
 
                     AddTriangle(p0, p1, p2);
                     AddTriangle(p2, p1, p3);
@@ -307,22 +363,36 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     }
 
     // ensures each edge produces only one vertex
-    private int GetOrCreateVertex(VertexSample a, VertexSample b, int ia, int ib, Dictionary<EdgeKey, int> edgeCache)
+    private int GetOrCreateVertex(int cubeX, int cubeY, int cubeZ, VertexSample a, VertexSample b, int ia, int ib)
     {
-        EdgeKey key = new EdgeKey(ia, ib);
+        // 1) echte äußere Cube-Kante -> globaler Cache
+        if (TryGetGlobalEdgeKey(cubeX, cubeY, cubeZ, ia, ib, out EdgeKey globalKey))
+        {
+            if (_globalEdgeCache.TryGetValue(globalKey, out int cachedIndex))
+                return cachedIndex;
 
-        // reuse vertex if already created
-        if (edgeCache.TryGetValue(key, out int cachedIndex))
-            return cachedIndex;
+            Vector3 position = Interpolate(a, b);
+            int newIndex = _vertices.Count;
 
-        Vector3 position = Interpolate(a, b);
+            _vertices.Add(position);
+            _globalEdgeCache[globalKey] = newIndex;
 
-        int newIndex = _vertices.Count;
+            return newIndex;
+        }
 
-        _vertices.Add(position);
-        edgeCache[key] = newIndex;
+        // 2) interne / diagonale Tetra-Kante -> nur lokal pro Cube cachen
+        var localKey = ia < ib ? (ia, ib) : (ib, ia);
 
-        return newIndex;
+        if (_localDiagonalCache.TryGetValue(localKey, out int localCachedIndex))
+            return localCachedIndex;
+
+        Vector3 localPosition = Interpolate(a, b);
+        int localNewIndex = _vertices.Count;
+
+        _vertices.Add(localPosition);
+        _localDiagonalCache[localKey] = localNewIndex;
+
+        return localNewIndex;
     }
 
     private Vector3 Interpolate(VertexSample a, VertexSample b)
@@ -413,7 +483,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         // transform changed
         // if (transform.hasChanged)
         //     return true;
-        if(_lastScale != transform.lossyScale)
+        if (_lastScale != transform.lossyScale)
             return true;
 
         // iso surface changed
