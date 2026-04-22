@@ -2,7 +2,6 @@ using UnityEngine;
 
 public struct SDFSample
 {
-    public Vector3 WorldPosition;
     public Vector3 LocalPosition;
     public float Distance;
 

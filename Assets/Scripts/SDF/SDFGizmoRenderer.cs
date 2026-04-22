@@ -35,17 +35,17 @@ public class SDFGizmoRenderer : MonoBehaviour
             if (drawSurface && Mathf.Abs(sample.Distance) <= surfaceThreshold)
             {
                 Gizmos.color = Color.yellow;
-                Gizmos.DrawCube(sample.WorldPosition, new Vector3(pointSize, pointSize, pointSize));
+                Gizmos.DrawCube(sample.LocalPosition, new Vector3(pointSize, pointSize, pointSize));
             }
             else if (drawInside && sample.Distance < 0f)
             {
                 Gizmos.color = Color.red;
-                Gizmos.DrawCube(sample.WorldPosition, new Vector3(pointSize, pointSize, pointSize));
+                Gizmos.DrawCube(sample.LocalPosition, new Vector3(pointSize, pointSize, pointSize));
             }
             else if (drawOutside)
             {
                 Gizmos.color = Color.lightGray;
-                Gizmos.DrawCube(sample.WorldPosition, new Vector3(pointSize, pointSize, pointSize));
+                Gizmos.DrawCube(sample.LocalPosition, new Vector3(pointSize, pointSize, pointSize));
             }
         }
 

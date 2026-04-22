@@ -27,6 +27,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     private readonly Dictionary<EdgeKey, int> _localEdgeCache = new();
     // cache previous state to detect changes
     private float _lastIsoLevel;
+    private Vector3 _lastScale;
     private Vector3Int _lastGridSize;
 
     // 8 cube corners
@@ -102,7 +103,6 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     private void Update()
     {
         // only rebuild if needed (huge performance gain)
-
         if (rebuildEveryFrame || IsDirty())
         {
             RebuildMesh();
@@ -180,7 +180,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
             _cube[i] = new VertexSample
             {
-                Position = transform.InverseTransformPoint(sample.WorldPosition),
+                Position = sample.LocalPosition,
                 Value = sample.Distance
             };
 
@@ -361,8 +361,8 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
         Vector3 faceNormal = Vector3.Cross(b - a, c - a);
 
-        if (faceNormal.sqrMagnitude < 1e-20f)
-            return;
+        // if (faceNormal.sqrMagnitude < 1e-20f)
+        //     return;
 
         faceNormal.Normalize();
 
@@ -382,31 +382,11 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         _triangles.Add(ic);
     }
 
-    // checks if something changed since last rebuild
-    private bool IsDirty()
-    {
-        if (_sampler == null)
-            return true;
-
-        // transform changed
-        if (transform.hasChanged)
-            return true;
-
-        // iso surface changed
-        if (!Mathf.Approximately(_lastIsoLevel, isoLevel))
-            return true;
-
-        // grid resolution / size changed
-        if(_sampler.IsDirty)
-            return true;
-            
-        return false;
-    }
-
     // store current state after rebuild
     private void CacheState()
     {
         _lastIsoLevel = isoLevel;
+        _lastScale = transform.lossyScale;
 
         if (_sampler != null)
             _lastGridSize = _sampler.GridSize;
@@ -422,5 +402,28 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         // draw grid outline
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireCube(transform.position, _sampler.gridExtent);
+    }
+
+    // checks if something changed since last rebuild
+    private bool IsDirty()
+    {
+        if (_sampler == null)
+            return true;
+
+        // transform changed
+        // if (transform.hasChanged)
+        //     return true;
+        if(_lastScale != transform.lossyScale)
+            return true;
+
+        // iso surface changed
+        if (!Mathf.Approximately(_lastIsoLevel, isoLevel))
+            return true;
+
+        // grid resolution / size changed
+        if (_sampler.IsDirty)
+            return true;
+
+        return false;
     }
 }
