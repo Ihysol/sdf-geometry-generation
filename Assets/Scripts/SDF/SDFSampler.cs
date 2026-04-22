@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Unity.VectorGraphics;
 using UnityEngine;
+using UnityEngine.SocialPlatforms;
 
 public class SDFSampler : MonoBehaviour
 {
@@ -19,13 +20,15 @@ public class SDFSampler : MonoBehaviour
     public bool useAutomaticBounds = true;
     public Vector3 gridExtent = new Vector3(4f, 4f, 4f);
     public float boundsPadding = 0.2f;
-    public int resolution = 10;
+    public Vector3Int resolution = new Vector3Int(32, 32, 32);
+    public bool uniformResolution = true;
 
     public SDFSample[] Samples { get; private set; }
     public Vector3Int GridSize { get; private set; }
-    public float CellSize { get; private set; }
+    public Vector3 CellSize { get; private set; }
 
     private ISDF _sdf;
+    private Vector3Int _lastResolution;
     public bool IsDirty { get; private set; } = true;
 
     public void MarkDirty()
@@ -45,13 +48,11 @@ public class SDFSampler : MonoBehaviour
     // approximate normal via central differences
     public Vector3 EstimateNormalLocal(Vector3 localPos)
     {
-        float e = CellSize * 0.5f;
-        if (e <= 0f)
-            e = 0.001f;
+        Vector3 e = CellSize * 0.5f;
+        float dx = EvaluateLocal(localPos + new Vector3(e.x, 0, 0)) - EvaluateLocal(localPos - new Vector3(e.x, 0, 0));
+        float dy = EvaluateLocal(localPos + new Vector3(0, e.y, 0)) - EvaluateLocal(localPos - new Vector3(0, e.y, 0));
+        float dz = EvaluateLocal(localPos + new Vector3(0, 0, e.z)) - EvaluateLocal(localPos - new Vector3(0, 0, e.z));
 
-        float dx = EvaluateLocal(localPos + new Vector3(e, 0f, 0f)) - EvaluateLocal(localPos - new Vector3(e, 0f, 0f));
-        float dy = EvaluateLocal(localPos + new Vector3(0f, e, 0f)) - EvaluateLocal(localPos - new Vector3(0f, e, 0f));
-        float dz = EvaluateLocal(localPos + new Vector3(0f, 0f, e)) - EvaluateLocal(localPos - new Vector3(0f, 0f, e));
 
         Vector3 n = new Vector3(dx, dy, dz);
         return n.sqrMagnitude < 1e-6f ? Vector3.up : n.normalized;
@@ -63,18 +64,18 @@ public class SDFSampler : MonoBehaviour
 
         Vector3 effectiveGridExtent = GetEffectiveGridExtent();
 
-        CellSize = 1f / resolution;
+        GridSize = resolution;
 
-        GridSize = new Vector3Int(
-            Mathf.CeilToInt(effectiveGridExtent.x * resolution),
-            Mathf.CeilToInt(effectiveGridExtent.y * resolution),
-            Mathf.CeilToInt(effectiveGridExtent.z * resolution)
+        CellSize = new Vector3(
+            effectiveGridExtent.x / GridSize.x,
+            effectiveGridExtent.y / GridSize.y,
+            effectiveGridExtent.z / GridSize.z
         );
 
         int totalCount = GridSize.x * GridSize.y * GridSize.z;
         Samples = new SDFSample[totalCount];
 
-        Vector3 origin = transform.position - effectiveGridExtent * 0.5f;
+        Vector3 localOrigin = -effectiveGridExtent * 0.5f;
 
         for (int x = 0; x < GridSize.x; x++)
         {
@@ -84,13 +85,15 @@ public class SDFSampler : MonoBehaviour
                 {
                     int index = GetIndex(x, y, z);
 
-                    Vector3 worldPos = origin + new Vector3(x, y, z) * CellSize;
-                    Vector3 localPos = transform.InverseTransformPoint(worldPos);
+                    Vector3 localPos = localOrigin + new Vector3(
+                        x * CellSize.x,
+                        y * CellSize.y,
+                        z * CellSize.z
+                    );
                     float distance = _sdf.Evaluate(localPos);
 
                     Samples[index] = new SDFSample
                     {
-                        WorldPosition = worldPos,
                         LocalPosition = localPos,
                         Distance = distance
                     };
@@ -133,9 +136,30 @@ public class SDFSampler : MonoBehaviour
     }
     private void OnValidate()
     {
-        if (resolution < 1)
-            resolution = 1;
+        if (uniformResolution)
+        {
+            if (resolution.x != _lastResolution.x)
+            {
+                resolution.y = resolution.x;
+                resolution.z = resolution.x;
+            }
+            else if (resolution.y != _lastResolution.y)
+            {
+                resolution.x = resolution.y;
+                resolution.z = resolution.y;
+            }
+            else if (resolution.z != _lastResolution.z)
+            {
+                resolution.x = resolution.z;
+                resolution.y = resolution.z;
+            }
+        }
 
+        resolution.x = Mathf.Max(2, resolution.x);
+        resolution.y = Mathf.Max(2, resolution.y);
+        resolution.z = Mathf.Max(2, resolution.z);
+
+        _lastResolution = resolution;
         MarkDirty();
     }
 
@@ -158,11 +182,7 @@ public class SDFSampler : MonoBehaviour
 
     private void Update()
     {
-        if (transform.hasChanged)
-        {
-            MarkDirty();
-            transform.hasChanged = false;
-        }
+
     }
 }
 

@@ -91,7 +91,7 @@ public class SDFInstancedRenderer : MonoBehaviour
                 continue;
 
             // store translation rotation matrix in _matrices
-            _matrices.Add(Matrix4x4.TRS(sample.WorldPosition, Quaternion.identity, scale));
+            _matrices.Add(Matrix4x4.TRS(sample.LocalPosition, Quaternion.identity, scale));
         }
 
         // divide matrices into batches
