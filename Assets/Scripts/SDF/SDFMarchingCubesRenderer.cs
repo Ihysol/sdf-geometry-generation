@@ -397,7 +397,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
     private Vector3 Interpolate(VertexSample a, VertexSample b)
     {
-        const float epsilon = 1e-6f;
+        const float epsilon = 1e-8f;
 
         // if a is already on iso surface -> use directly
         if (Mathf.Abs(isoLevel - a.Value) < epsilon)
@@ -431,8 +431,8 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
 
         Vector3 faceNormal = Vector3.Cross(b - a, c - a);
 
-        // if (faceNormal.sqrMagnitude < 1e-20f)
-        //     return;
+        if (faceNormal.sqrMagnitude < 1e-20f)
+            return;
 
         faceNormal.Normalize();
 
@@ -442,7 +442,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         Vector3 sdfNormal = _sampler.EstimateNormalLocal(center);
 
         // flip triangle if facing wrong direction
-        if (Vector3.Dot(faceNormal, sdfNormal) < 0f)
+        if (Vector3.Dot(faceNormal, sdfNormal) < -1e-4f)
         {
             (ib, ic) = (ic, ib);
         }
