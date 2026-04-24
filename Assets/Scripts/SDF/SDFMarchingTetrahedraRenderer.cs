@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 [RequireComponent(typeof(SDFSampler))]
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
-public class SDFMarchingCubesRenderer : MonoBehaviour
+public class SDFMarchingTetrahedraRenderer : MonoBehaviour
 {
     [Header("Iso Surface")]
     public float isoLevel = 1e-6f;
@@ -62,12 +62,12 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     }
 
     // identifies an edge between two cube corners (order-independent)
-    private struct EdgeKey
+    private struct EdgeKey : IEquatable<EdgeKey>
     {
         public int X;
         public int Y;
         public int Z;
-        public byte Axis; // 0 = X, 1 = Y, 2 = Z
+        public byte Axis;
 
         public EdgeKey(int x, int y, int z, byte axis)
         {
@@ -77,25 +77,22 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
             Axis = axis;
         }
 
-        public override int GetHashCode()
+        public bool Equals(EdgeKey other)
         {
-            unchecked
-            {
-                int hash = X;
-                hash = (hash * 397) ^ Y;
-                hash = (hash * 397) ^ Z;
-                hash = (hash * 397) ^ Axis;
-                return hash;
-            }
+            return X == other.X &&
+                   Y == other.Y &&
+                   Z == other.Z &&
+                   Axis == other.Axis;
         }
 
         public override bool Equals(object obj)
         {
-            return obj is EdgeKey other &&
-                   X == other.X &&
-                   Y == other.Y &&
-                   Z == other.Z &&
-                   Axis == other.Axis;
+            return obj is EdgeKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(X, Y, Z, (int)Axis);
         }
     }
 
@@ -258,107 +255,97 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
     }
 
     private void PolygonizeTetrahedron(
-        int cubeX, int cubeY, int cubeZ,
-        VertexSample a, VertexSample b, VertexSample c, VertexSample d,
-        int ia, int ib, int ic, int id)
+    int cubeX, int cubeY, int cubeZ,
+    VertexSample a, VertexSample b, VertexSample c, VertexSample d,
+    int ia, int ib, int ic, int id)
     {
-        int mask = 0;
-        if (a.Value < isoLevel) mask |= 1;
-        if (b.Value < isoLevel) mask |= 2;
-        if (c.Value < isoLevel) mask |= 4;
-        if (d.Value < isoLevel) mask |= 8;
+        VertexSample[] samples = { a, b, c, d };
+        int[] ids = { ia, ib, ic, id };
 
-        switch (mask)
+        List<int> inside = new(4);
+        List<int> outside = new(4);
+
+        for (int i = 0; i < 4; i++)
         {
-            case 0:
-            case 15:
-                return;
-            // 1 inside
-            case 1:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id));
-                break;
-            case 2:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, a, ib, ia),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, d, ib, id),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, c, ib, ic));
-                break;
-            case 4:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, a, ic, ia),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, b, ic, ib),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, d, ic, id));
-                break;
-            case 8:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, a, id, ia),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, c, id, ic),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, b, id, ib));
-                break;
-            // 3 inside = inverse of 1 inside
-            case 14:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic));
-                break;
-            case 13:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, a, ib, ia),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, c, ib, ic),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, b, d, ib, id));
-                break;
-            case 11:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, a, ic, ia),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, d, ic, id),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, c, b, ic, ib));
-                break;
-            case 7:
-                AddTriangle(
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, a, id, ia),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, b, id, ib),
-                    GetOrCreateVertex(cubeX, cubeY, cubeZ, d, c, id, ic));
-                break;
-            // 3 inside
-            case 3:
-            case 12:
-                {
-                    int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic);
-                    int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id);
-                    int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, b, c, ib, ic);
-                    int p3 = GetOrCreateVertex(cubeX, cubeY, cubeZ, b, d, ib, id);
-                    AddTriangle(p0, p1, p2);
-                    AddTriangle(p2, p1, p3);
-                    break;
-                }
-            case 5:
-            case 10:
-                {
-                    int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib);
-                    int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, d, ia, id);
-                    int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, c, b, ic, ib);
-                    int p3 = GetOrCreateVertex(cubeX, cubeY, cubeZ, c, d, ic, id);
-                    AddTriangle(p0, p1, p2);
-                    AddTriangle(p2, p1, p3);
-                    break;
-                }
+            if (samples[i].Value <= isoLevel)
+                inside.Add(i);
+            else
+                outside.Add(i);
+        }
 
-            case 6:
-            case 9:
-                {
-                    int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, b, ia, ib);
-                    int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, a, c, ia, ic);
-                    int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, d, b, id, ib);
-                    int p3 = GetOrCreateVertex(cubeX, cubeY, cubeZ, d, c, id, ic);
+        int insideCount = inside.Count;
 
-                    AddTriangle(p0, p1, p2);
-                    AddTriangle(p2, p1, p3);
-                    break;
-                }
+        if (insideCount == 0 || insideCount == 4)
+            return;
+
+        // 1 inside -> 1 triangle
+        if (insideCount == 1)
+        {
+            int i0 = inside[0];
+
+            int o0 = outside[0];
+            int o1 = outside[1];
+            int o2 = outside[2];
+
+            int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i0], samples[o0], ids[i0], ids[o0]);
+            int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i0], samples[o1], ids[i0], ids[o1]);
+            int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i0], samples[o2], ids[i0], ids[o2]);
+
+            Vector3 outsideCenter =
+                (samples[o0].Position + samples[o1].Position + samples[o2].Position) / 3f;
+
+            Vector3 desiredNormal = outsideCenter - samples[i0].Position;
+
+            AddTriangleFacing(p0, p1, p2, desiredNormal);
+            return;
+        }
+
+        // 3 inside -> 1 triangle
+        if (insideCount == 3)
+        {
+            int o0 = outside[0];
+
+            int i0 = inside[0];
+            int i1 = inside[1];
+            int i2 = inside[2];
+
+            int p0 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[o0], samples[i0], ids[o0], ids[i0]);
+            int p1 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[o0], samples[i1], ids[o0], ids[i1]);
+            int p2 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[o0], samples[i2], ids[o0], ids[i2]);
+
+            Vector3 insideCenter =
+                (samples[i0].Position + samples[i1].Position + samples[i2].Position) / 3f;
+
+            Vector3 desiredNormal = samples[o0].Position - insideCenter;
+
+            AddTriangleFacing(p0, p2, p1, desiredNormal);
+            return;
+        }
+
+        // 2 inside -> quad -> 2 triangles
+        if (insideCount == 2)
+        {
+            int i0 = inside[0];
+            int i1 = inside[1];
+
+            int o0 = outside[0];
+            int o1 = outside[1];
+
+            int p00 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i0], samples[o0], ids[i0], ids[o0]);
+            int p01 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i0], samples[o1], ids[i0], ids[o1]);
+            int p10 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i1], samples[o0], ids[i1], ids[o0]);
+            int p11 = GetOrCreateVertex(cubeX, cubeY, cubeZ, samples[i1], samples[o1], ids[i1], ids[o1]);
+
+            Vector3 insideCenter =
+                (samples[i0].Position + samples[i1].Position) * 0.5f;
+
+            Vector3 outsideCenter =
+                (samples[o0].Position + samples[o1].Position) * 0.5f;
+
+            Vector3 desiredNormal = outsideCenter - insideCenter;
+
+            AddTriangleFacing(p00, p10, p01, desiredNormal);
+            AddTriangleFacing(p01, p10, p11, desiredNormal);
         }
     }
 
@@ -423,7 +410,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         return Vector3.Lerp(a.Position, b.Position, t);
     }
 
-    private void AddTriangle(int ia, int ib, int ic)
+    private void AddTriangleFacing(int ia, int ib, int ic, Vector3 desiredNormal)
     {
         Vector3 a = _vertices[ia];
         Vector3 b = _vertices[ib];
@@ -434,15 +421,7 @@ public class SDFMarchingCubesRenderer : MonoBehaviour
         if (faceNormal.sqrMagnitude < 1e-20f)
             return;
 
-        faceNormal.Normalize();
-
-        Vector3 center = (a + b + c) / 3f;
-
-        // estimate surface normal from SDF
-        Vector3 sdfNormal = _sampler.EstimateNormalLocal(center);
-
-        // flip triangle if facing wrong direction
-        if (Vector3.Dot(faceNormal, sdfNormal) < -1e-4f)
+        if (Vector3.Dot(faceNormal, desiredNormal) < 0f)
         {
             (ib, ic) = (ic, ib);
         }

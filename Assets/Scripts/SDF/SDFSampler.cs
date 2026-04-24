@@ -48,14 +48,50 @@ public class SDFSampler : MonoBehaviour
     // approximate normal via central differences
     public Vector3 EstimateNormalLocal(Vector3 localPos)
     {
-        Vector3 e = CellSize * 0.5f;
-        float dx = EvaluateLocal(localPos + new Vector3(e.x, 0, 0)) - EvaluateLocal(localPos - new Vector3(e.x, 0, 0));
-        float dy = EvaluateLocal(localPos + new Vector3(0, e.y, 0)) - EvaluateLocal(localPos - new Vector3(0, e.y, 0));
-        float dz = EvaluateLocal(localPos + new Vector3(0, 0, e.z)) - EvaluateLocal(localPos - new Vector3(0, 0, e.z));
+        Vector3 h = GetNormalStep();
 
+        float dx =
+            EvaluateLocal(localPos + new Vector3(h.x, 0f, 0f)) -
+            EvaluateLocal(localPos - new Vector3(h.x, 0f, 0f));
 
-        Vector3 n = new Vector3(dx, dy, dz);
-        return n.sqrMagnitude < 1e-6f ? Vector3.up : n.normalized;
+        float dy =
+            EvaluateLocal(localPos + new Vector3(0f, h.y, 0f)) -
+            EvaluateLocal(localPos - new Vector3(0f, h.y, 0f));
+
+        float dz =
+            EvaluateLocal(localPos + new Vector3(0f, 0f, h.z)) -
+            EvaluateLocal(localPos - new Vector3(0f, 0f, h.z));
+
+        Vector3 n = new Vector3(
+            dx / (2f * h.x),
+            dy / (2f * h.y),
+            dz / (2f * h.z)
+        );
+
+        if (n.sqrMagnitude < 1e-12f || float.IsNaN(n.x) || float.IsNaN(n.y) || float.IsNaN(n.z))
+        {
+            // fallback: direction away from object center
+            if (localPos.sqrMagnitude > 1e-12f)
+                return localPos.normalized;
+
+            return Vector3.up;
+        }
+
+        return n.normalized;
+    }
+
+    private Vector3 GetNormalStep()
+    {
+        Vector3 h = CellSize * 0.5f;
+
+        const float minStep = 1e-4f;
+        const float maxStep = 0.05f;
+
+        h.x = Mathf.Clamp(h.x, minStep, maxStep);
+        h.y = Mathf.Clamp(h.y, minStep, maxStep);
+        h.z = Mathf.Clamp(h.z, minStep, maxStep);
+
+        return h;
     }
 
     public void RebuildSamples()
