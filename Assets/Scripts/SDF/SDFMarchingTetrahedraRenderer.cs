@@ -441,16 +441,23 @@ public class SDFMarchingTetrahedraRenderer : MonoBehaviour
             _lastGridSize = _sampler.GridSize;
     }
 
-    private void OnDrawGizmos()
+    private void OnDrawGizmosSelected()
     {
         if (_sampler == null)
             _sampler = GetComponent<SDFSampler>();
+
         if (_sampler == null)
             return;
 
-        // draw grid outline
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawWireCube(transform.position, _sampler.gridExtent);
+        Vector3 extent = _sampler.useAutomaticBounds
+            ? _sampler.GetEffectiveGridExtent()
+            : _sampler.gridExtent;
+
+        Gizmos.color = Color.green; // actual shape approx
+        Gizmos.DrawWireCube(transform.position, extent * 0.9f);
+
+        Gizmos.color = Color.cyan; // sampling bounds
+        Gizmos.DrawWireCube(transform.position, extent);
     }
 
     // checks if something changed since last rebuild

@@ -8,13 +8,37 @@ public class SDFSampler : MonoBehaviour
     public enum ShapeMode
     {
         Sphere,
-        Box
+        Box,
+        Torus
+    }
+
+    public enum GridMode
+    {
+        None,
+        GlobalGrid,
+        SphereGrid,
+        TorusGrid
     }
 
     [Header("Shape")]
     public ShapeMode shapeMode = ShapeMode.Sphere;
     public float sphereRadius = 1.5f;
     public Vector3 boxHalfExtents = new Vector3(1f, 1f, 1f);
+
+    [Header("Torus")]
+    public float torusMajorRadius = 1.5f;
+    public float torusMinorRadius = 0.4f;
+
+    [Header("Surface Grid")]
+    public bool useGrid = false;
+    public bool invertGrid = false;
+    public GridMode gridMode = GridMode.SphereGrid;
+
+    public float gridGrooveWidth = 0.03f;
+    public float gridGrooveDepth = 0.05f;
+    public int gridLongitudeCount = 24;
+    public int gridLatitudeCount = 12;
+    public float gridSpacing = 0.25f;
 
     [Header("Grid")]
     public bool useAutomaticBounds = true;
@@ -30,6 +54,9 @@ public class SDFSampler : MonoBehaviour
     private ISDF _sdf;
     private Vector3Int _lastResolution;
     public bool IsDirty { get; private set; } = true;
+
+    [Header("Performance")]
+    public int targetFPS = 60;
 
     public void MarkDirty()
     {
@@ -141,16 +168,111 @@ public class SDFSampler : MonoBehaviour
 
     private void BuildSDF()
     {
+        ISDF body;
+
+        // ===== 1. Base Shape =====
         switch (shapeMode)
         {
             case ShapeMode.Box:
-                _sdf = new BoxSDF(Vector3.zero, boxHalfExtents);
+                body = new BoxSDF(Vector3.zero, boxHalfExtents);
+                break;
+
+            case ShapeMode.Torus:
+                body = new TorusSDF(Vector3.zero, torusMajorRadius, torusMinorRadius);
                 break;
 
             case ShapeMode.Sphere:
             default:
-                _sdf = new SphereSDF(Vector3.zero, sphereRadius);
+                body = new SphereSDF(Vector3.zero, sphereRadius);
                 break;
+        }
+
+        // ===== 2. No grid =====
+        if (!useGrid || gridMode == GridMode.None)
+        {
+            _sdf = body;
+            return;
+        }
+
+        // ===== 3. Build grid cutter =====
+        ISDF gridCutter;
+
+        switch (gridMode)
+        {
+            case GridMode.SphereGrid:
+            default:
+                gridCutter = new SphereGridCutterSDF(
+                    sphereRadius,
+                    gridGrooveWidth,
+                    gridGrooveDepth,
+                    gridLongitudeCount,
+                    gridLatitudeCount
+                );
+                break;
+
+            case GridMode.GlobalGrid:
+                gridCutter = new GlobalGridCutterSDF(
+                    body,
+                    gridGrooveWidth,
+                    gridGrooveDepth,
+                    gridSpacing
+                );
+                break;
+
+            case GridMode.TorusGrid:
+                gridCutter = new TorusGridCutterSDF(
+                    body,
+                    torusMajorRadius,
+                    gridGrooveWidth,
+                    gridGrooveDepth,
+                    gridLongitudeCount,
+                    gridLatitudeCount
+                );
+                break;
+        }
+
+        // ===== 4. APPLY GRID (FIXED) =====
+        if (invertGrid)
+        {
+            _sdf = new UnionSDF(body, gridCutter);      // 👈 nach außen
+        }
+        else
+        {
+            _sdf = new DifferenceSDF(body, gridCutter); // 👈 nach innen
+        }
+    }
+
+    public class DifferenceSDF : ISDF
+    {
+        private readonly ISDF a;
+        private readonly ISDF b;
+
+        public DifferenceSDF(ISDF a, ISDF b)
+        {
+            this.a = a;
+            this.b = b;
+        }
+
+        public float Evaluate(Vector3 p)
+        {
+            return Mathf.Max(a.Evaluate(p), -b.Evaluate(p));
+        }
+    }
+
+    public class UnionSDF : ISDF
+    {
+        private readonly ISDF a;
+        private readonly ISDF b;
+
+        public UnionSDF(ISDF a, ISDF b)
+        {
+            this.a = a;
+            this.b = b;
+        }
+
+        public float Evaluate(Vector3 p)
+        {
+            return Mathf.Min(a.Evaluate(p), b.Evaluate(p));
         }
     }
 
@@ -197,9 +319,12 @@ public class SDFSampler : MonoBehaviour
 
         _lastResolution = resolution;
         MarkDirty();
+
+        ApplyFPSLimit();
+
     }
 
-    private Vector3 GetEffectiveGridExtent()
+    public Vector3 GetEffectiveGridExtent()
     {
         if (!useAutomaticBounds)
             return gridExtent;
@@ -209,9 +334,19 @@ public class SDFSampler : MonoBehaviour
             case ShapeMode.Box:
                 return (boxHalfExtents + Vector3.one * boundsPadding) * 2f;
 
+            case ShapeMode.Torus:
+                {
+                    float torus_radius = torusMajorRadius + torusMinorRadius + boundsPadding;
+
+                    if (useGrid)
+                        torus_radius += gridGrooveDepth + gridGrooveWidth;
+
+                    return new Vector3(torus_radius * 2f, torus_radius * 2f, torus_radius * 2f);
+                }
+
             case ShapeMode.Sphere:
             default:
-                float r = sphereRadius + boundsPadding;
+                float r = sphereRadius + boundsPadding + gridGrooveDepth;
                 return new Vector3(r * 2f, r * 2f, r * 2f);
         }
     }
@@ -219,6 +354,17 @@ public class SDFSampler : MonoBehaviour
     private void Update()
     {
 
+    }
+
+    private void Awake()
+    {
+        ApplyFPSLimit();
+    }
+
+    private void ApplyFPSLimit()
+    {
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = targetFPS;
     }
 }
 
