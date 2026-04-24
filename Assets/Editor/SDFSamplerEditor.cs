@@ -1,0 +1,112 @@
+using UnityEditor;
+using UnityEngine;
+
+[CustomEditor(typeof(SDFSampler))]
+public class SDFSamplerEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        SDFSampler sampler = (SDFSampler)target;
+
+        serializedObject.Update();
+
+        // ===== Shape selector =====
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("shapeMode"));
+
+        var mode = sampler.shapeMode;
+
+        EditorGUILayout.Space();
+
+        // ===== Shape specific =====
+        if (mode == SDFSampler.ShapeMode.Sphere)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("sphereRadius"));
+        }
+        else if (mode == SDFSampler.ShapeMode.Box)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("boxHalfExtents"));
+        }
+        else if (mode == SDFSampler.ShapeMode.Torus)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("torusMajorRadius"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("torusMinorRadius"));
+        }
+
+        // =========================
+        // GRID BLOCK
+        // =========================
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Surface Grid", EditorStyles.boldLabel);
+
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("useGrid"));
+
+        if (sampler.useGrid)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("invertGrid"));
+
+            // Nur sinnvolle GridModes anzeigen
+            if (mode == SDFSampler.ShapeMode.Sphere)
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("gridMode"));
+            }
+            else if (mode == SDFSampler.ShapeMode.Torus)
+            {
+                // Torus kann SphereGrid NICHT gut
+                sampler.gridMode = (SDFSampler.GridMode)
+                    EditorGUILayout.EnumPopup("Grid Mode",
+                        sampler.gridMode == SDFSampler.GridMode.SphereGrid
+                        ? SDFSampler.GridMode.TorusGrid
+                        : sampler.gridMode);
+            }
+            else
+            {
+                // Box → kein SphereGrid
+                sampler.gridMode = (SDFSampler.GridMode)
+                    EditorGUILayout.EnumPopup("Grid Mode",
+                        sampler.gridMode == SDFSampler.GridMode.SphereGrid
+                        ? SDFSampler.GridMode.GlobalGrid
+                        : sampler.gridMode);
+            }
+
+            var gridMode = sampler.gridMode;
+
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("gridGrooveWidth"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("gridGrooveDepth"));
+
+            if (gridMode == SDFSampler.GridMode.SphereGrid ||
+                gridMode == SDFSampler.GridMode.TorusGrid)
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("gridLongitudeCount"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("gridLatitudeCount"));
+            }
+            else
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("gridSpacing"));
+            }
+        }
+
+        // =========================
+        // Sampling Grid
+        // =========================
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Sampling Grid", EditorStyles.boldLabel);
+
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("useAutomaticBounds"));
+
+        if (!sampler.useAutomaticBounds)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("gridExtent"));
+        }
+
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("boundsPadding"));
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("resolution"));
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("uniformResolution"));
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Performance", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("targetFPS"));
+        serializedObject.ApplyModifiedProperties();
+    }
+}
