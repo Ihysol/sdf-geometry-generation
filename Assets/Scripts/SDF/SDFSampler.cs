@@ -41,7 +41,7 @@ public class SDFSampler : MonoBehaviour
     public float gridSpacing = 0.25f;
 
     [Header("Grid")]
-    public bool useAutomaticBounds = true;
+    public bool useAutomaticBounds = false;
     public Vector3 gridExtent = new Vector3(4f, 4f, 4f);
     public float boundsPadding = 0.2f;
     public Vector3Int resolution = new Vector3Int(32, 32, 32);
@@ -61,6 +61,30 @@ public class SDFSampler : MonoBehaviour
     public void MarkDirty()
     {
         IsDirty = true;
+    }
+
+    public Vector3Int CellCount
+    {
+        get
+        {
+            return new Vector3Int(
+                GridSize.x - 1,
+                GridSize.y - 1,
+                GridSize.z - 1
+            );
+        }
+    }
+
+    public Vector3 GetLocalGridPosition(int x, int y, int z)
+    {
+        Vector3 effectiveGridExtent = GetEffectiveGridExtent();
+        Vector3 localOrigin = -effectiveGridExtent * 0.5f;
+
+        return localOrigin + new Vector3(
+            x * CellSize.x,
+            y * CellSize.y,
+            z * CellSize.z
+        );
     }
 
     // evaluate SDF in local space
@@ -130,9 +154,9 @@ public class SDFSampler : MonoBehaviour
         GridSize = resolution;
 
         CellSize = new Vector3(
-            effectiveGridExtent.x / GridSize.x,
-            effectiveGridExtent.y / GridSize.y,
-            effectiveGridExtent.z / GridSize.z
+            effectiveGridExtent.x / (GridSize.x - 1),
+            effectiveGridExtent.y / (GridSize.y - 1),
+            effectiveGridExtent.z / (GridSize.z - 1)
         );
 
         int totalCount = GridSize.x * GridSize.y * GridSize.z;
