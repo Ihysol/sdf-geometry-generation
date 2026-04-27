@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using System.Diagnostics;
 
 [RequireComponent(typeof(SDFSampler))]
 [RequireComponent(typeof(MeshFilter))]
@@ -18,8 +19,10 @@ public class SDFDualContouringRenderer : MonoBehaviour
     private readonly List<Vector3> _vertices = new();
     private readonly List<int> _triangles = new();
 
-    //one vertex index per call
-    private int[,,] _cellVertexIndex;
+    // one vertex index per cell
+    private int[] _cellVertexIndex;
+    private readonly SDFSample[] _cellSamples = new SDFSample[8];
+    private readonly List<Vector3> _normals = new();
     private Vector3Int _lastCellArraySize;
     private float _lastIsoLevel;
     private Vector3 _lastScale;
@@ -55,6 +58,11 @@ public class SDFDualContouringRenderer : MonoBehaviour
         new Edge(0, 4), new Edge(1, 5), new Edge(2, 6), new Edge(3, 7)
     };
 
+    private static int CellIndex(int x, int y, int z, Vector3Int cells)
+    {
+        return x + cells.x * (y + cells.y * z);
+    }
+
     private void Awake()
     {
         _sampler = GetComponent<SDFSampler>();
@@ -81,6 +89,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
     [ContextMenu("Rebuild Mesh")]
     public void RebuildMesh()
     {
+        Stopwatch sw = Stopwatch.StartNew();
+
         if (_sampler == null)
             _sampler = GetComponent<SDFSampler>();
         if (_meshFilter == null)
@@ -94,8 +104,12 @@ public class SDFDualContouringRenderer : MonoBehaviour
             _meshFilter.sharedMesh = _mesh;
         }
 
+        long tStart = sw.ElapsedMilliseconds;
+
         if (_sampler.IsDirty || _sampler.Samples == null || _sampler.Samples.Length == 0)
             _sampler.RebuildSamples();
+
+        long tSamples = sw.ElapsedMilliseconds;
 
         Vector3Int cells = _sampler.CellCount;
 
@@ -115,12 +129,16 @@ public class SDFDualContouringRenderer : MonoBehaviour
         if (_triangles.Capacity < estimatedCells * 6)
             _triangles.Capacity = estimatedCells * 6;
 
+        if (_normals.Capacity < estimatedCells)
+            _normals.Capacity = estimatedCells;
+
         _vertices.Clear();
         _triangles.Clear();
+        _normals.Clear();
 
         if (_cellVertexIndex == null || _lastCellArraySize != cells)
         {
-            _cellVertexIndex = new int[cells.x, cells.y, cells.z];
+            _cellVertexIndex = new int[cells.x * cells.y * cells.z];
             _lastCellArraySize = cells;
         }
 
@@ -131,10 +149,12 @@ public class SDFDualContouringRenderer : MonoBehaviour
             {
                 for (int z = 0; z < cells.z; z++)
                 {
-                    _cellVertexIndex[x, y, z] = -1;
+                    _cellVertexIndex[CellIndex(x, y, z, cells)] = -1;
                 }
             }
         }
+
+        long tPrepare = sw.ElapsedMilliseconds;
 
         // 1. create one vertex per active all
         for (int x = 0; x < cells.x; x++)
@@ -143,19 +163,38 @@ public class SDFDualContouringRenderer : MonoBehaviour
             {
                 for (int z = 0; z < cells.z; z++)
                 {
-                    _cellVertexIndex[x, y, z] = CreateCellVertex(x, y, z);
+                    _cellVertexIndex[CellIndex(x, y, z, cells)] = CreateCellVertex(x, y, z);
                 }
             }
         }
 
+        long tVertices = sw.ElapsedMilliseconds;
+
         // 2. connect neiboring cell vertices
-        BuildQuads();
+        BuildQuads(cells);
+
+        long tQuads = sw.ElapsedMilliseconds;
 
         _mesh.Clear();
         _mesh.SetVertices(_vertices);
         _mesh.SetTriangles(_triangles, 0);
-        _mesh.RecalculateNormals();
+        _mesh.SetNormals(_normals);
         _mesh.RecalculateBounds();
+
+        long tUpload = sw.ElapsedMilliseconds;
+
+        sw.Stop();
+
+        UnityEngine.Debug.Log(
+            $"[DualContouring] Total: {sw.Elapsed.TotalMilliseconds:F2} ms | " +
+            $"Samples: {tSamples - tStart} ms | " +
+            $"Prepare: {tPrepare - tSamples} ms | " +
+            $"Vertices: {tVertices - tPrepare} ms | " +
+            $"Quads: {tQuads - tVertices} ms | " +
+            $"Upload: {tUpload - tQuads} ms | " +
+            $"Verts: {_vertices.Count} | " +
+            $"Tris: {_triangles.Count / 3}"
+        );
 
         CacheState();
         transform.hasChanged = false;
@@ -172,8 +211,10 @@ public class SDFDualContouringRenderer : MonoBehaviour
         for (int i = 0; i < 8; i++)
         {
             Vector3Int o = CornerOffsets[i];
-            float value = _sampler.GetSample(cellX + o.x, cellY + o.y, cellZ + o.z).Distance;
+            SDFSample sample = _sampler.GetSample(cellX + o.x, cellY + o.y, cellZ + o.z);
 
+            _cellSamples[i] = sample;
+            float value = sample.Distance;
             if (value < minValue) minValue = value;
             if (value > maxValue) maxValue = value;
         }
@@ -188,11 +229,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
             int ca = edge.A;
             int cb = edge.B;
 
-            Vector3Int oa = CornerOffsets[ca];
-            Vector3Int ob = CornerOffsets[cb];
-
-            SDFSample a = _sampler.GetSample(cellX + oa.x, cellY + oa.y, cellZ + oa.z);
-            SDFSample b = _sampler.GetSample(cellX + ob.x, cellY + ob.y, cellZ + ob.z);
+            SDFSample a = _cellSamples[ca];
+            SDFSample b = _cellSamples[cb];
 
             if (!HasCrossing(a.Distance, b.Distance))
                 continue;
@@ -210,13 +248,12 @@ public class SDFDualContouringRenderer : MonoBehaviour
         Vector3 vertex = sum / count;
         int index = _vertices.Count;
         _vertices.Add(vertex);
+        _normals.Add(_sampler.EstimateNormalLocal(vertex));
         return index;
     }
 
-    private void BuildQuads()
+    private void BuildQuads(Vector3Int cells)
     {
-        Vector3Int cells = _sampler.CellCount;
-
         // for every grid edge with a sign change, connect the 4 cells around that edge.
         // X-axis grid edges
         for (int x = 0; x < cells.x; x++)
@@ -230,10 +267,10 @@ public class SDFDualContouringRenderer : MonoBehaviour
                     if (!HasCrossing(a, b))
                         continue;
 
-                    int v0 = _cellVertexIndex[x, y - 1, z - 1];
-                    int v1 = _cellVertexIndex[x, y, z - 1];
-                    int v2 = _cellVertexIndex[x, y, z];
-                    int v3 = _cellVertexIndex[x, y - 1, z];
+                    int v0 = _cellVertexIndex[CellIndex(x, y - 1, z - 1, cells)];
+                    int v1 = _cellVertexIndex[CellIndex(x, y, z - 1, cells)];
+                    int v2 = _cellVertexIndex[CellIndex(x, y, z, cells)];
+                    int v3 = _cellVertexIndex[CellIndex(x, y - 1, z, cells)];
 
                     AddQuad(v0, v1, v2, v3, a < isoLevel);
                 }
@@ -253,10 +290,10 @@ public class SDFDualContouringRenderer : MonoBehaviour
                     if (!HasCrossing(a, b))
                         continue;
 
-                    int v0 = _cellVertexIndex[x - 1, y, z - 1];
-                    int v1 = _cellVertexIndex[x, y, z - 1];
-                    int v2 = _cellVertexIndex[x, y, z];
-                    int v3 = _cellVertexIndex[x - 1, y, z];
+                    int v0 = _cellVertexIndex[CellIndex(x - 1, y, z - 1, cells)];
+                    int v1 = _cellVertexIndex[CellIndex(x, y, z - 1, cells)];
+                    int v2 = _cellVertexIndex[CellIndex(x, y, z, cells)];
+                    int v3 = _cellVertexIndex[CellIndex(x - 1, y, z, cells)];
                     AddQuad(v0, v1, v2, v3, a > isoLevel);
                 }
             }
@@ -275,10 +312,10 @@ public class SDFDualContouringRenderer : MonoBehaviour
                     if (!HasCrossing(a, b))
                         continue;
 
-                    int v0 = _cellVertexIndex[x - 1, y - 1, z];
-                    int v1 = _cellVertexIndex[x, y - 1, z];
-                    int v2 = _cellVertexIndex[x, y, z];
-                    int v3 = _cellVertexIndex[x - 1, y, z];
+                    int v0 = _cellVertexIndex[CellIndex(x - 1, y - 1, z, cells)];
+                    int v1 = _cellVertexIndex[CellIndex(x, y - 1, z, cells)];
+                    int v2 = _cellVertexIndex[CellIndex(x, y, z, cells)];
+                    int v3 = _cellVertexIndex[CellIndex(x - 1, y, z, cells)];
 
                     AddQuad(v0, v1, v2, v3, a < isoLevel);
                 }
