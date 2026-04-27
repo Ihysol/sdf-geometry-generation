@@ -1,49 +1,66 @@
 using UnityEngine;
 
-
 public class SphereGridCutterSDF : ISDF
 {
-    private float radius;
-    private float width;
-    private float depth;
-    private int lonCount;
-    private int latCount;
+    private readonly float radius;
+    private readonly float halfWidth;
+    private readonly float depth;
+    private readonly int lonCount;
+    private readonly int latCount;
 
     public SphereGridCutterSDF(float radius, float width, float depth, int lon, int lat)
     {
         this.radius = radius;
-        this.width = width;
+        this.halfWidth = width * 0.5f;
         this.depth = depth;
-        this.lonCount = lon;
-        this.latCount = lat;
+        this.lonCount = Mathf.Max(1, lon);
+        this.latCount = Mathf.Max(1, lat);
     }
 
     public float Evaluate(Vector3 p)
     {
-        float sphere = p.magnitude - radius;
+        float r = p.magnitude;
 
-        if (p.sqrMagnitude < 1e-8f)
+        if (r < 1e-6f)
             return 1f;
 
-        Vector3 n = p.normalized;
+        float sphere = r - radius;
 
-        float theta = Mathf.Atan2(n.z, n.x);
-        float phi = Mathf.Acos(Mathf.Clamp(n.y, -1f, 1f));
+        Vector3 n = p / r;
+
+        float theta = Mathf.Atan2(n.z, n.x);              // -pi .. pi
+        float phi = Mathf.Acos(Mathf.Clamp(n.y, -1f, 1f)); // 0 .. pi
 
         float lonSpacing = Mathf.PI * 2f / lonCount;
         float latSpacing = Mathf.PI / latCount;
 
-        float lonDist = Repeat(theta, lonSpacing) * (radius * Mathf.Sin(phi));
-        float latDist = Repeat(phi, latSpacing) * radius;
+        float sinPhi = Mathf.Sin(phi);
 
-        float grid = Mathf.Min(lonDist, latDist) - width;
+        // Winkelabstand zur nächsten Längengradlinie
+        float lonAngleDist = RepeatCentered(theta, lonSpacing);
 
+        // Winkelabstand zur nächsten Breitengradlinie
+        float latAngleDist = RepeatCentered(phi, latSpacing);
+
+        // Umrechnung Winkel -> Oberflächenlänge
+        float lonDist = lonAngleDist * radius * sinPhi;
+        float latDist = latAngleDist * radius;
+
+        // einzelne Streifen
+        float lonStripe = lonDist - halfWidth;
+        float latStripe = latDist - halfWidth;
+
+        // Union der Streifen
+        float grid = Mathf.Min(lonStripe, latStripe);
+
+        // nur nahe der Kugeloberfläche aktiv
         float surfaceBand = Mathf.Abs(sphere) - depth;
 
+        // Intersection: Grid UND Oberflächenband
         return Mathf.Max(grid, surfaceBand);
     }
 
-    private float Repeat(float v, float spacing)
+    private float RepeatCentered(float v, float spacing)
     {
         float x = v / spacing;
         float nearest = Mathf.Round(x) * spacing;
