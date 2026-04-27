@@ -41,34 +41,11 @@ public class SDFSamplerEditor : Editor
 
         EditorGUILayout.PropertyField(serializedObject.FindProperty("useGrid"));
 
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("gridMode"));
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("invertGrid"));
+
         if (sampler.useGrid)
         {
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("invertGrid"));
-
-            // Nur sinnvolle GridModes anzeigen
-            if (mode == SDFSampler.ShapeMode.Sphere)
-            {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("gridMode"));
-            }
-            else if (mode == SDFSampler.ShapeMode.Torus)
-            {
-                // Torus kann SphereGrid NICHT gut
-                sampler.gridMode = (SDFSampler.GridMode)
-                    EditorGUILayout.EnumPopup("Grid Mode",
-                        sampler.gridMode == SDFSampler.GridMode.SphereGrid
-                        ? SDFSampler.GridMode.TorusGrid
-                        : sampler.gridMode);
-            }
-            else
-            {
-                // Box → kein SphereGrid
-                sampler.gridMode = (SDFSampler.GridMode)
-                    EditorGUILayout.EnumPopup("Grid Mode",
-                        sampler.gridMode == SDFSampler.GridMode.SphereGrid
-                        ? SDFSampler.GridMode.GlobalGrid
-                        : sampler.gridMode);
-            }
-
             var gridMode = sampler.gridMode;
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("gridGrooveWidth"));

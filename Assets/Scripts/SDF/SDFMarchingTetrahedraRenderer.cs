@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Unity.Burst.CompilerServices;
+using Unity.Mathematics;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -106,7 +107,7 @@ public class SDFMarchingTetrahedraRenderer : MonoBehaviour
         _mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         _meshFilter.sharedMesh = _mesh;
 
-        CacheState();
+        // CacheState();
     }
 
     private void OnEnable()
@@ -160,13 +161,13 @@ public class SDFMarchingTetrahedraRenderer : MonoBehaviour
         _vertices.Clear();
         _triangles.Clear();
         _globalEdgeCache.Clear();
-        Vector3Int gridSize = _sampler.GridSize;
+        Vector3Int cells = _sampler.CellCount;
 
-        for (int x = 0; x < gridSize.x - 1; x++)
+        for (int x = 0; x < cells.x; x++)
         {
-            for (int y = 0; y < gridSize.y - 1; y++)
+            for (int y = 0; y < cells.y; y++)
             {
-                for (int z = 0; z < gridSize.z - 1; z++)
+                for (int z = 0; z < cells.z; z++)
                 {
                     PolygonizeCube(x, y, z);
                 }
@@ -457,7 +458,9 @@ public class SDFMarchingTetrahedraRenderer : MonoBehaviour
         Gizmos.DrawWireCube(transform.position, extent * 0.9f);
 
         Gizmos.color = Color.cyan; // sampling bounds
-        Gizmos.DrawWireCube(transform.position, extent);
+        Gizmos.matrix = transform.localToWorldMatrix;
+        Gizmos.DrawWireCube(Vector3.zero, extent);
+        Gizmos.matrix = Matrix4x4.identity;
     }
 
     // checks if something changed since last rebuild
@@ -474,6 +477,9 @@ public class SDFMarchingTetrahedraRenderer : MonoBehaviour
 
         // iso surface changed
         if (!Mathf.Approximately(_lastIsoLevel, isoLevel))
+            return true;
+
+        if (_sampler.GridSize != _lastGridSize)
             return true;
 
         // grid resolution / size changed
