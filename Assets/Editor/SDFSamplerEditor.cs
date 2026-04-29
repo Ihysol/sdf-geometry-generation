@@ -31,6 +31,12 @@ public class SDFSamplerEditor : Editor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("torusMajorRadius"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("torusMinorRadius"));
         }
+        else if (mode == SDFSampler.ShapeMode.Hyperboloid)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("hyperboloidA"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("hyperboloidB"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("hyperboloidC"));
+        }
 
         // =========================
         // GRID BLOCK

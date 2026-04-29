@@ -21,11 +21,11 @@ public class SDFDualContouringRenderer : MonoBehaviour
 
     // one vertex index per cell
     private int[] _cellVertexIndex;
-    private readonly SDFSample[] _cellSamples = new SDFSample[8];
-    private readonly List<Vector3> _normals = new();
+    private readonly float[] _cellValues = new float[8];
+    private readonly Vector3[] _cellPositions = new Vector3[8];
     private Vector3Int _lastCellArraySize;
     private float _lastIsoLevel;
-    private Vector3 _lastScale;
+    // private Vector3 _lastScale;
 
     // cube corner offsets
     private static readonly Vector3Int[] CornerOffsets =
@@ -71,6 +71,7 @@ public class SDFDualContouringRenderer : MonoBehaviour
         _mesh.name = "SDF Dual Contouring Mesh";
         _mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         _meshFilter.sharedMesh = _mesh;
+        _mesh.MarkDynamic();
     }
 
     private void OnEnable()
@@ -106,7 +107,7 @@ public class SDFDualContouringRenderer : MonoBehaviour
 
         long tStart = sw.ElapsedMilliseconds;
 
-        if (_sampler.IsDirty || _sampler.Samples == null || _sampler.Samples.Length == 0)
+        if (_sampler.IsDirty || _sampler.Distances == null || _sampler.Distances.Length == 0)
             _sampler.RebuildSamples();
 
         long tSamples = sw.ElapsedMilliseconds;
@@ -129,12 +130,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
         if (_triangles.Capacity < estimatedCells * 6)
             _triangles.Capacity = estimatedCells * 6;
 
-        if (_normals.Capacity < estimatedCells)
-            _normals.Capacity = estimatedCells;
-
         _vertices.Clear();
         _triangles.Clear();
-        _normals.Clear();
 
         if (_cellVertexIndex == null || _lastCellArraySize != cells)
         {
@@ -143,16 +140,7 @@ public class SDFDualContouringRenderer : MonoBehaviour
         }
 
         //  default all cells to invalid
-        for (int x = 0; x < cells.x; x++)
-        {
-            for (int y = 0; y < cells.y; y++)
-            {
-                for (int z = 0; z < cells.z; z++)
-                {
-                    _cellVertexIndex[CellIndex(x, y, z, cells)] = -1;
-                }
-            }
-        }
+        System.Array.Fill(_cellVertexIndex, -1);
 
         long tPrepare = sw.ElapsedMilliseconds;
 
@@ -178,8 +166,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
         _mesh.Clear();
         _mesh.SetVertices(_vertices);
         _mesh.SetTriangles(_triangles, 0);
-        _mesh.SetNormals(_normals);
-        _mesh.RecalculateBounds();
+        // _mesh.RecalculateNormals();
+        // _mesh.RecalculateBounds();
 
         long tUpload = sw.ElapsedMilliseconds;
 
@@ -203,52 +191,65 @@ public class SDFDualContouringRenderer : MonoBehaviour
     private int CreateCellVertex(int cellX, int cellY, int cellZ)
     {
         Vector3 sum = Vector3.zero;
+        Vector3 origin = _sampler.GridOrigin;
+        Vector3 cellSize = _sampler.CellSize;
+
         int count = 0;
         float minValue = float.PositiveInfinity;
         float maxValue = float.NegativeInfinity;
 
-        // fist check if this cell contains the iso surface
         for (int i = 0; i < 8; i++)
         {
             Vector3Int o = CornerOffsets[i];
-            SDFSample sample = _sampler.GetSample(cellX + o.x, cellY + o.y, cellZ + o.z);
 
-            _cellSamples[i] = sample;
-            float value = sample.Distance;
-            if (value < minValue) minValue = value;
-            if (value > maxValue) maxValue = value;
+            int sx = cellX + o.x;
+            int sy = cellY + o.y;
+            int sz = cellZ + o.z;
+
+            float distance = _sampler.GetDistance(sx, sy, sz);
+            Vector3 position = origin + new Vector3(
+                sx * cellSize.x,
+                sy * cellSize.y,
+                sz * cellSize.z
+            );
+
+            _cellValues[i] = distance;
+            _cellPositions[i] = position;
+
+            if (distance < minValue) minValue = distance;
+            if (distance > maxValue) maxValue = distance;
         }
 
         if (minValue > isoLevel || maxValue < isoLevel)
             return -1;
 
-        // collect all edge crossing inside this cell
         for (int e = 0; e < 12; e++)
         {
             Edge edge = Edges[e];
-            int ca = edge.A;
-            int cb = edge.B;
 
-            SDFSample a = _cellSamples[ca];
-            SDFSample b = _cellSamples[cb];
+            float va = _cellValues[edge.A];
+            float vb = _cellValues[edge.B];
 
-            if (!HasCrossing(a.Distance, b.Distance))
+            if (!HasCrossing(va, vb))
                 continue;
 
-            Vector3 p = Interpolate(a.LocalPosition, a.Distance, b.LocalPosition, b.Distance);
+            Vector3 pa = _cellPositions[edge.A];
+            Vector3 pb = _cellPositions[edge.B];
+
+            Vector3 p = Interpolate(pa, va, pb, vb);
 
             sum += p;
             count++;
-
         }
 
         if (count == 0)
             return -1;
 
         Vector3 vertex = sum / count;
+
         int index = _vertices.Count;
         _vertices.Add(vertex);
-        _normals.Add(_sampler.EstimateNormalLocal(vertex));
+
         return index;
     }
 
@@ -262,8 +263,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
             {
                 for (int z = 1; z < cells.z; z++)
                 {
-                    float a = _sampler.GetSample(x, y, z).Distance;
-                    float b = _sampler.GetSample(x + 1, y, z).Distance;
+                    float a = _sampler.GetDistance(x, y, z);
+                    float b = _sampler.GetDistance(x + 1, y, z);
                     if (!HasCrossing(a, b))
                         continue;
 
@@ -284,8 +285,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
             {
                 for (int z = 1; z < cells.z; z++)
                 {
-                    float a = _sampler.GetSample(x, y, z).Distance;
-                    float b = _sampler.GetSample(x, y + 1, z).Distance;
+                    float a = _sampler.GetDistance(x, y, z);
+                    float b = _sampler.GetDistance(x, y + 1, z);
 
                     if (!HasCrossing(a, b))
                         continue;
@@ -306,8 +307,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
             {
                 for (int z = 0; z < cells.z; z++)
                 {
-                    float a = _sampler.GetSample(x, y, z).Distance;
-                    float b = _sampler.GetSample(x, y, z + 1).Distance;
+                    float a = _sampler.GetDistance(x, y, z);
+                    float b = _sampler.GetDistance(x, y, z + 1);
 
                     if (!HasCrossing(a, b))
                         continue;
@@ -333,19 +334,12 @@ public class SDFDualContouringRenderer : MonoBehaviour
 
     private Vector3 Interpolate(Vector3 pa, float va, Vector3 pb, float vb)
     {
-        const float epsilon = 1e-8f;
+        float denom = vb - va;
 
-        float da = va - isoLevel;
-        float db = vb - isoLevel;
-
-        float denom = da - db;
-
-        if (Mathf.Abs(denom) < epsilon)
+        if (Mathf.Abs(denom) < 1e-8f)
             return (pa + pb) * 0.5f;
 
-        float t = da / denom;
-        t = Mathf.Clamp01(t);
-
+        float t = Mathf.Clamp01((isoLevel - va) / denom);
         return Vector3.Lerp(pa, pb, t);
     }
 
@@ -386,8 +380,8 @@ public class SDFDualContouringRenderer : MonoBehaviour
         if (!Mathf.Approximately(_lastIsoLevel, isoLevel))
             return true;
 
-        if (_lastScale != transform.lossyScale)
-            return true;
+        // if (_lastScale != transform.lossyScale)
+        //     return true;
 
         return false;
     }
@@ -395,7 +389,7 @@ public class SDFDualContouringRenderer : MonoBehaviour
     private void CacheState()
     {
         _lastIsoLevel = isoLevel;
-        _lastScale = transform.lossyScale;
+        // _lastScale = transform.lossyScale;
     }
 
     private void OnDrawGizmosSelected()
