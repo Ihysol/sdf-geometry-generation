@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Cutters/Surface Torus Grid Cutter")]
-public class TorusGridCutterNode : SDFCutterNode
+public class TorusGridCutterNode : SDFCutter
 {
     [Header("Torus Reference")]
     public float majorRadius = 1.5f;
@@ -17,7 +17,7 @@ public class TorusGridCutterNode : SDFCutterNode
     public float width = 0.02f;
     public float depth = 0.04f;
 
-    public override float Evaluate(Vector3 p, SDFNode baseShape)
+    public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
 

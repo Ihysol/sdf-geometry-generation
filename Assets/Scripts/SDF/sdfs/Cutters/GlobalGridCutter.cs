@@ -1,9 +1,9 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Cutters/Global Grid Cutter")]
-public class GlobalGridCutterNode : SDFCutterNode
+public class GlobalGridCutter : SDFCutter
 {
-    public float depth = 0.05f;
+    public float depth = 0.02f;
     public float width = 0.02f;
     public Vector3 spacing = new Vector3(0.5f, 0.5f, 0.5f);
     public Vector3 offset = Vector3.zero;
@@ -12,7 +12,7 @@ public class GlobalGridCutterNode : SDFCutterNode
     public bool useYLines = true;
     public bool useZLines = true;
 
-    public override float Evaluate(Vector3 p, SDFNode baseShape)
+    public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
 

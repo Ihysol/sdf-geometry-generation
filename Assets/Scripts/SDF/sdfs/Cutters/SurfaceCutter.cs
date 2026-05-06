@@ -1,10 +1,10 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Operations/Surface Cut")]
-public class SurfaceCutSDFNode : SDFNode
+public class SurfaceCutSDF : SDF
 {
-    public SDFNode baseShape;
-    public SDFCutterNode cutter;
+    public SDF baseShape;
+    public SDFCutter cutter;
 
     public override float Evaluate(Vector3 p)
     {
