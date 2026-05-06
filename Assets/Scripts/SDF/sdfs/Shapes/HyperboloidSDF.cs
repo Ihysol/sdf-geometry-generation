@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Primitives/Hyperboloid")]
-public class HyperboloidSDFNode : SDFNode
+public class HyperboloidSDF : SDF
 {
     public float a = 1f;
     public float b = 1f;

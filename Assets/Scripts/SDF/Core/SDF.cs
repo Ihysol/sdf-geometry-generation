@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-public abstract class SDFNode : ScriptableObject, ISDF
+public abstract class SDF : ScriptableObject, ISDF
 {
     public event Action Changed;
     public abstract float Evaluate(Vector3 p);
