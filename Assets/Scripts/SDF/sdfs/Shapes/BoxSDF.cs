@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Primitives/Box")]
-public class BoxSDFNode : SDFNode
+public class BoxSDF : SDF
 {
     public Vector3 halfExtents = Vector3.one;
 
