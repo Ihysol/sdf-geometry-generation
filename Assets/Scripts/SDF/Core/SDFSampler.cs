@@ -3,8 +3,8 @@ using UnityEngine;
 public class SDFSampler : MonoBehaviour
 {
     [Header("SDF")]
-    public SDFNode sdf;
-    private SDFNode _lastSdf;
+    public SDF sdf;
+    private SDF _lastSdf;
 
     [Header("Volume")]
     public bool uniformExtent = true;
@@ -16,6 +16,25 @@ public class SDFSampler : MonoBehaviour
 
     public VoxelGrid Volume { get; private set; }
     public bool IsDirty { get; private set; } = true;
+
+    private ISDF _runtimesdf;
+
+    public void SetRuntimeSDF(ISDF runtimesdf)
+    {
+        _runtimesdf = runtimesdf;
+        MarkDirty();
+    }
+
+    private float EvaluateRoot(Vector3 p)
+    {
+        if (_runtimesdf != null)
+            return _runtimesdf.Evaluate(p);
+
+        if (sdf != null)
+            return sdf.Evaluate(p);
+
+        return 1f;
+    }
 
     private void Awake()
     {
@@ -77,7 +96,7 @@ public class SDFSampler : MonoBehaviour
 
     public void RebuildVolume()
     {
-        if (sdf == null)
+        if (sdf == null && _runtimesdf == null)
         {
             Volume = null;
             IsDirty = false;
@@ -117,7 +136,7 @@ public class SDFSampler : MonoBehaviour
                     Vector3 p = new Vector3(px, py, pz);
 
                     int index = x + rowBase;
-                    distances[index] = sdf.Evaluate(p);
+                    distances[index] = EvaluateRoot(p);
                 }
             }
         }
@@ -128,10 +147,7 @@ public class SDFSampler : MonoBehaviour
 
     public float EvaluateLocal(Vector3 p)
     {
-        if (sdf == null)
-            return 1f;
-
-        return sdf.Evaluate(p);
+        return EvaluateRoot(p);
     }
 
     public Vector3 EstimateNormalLocal(Vector3 p)

@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Primitives/Torus")]
-public class TorusSDFNode : SDFNode
+public class TorusSDF : SDF
 {
     public float majorRadius = 1.5f;
     public float minorRadius = 0.4f;
