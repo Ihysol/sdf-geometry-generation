@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(SurfaceCutSDFNode))]
+[CustomEditor(typeof(SurfaceCutSDF))]
 public class SurfaceCutSDFNodeEditor : Editor
 {
     private Editor _baseEditor;
@@ -19,7 +19,7 @@ public class SurfaceCutSDFNodeEditor : Editor
 
         serializedObject.ApplyModifiedProperties();
 
-        var node = (SurfaceCutSDFNode)target;
+        var node = (SurfaceCutSDF)target;
 
         // Base Shape Inspector
         if (node.baseShape != null)

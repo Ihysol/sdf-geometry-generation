@@ -219,7 +219,7 @@ public class SDFDualContouringRenderer : MonoBehaviour
     {
         int sizeX = size.x;
         int sizeY = size.y;
-        int zStride = size.x * size.y;
+        int zStride = sizeX * sizeY;
 
         // X-axis grid edges
         for (int x = 0; x < cells.x; x++)
@@ -306,7 +306,7 @@ public class SDFDualContouringRenderer : MonoBehaviour
         EnsureReferences();
 
         long tStart = sw.ElapsedMilliseconds;
-        if (_sampler.IsDirty || _sampler.Volume == null)
+        if (rebuildEveryFrame || _sampler.IsDirty || _sampler.Volume == null)
             _sampler.RebuildVolume();
 
         VoxelGrid volume = _sampler.Volume;

@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Cutters/Surface Sphere Grid Cutter")]
-public class SphereGridCutterNode : SDFCutterNode
+public class SphereGridCutter : SDFCutter
 {
     [Header("Grid")]
     public int longitudeCount = 16;
@@ -13,7 +13,7 @@ public class SphereGridCutterNode : SDFCutterNode
     public float width = 0.02f;
     public float depth = 0.04f;
 
-    public override float Evaluate(Vector3 p, SDFNode baseShape)
+    public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
 

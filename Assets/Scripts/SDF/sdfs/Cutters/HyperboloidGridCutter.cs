@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "SDF/Cutters/Surface Hyperboloid Grid Cutter")]
-public class HyperboloidGridCutterNode : SDFCutterNode
+public class HyperboloidGridCutter : SDFCutter
 {
     [Header("Hyperboloid Reference")]
     public float a = 1f;
@@ -21,7 +21,7 @@ public class HyperboloidGridCutterNode : SDFCutterNode
     public float width = 0.05f;
     public float depth = 0.15f;
 
-    public override float Evaluate(Vector3 p, SDFNode baseShape)
+    public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
 
