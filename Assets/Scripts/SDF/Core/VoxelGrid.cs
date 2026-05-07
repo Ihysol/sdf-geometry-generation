@@ -1,38 +1,55 @@
 using UnityEngine;
 
-public class VoxelGrid
+public class VoxelGrid : IVolumeData
 {
-    public Vector3 Origin { get; private set; }
-    public Vector3 CellSize { get; private set; }
-    public Vector3Int GridSize { get; private set; }
-    public float[] Distances { get; private set; }
+    public Vector3Int GridSize { get; }
+    public Vector3 Origin { get; }
+    public Vector3 CellSize { get; }
+    public float[] Values { get; }
 
-    public VoxelGrid(Vector3 origin, Vector3 cellSize, Vector3Int gridSize)
+    public Bounds Bounds
     {
-        Origin = origin;
-        CellSize = cellSize;
+        get
+        {
+            Vector3 size = new Vector3(
+                CellSize.x * (GridSize.x - 1),
+                CellSize.y * (GridSize.y - 1),
+                CellSize.z * (GridSize.z - 1)
+            );
 
-        GridSize = new Vector3Int(Mathf.Max(2, gridSize.x), Mathf.Max(2, gridSize.y), Mathf.Max(2, gridSize.z));
-        Distances = new float[GridSize.x * GridSize.y * GridSize.z];
+            return new Bounds(Origin + size * 0.5f, size);
+        }
     }
 
-    public int Index(int x, int y, int z)
+    public VoxelGrid(Vector3Int gridSize, Vector3 origin, Vector3 cellSize)
+    {
+        GridSize = gridSize;
+        Origin = origin;
+        CellSize = cellSize;
+        Values = new float[gridSize.x * gridSize.y * gridSize.z];
+    }
+
+    public int GetIndex(int x, int y, int z)
     {
         return x + GridSize.x * (y + GridSize.y * z);
     }
 
-    public float Get(int x, int y, int z)
+    public float GetValue(int x, int y, int z)
     {
-        return Distances[Index(x, y, z)];
+        return Values[GetIndex(x, y, z)];
     }
 
-    public void Set(int x, int y, int z, float value)
+    public void SetValue(int x, int y, int z, float value)
     {
-        Distances[Index(x, y, z)] = value;
+        Values[GetIndex(x, y, z)] = value;
     }
 
-    public Vector3 GetPosition(int x, int y, int z)
+    public Vector3 GetWorldPosition(int x, int y, int z)
     {
-        return Origin + new Vector3(x * CellSize.x, y * CellSize.y, z * CellSize.z);
+        return new Vector3(
+            Origin.x + x * CellSize.x,
+            Origin.y + y * CellSize.y,
+            Origin.z + z * CellSize.z
+        );
     }
 }

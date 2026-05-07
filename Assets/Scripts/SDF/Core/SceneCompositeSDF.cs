@@ -1,15 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class SceneCompositeSDF : ISDF
+public class SceneCompositeSDF : IScalarFieldSource
 {
     private readonly Transform _root;
-    private readonly List<SDFObject> _objects;
+    private readonly List<VolumeObject> _objects;
 
-    public SceneCompositeSDF(Transform root, List<SDFObject> objects)
+    public SceneCompositeSDF(Transform root, List<VolumeObject> objects)
     {
         _root = root;
-        _objects = new List<SDFObject>(objects);
+        _objects = new List<VolumeObject>(objects);
     }
 
     public float Evaluate(Vector3 rootLocalPoint)
@@ -18,7 +18,7 @@ public class SceneCompositeSDF : ISDF
 
         foreach (var obj in _objects)
         {
-            if (obj == null || obj.role != SDFOperationRole.Add)
+            if (obj == null || obj.role != VolumeOperationRole.Add)
                 continue;
 
             float d = EvaluateObject(obj, rootLocalPoint);
@@ -27,7 +27,7 @@ public class SceneCompositeSDF : ISDF
 
         foreach (var obj in _objects)
         {
-            if (obj == null || obj.role != SDFOperationRole.Subtract)
+            if (obj == null || obj.role != VolumeOperationRole.Subtract)
                 continue;
 
             float d = EvaluateObject(obj, rootLocalPoint);
@@ -36,7 +36,7 @@ public class SceneCompositeSDF : ISDF
 
         foreach (var obj in _objects)
         {
-            if (obj == null || obj.role != SDFOperationRole.Intersect)
+            if (obj == null || obj.role != VolumeOperationRole.Intersect)
                 continue;
 
             float d = EvaluateObject(obj, rootLocalPoint);
@@ -46,7 +46,7 @@ public class SceneCompositeSDF : ISDF
         return result;
     }
 
-    private float EvaluateObject(SDFObject obj, Vector3 rootLocalPoint)
+    private float EvaluateObject(VolumeObject obj, Vector3 rootLocalPoint)
     {
         Vector3 worldPoint = _root.TransformPoint(rootLocalPoint);
         Vector3 objectLocalPoint = obj.transform.InverseTransformPoint(worldPoint);

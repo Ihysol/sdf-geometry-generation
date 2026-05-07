@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(SDFObject))]
+[CustomEditor(typeof(VolumeObject))]
 public class SDFObjectEditor : Editor
 {
     public override void OnInspectorGUI()
@@ -11,35 +11,35 @@ public class SDFObjectEditor : Editor
         Draw("shapeType");
         Draw("role");
 
-        SDFShapeType shape = (SDFShapeType)serializedObject.FindProperty("shapeType").enumValueIndex;
-        SDFGridType grid = (SDFGridType)serializedObject.FindProperty("gridType").enumValueIndex;
+        VolumeShapeType shape = (VolumeShapeType)serializedObject.FindProperty("shapeType").enumValueIndex;
+        VolumeGridType grid = (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
 
         EditorGUILayout.Space(8);
 
         switch (shape)
         {
-            case SDFShapeType.CustomAsset:
+            case VolumeShapeType.CustomAsset:
                 Header("Custom Asset");
                 Draw("customAsset");
                 break;
 
-            case SDFShapeType.Sphere:
+            case VolumeShapeType.Sphere:
                 Header("Sphere");
                 Draw("sphereRadius");
                 break;
 
-            case SDFShapeType.Box:
+            case VolumeShapeType.Box:
                 Header("Box");
                 Draw("boxHalfExtents");
                 break;
 
-            case SDFShapeType.Torus:
+            case VolumeShapeType.Torus:
                 Header("Torus");
                 Draw("torusMajorRadius");
                 Draw("torusMinorRadius");
                 break;
 
-            case SDFShapeType.Hyperboloid:
+            case VolumeShapeType.Hyperboloid:
                 Header("Hyperboloid");
                 Draw("hyperboloidA");
                 Draw("hyperboloidB");
@@ -51,9 +51,9 @@ public class SDFObjectEditor : Editor
         Header("Surface Grid / Cutter");
         Draw("gridType");
 
-        grid = (SDFGridType)serializedObject.FindProperty("gridType").enumValueIndex;
+        grid = (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
 
-        if (grid != SDFGridType.None)
+        if (grid != VolumeGridType.None)
         {
             Draw("gridWidth");
             Draw("gridDepth");
@@ -61,24 +61,24 @@ public class SDFObjectEditor : Editor
 
             switch (grid)
             {
-                case SDFGridType.Global:
+                case VolumeGridType.Global:
                     Draw("gridSpacing");
                     Draw("useXLines");
                     Draw("useYLines");
                     Draw("useZLines");
                     break;
 
-                case SDFGridType.Sphere:
+                case VolumeGridType.Sphere:
                     Draw("longitudeCount");
                     Draw("latitudeCount");
                     break;
 
-                case SDFGridType.Torus:
+                case VolumeGridType.Torus:
                     Draw("torusMajorSegments");
                     Draw("torusMinorSegments");
                     break;
 
-                case SDFGridType.Hyperboloid:
+                case VolumeGridType.Hyperboloid:
                     Draw("hyperboloidRadialSegments");
                     Draw("hyperboloidHeightSegments");
                     Draw("hyperboloidHeightMin");
@@ -93,12 +93,12 @@ public class SDFObjectEditor : Editor
         {
             EditorUtility.SetDirty(target);
 
-            SDFObject obj = (SDFObject)target;
-            var model = obj.GetComponentInParent<SDFModel>();
+            VolumeObject obj = (VolumeObject)target;
+            var model = obj.GetComponentInParent<VolumeModel>();
 
             if (model != null)
             {
-                var sampler = model.GetComponent<SDFSampler>();
+                var sampler = model.GetComponent<VolumeSampler>();
                 if (sampler != null)
                     sampler.MarkDirty();
             }

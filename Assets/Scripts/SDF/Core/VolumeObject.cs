@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public enum SDFShapeType
+public enum VolumeShapeType
 {
     Sphere,
     Box,
@@ -9,14 +9,14 @@ public enum SDFShapeType
     CustomAsset
 }
 
-public enum SDFOperationRole
+public enum VolumeOperationRole
 {
     Add,
     Subtract,
     Intersect
 }
 
-public enum SDFGridType
+public enum VolumeGridType
 {
     None,
     Global,
@@ -25,11 +25,11 @@ public enum SDFGridType
     Hyperboloid
 }
 
-public class SDFObject : MonoBehaviour
+public class VolumeObject : MonoBehaviour
 {
     [Header("Object")]
-    public SDFShapeType shapeType = SDFShapeType.Sphere;
-    public SDFOperationRole role = SDFOperationRole.Add;
+    public VolumeShapeType shapeType = VolumeShapeType.Sphere;
+    public VolumeOperationRole role = VolumeOperationRole.Add;
 
     [Header("Custom")]
     public SDF customAsset;
@@ -50,7 +50,7 @@ public class SDFObject : MonoBehaviour
     public float hyperboloidC = 1f;
 
     [Header("Surface Grid / Cutter")]
-    public SDFGridType gridType = SDFGridType.None;
+    public VolumeGridType gridType = VolumeGridType.None;
 
     public float gridWidth = 0.02f;
     public float gridDepth = 0.04f;
@@ -87,11 +87,11 @@ public class SDFObject : MonoBehaviour
         string shapeName = shapeType.ToString();
         string roleName = role.ToString();
 
-        string gridName = gridType != SDFGridType.None
+        string gridName = gridType != VolumeGridType.None
             ? $"_{gridType}Grid"
             : "";
 
-        string newName = $"SDFObject_{shapeName}_{roleName}{gridName}";
+        string newName = $"VolumeObject_{shapeName}_{roleName}{gridName}";
 
         if (gameObject.name != newName)
             gameObject.name = newName;
@@ -101,7 +101,7 @@ public class SDFObject : MonoBehaviour
     {
         float d = EvaluateShape(p);
 
-        if (gridType != SDFGridType.None)
+        if (gridType != VolumeGridType.None)
         {
             float cutter = EvaluateGridCutter(p, d);
             d = Mathf.Max(d, -cutter);
@@ -115,17 +115,17 @@ public class SDFObject : MonoBehaviour
         switch (shapeType)
         {
 
-            case SDFShapeType.Box:
+            case VolumeShapeType.Box:
                 return Box(p, boxHalfExtents);
 
-            case SDFShapeType.Torus:
+            case VolumeShapeType.Torus:
                 Vector2 q = new Vector2(
                     new Vector2(p.x, p.z).magnitude - torusMajorRadius,
                     p.y
                 );
                 return q.magnitude - torusMinorRadius;
 
-            case SDFShapeType.Hyperboloid:
+            case VolumeShapeType.Hyperboloid:
                 float a = Mathf.Max(0.0001f, hyperboloidA);
                 float b = Mathf.Max(0.0001f, hyperboloidB);
                 float c = Mathf.Max(0.0001f, hyperboloidC);
@@ -136,10 +136,10 @@ public class SDFObject : MonoBehaviour
                     (p.y * p.y) / (c * c) -
                     1f;
 
-            case SDFShapeType.CustomAsset:
+            case VolumeShapeType.CustomAsset:
                 return customAsset != null ? customAsset.Evaluate(p) : 1f;
 
-            case SDFShapeType.Sphere:
+            case VolumeShapeType.Sphere:
             default:
                 return p.magnitude - sphereRadius;
         }
@@ -151,10 +151,10 @@ public class SDFObject : MonoBehaviour
 
         float gridD = gridType switch
         {
-            SDFGridType.Global => EvaluateGlobalGrid(p),
-            SDFGridType.Sphere => EvaluateSphereGrid(p),
-            SDFGridType.Torus => EvaluateTorusGrid(p),
-            SDFGridType.Hyperboloid => EvaluateHyperboloidGrid(p),
+            VolumeGridType.Global => EvaluateGlobalGrid(p),
+            VolumeGridType.Sphere => EvaluateSphereGrid(p),
+            VolumeGridType.Torus => EvaluateTorusGrid(p),
+            VolumeGridType.Hyperboloid => EvaluateHyperboloidGrid(p),
             _ => 1f
         };
 

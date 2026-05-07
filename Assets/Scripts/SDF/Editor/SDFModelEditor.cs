@@ -1,17 +1,17 @@
 using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(SDFModel))]
-public class SDFModelEditor : Editor
+[CustomEditor(typeof(VolumeModel))]
+public class VolumeModelEditor : Editor
 {
     public override void OnInspectorGUI()
     {
-        SDFModel model = (SDFModel)target;
+        VolumeModel model = (VolumeModel)target;
 
         EditorGUILayout.LabelField("Create SDF Object", EditorStyles.boldLabel);
 
-        model.shapeToAdd = (SDFShapeType)EditorGUILayout.EnumPopup("Shape", model.shapeToAdd);
-        model.roleToAdd = (SDFOperationRole)EditorGUILayout.EnumPopup("Role", model.roleToAdd);
+        model.shapeToAdd = (VolumeShapeType)EditorGUILayout.EnumPopup("Shape", model.shapeToAdd);
+        model.roleToAdd = (VolumeOperationRole)EditorGUILayout.EnumPopup("Role", model.roleToAdd);
 
         GUILayout.Space(5);
 
