@@ -1,14 +1,14 @@
 using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(SDFSampler))]
+[CustomEditor(typeof(VolumeSampler))]
 public class SDFSamplerEditor : Editor
 {
     private Editor _sdfEditor;
 
     public override void OnInspectorGUI()
     {
-        SDFSampler sampler = (SDFSampler)target;
+        VolumeSampler sampler = (VolumeSampler)target;
 
         serializedObject.Update();
 
@@ -43,18 +43,17 @@ public class SDFSamplerEditor : Editor
         EditorGUILayout.Space(10);
         EditorGUILayout.LabelField("Volume", EditorStyles.boldLabel);
 
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("uniformExtent"));
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("gridExtent"));
+        SerializedProperty builderProp = serializedObject.FindProperty("builder");
 
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("uniformResolution"));
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("gridSize"));
+        EditorGUILayout.PropertyField(builderProp.FindPropertyRelative("gridExtent"));
+        EditorGUILayout.PropertyField(builderProp.FindPropertyRelative("gridSize"));
 
         serializedObject.ApplyModifiedProperties();
 
         // =========================
         // RENDERER SETTINGS
         // =========================
-        var renderer = sampler.GetComponent<SDFDualContouringRenderer>();
+        var renderer = sampler.GetComponent<VolumeMeshRenderer>();
 
         if (renderer != null)
         {
