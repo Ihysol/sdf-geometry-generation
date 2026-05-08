@@ -1,0 +1,16 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eec4ec3695992264b8ba800cf64421a6, type: 3}
+  m_Name: New Torus SDF
+  m_EditorClassIdentifier: Assembly-CSharp::TorusSDF
+  majorRadius: 1.5
+  minorRadius: 0.4
