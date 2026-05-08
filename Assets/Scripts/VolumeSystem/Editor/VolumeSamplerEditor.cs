@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEngine;
 
 [CustomEditor(typeof(VolumeSampler))]
-public class SDFSamplerEditor : Editor
+public class VolumeSamplerEditor : Editor
 {
     private Editor _sdfEditor;
 

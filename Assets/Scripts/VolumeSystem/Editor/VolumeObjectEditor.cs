@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEngine;
 
 [CustomEditor(typeof(VolumeObject))]
-public class SDFObjectEditor : Editor
+public class VolumeObjectEditor : Editor
 {
     public override void OnInspectorGUI()
     {

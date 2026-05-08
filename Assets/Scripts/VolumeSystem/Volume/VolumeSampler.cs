@@ -2,7 +2,16 @@ using UnityEngine;
 
 public class VolumeSampler : MonoBehaviour
 {
+
+    public enum VolumeSourceMode
+    {
+        SdfAsset,
+        RuntimeSource
+    }
+
+
     [Header("Source")]
+    public VolumeSourceMode sourceMode = VolumeSourceMode.SdfAsset;
     public SDF sdf;
     private SDF _lastSdf;
 
@@ -28,8 +37,12 @@ public class VolumeSampler : MonoBehaviour
 
     private IScalarFieldSource GetActiveSource()
     {
-        return _runtimeSource ?? sdf;
+        if (sdf != null)
+            return sdf;
+
+        return _runtimeSource;
     }
+    
 
     public void MarkDirty()
     {

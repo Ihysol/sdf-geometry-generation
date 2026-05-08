@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEngine;
 
 [CustomEditor(typeof(SurfaceCutSDF))]
-public class SurfaceCutSDFNodeEditor : Editor
+public class SurfaceCutSDFEditor : Editor
 {
     private Editor _baseEditor;
     private Editor _cutterEditor;
@@ -11,17 +11,16 @@ public class SurfaceCutSDFNodeEditor : Editor
     {
         serializedObject.Update();
 
-        var baseProp = serializedObject.FindProperty("baseShape");
-        var cutterProp = serializedObject.FindProperty("cutter");
+        SerializedProperty baseProp = serializedObject.FindProperty("baseShape");
+        SerializedProperty cutterProp = serializedObject.FindProperty("cutter");
 
         EditorGUILayout.PropertyField(baseProp);
         EditorGUILayout.PropertyField(cutterProp);
 
         serializedObject.ApplyModifiedProperties();
 
-        var node = (SurfaceCutSDF)target;
+        SurfaceCutSDF node = (SurfaceCutSDF)target;
 
-        // Base Shape Inspector
         if (node.baseShape != null)
         {
             EditorGUILayout.Space(10);
@@ -33,7 +32,6 @@ public class SurfaceCutSDFNodeEditor : Editor
             EditorGUI.indentLevel--;
         }
 
-        // Cutter Inspector
         if (node.cutter != null)
         {
             EditorGUILayout.Space(10);
