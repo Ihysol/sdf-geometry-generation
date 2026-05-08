@@ -45,8 +45,11 @@ public class VolumeSamplerEditor : Editor
 
         SerializedProperty builderProp = serializedObject.FindProperty("builder");
 
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("uniformExtent"));
         EditorGUILayout.PropertyField(builderProp.FindPropertyRelative("gridExtent"));
-        EditorGUILayout.PropertyField(builderProp.FindPropertyRelative("gridSize"));
+
+        EditorGUILayout.PropertyField(serializedObject.FindProperty("uniformResolution"));
+        EditorGUILayout.PropertyField(builderProp.FindPropertyRelative("gridSize"));;
 
         serializedObject.ApplyModifiedProperties();
 

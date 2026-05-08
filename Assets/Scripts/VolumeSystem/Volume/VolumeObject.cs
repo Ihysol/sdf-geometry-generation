@@ -1,3 +1,7 @@
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
 using UnityEngine;
 
 public enum VolumeShapeType
@@ -25,8 +29,12 @@ public enum VolumeGridType
     Hyperboloid
 }
 
+[ExecuteAlways]
 public class VolumeObject : MonoBehaviour
 {
+#if UNITY_EDITOR
+    private bool _rebuildQueued;
+#endif
     [Header("Object")]
     public VolumeShapeType shapeType = VolumeShapeType.Sphere;
     public VolumeOperationRole role = VolumeOperationRole.Add;
@@ -78,8 +86,33 @@ public class VolumeObject : MonoBehaviour
     {
 #if UNITY_EDITOR
         UpdateGameObjectName();
+        QueueComposerRebuild();
 #endif
     }
+
+#if UNITY_EDITOR
+    private void QueueComposerRebuild()
+    {
+        if (_rebuildQueued)
+            return;
+
+        _rebuildQueued = true;
+        EditorApplication.delayCall += DelayedComposerRebuild;
+    }
+
+    private void DelayedComposerRebuild()
+    {
+        _rebuildQueued = false;
+
+        if (this == null)
+            return;
+
+        VolumeSceneComposer composer = GetComponentInParent<VolumeSceneComposer>();
+
+        if (composer != null)
+            composer.MarkDirtyAndRebuild();
+    }
+#endif
 
 #if UNITY_EDITOR
     private void UpdateGameObjectName()
@@ -264,5 +297,103 @@ public class VolumeObject : MonoBehaviour
 
         return Vector3.Max(q, Vector3.zero).magnitude +
                Mathf.Min(Mathf.Max(q.x, Mathf.Max(q.y, q.z)), 0f);
+    }
+
+    private void OnDrawGizmos()
+    {
+        DrawVolumeGizmo(false);
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        DrawVolumeGizmo(true);
+    }
+
+    private void DrawVolumeGizmo(bool selected)
+    {
+        Matrix4x4 oldMatrix = Gizmos.matrix;
+        Color oldColor = Gizmos.color;
+
+        Gizmos.matrix = transform.localToWorldMatrix;
+
+        float alpha = selected ? 1f : 0.45f;
+
+        Gizmos.color = role switch
+        {
+            VolumeOperationRole.Add => new Color(0f, 1f, 0f, alpha),
+            VolumeOperationRole.Subtract => new Color(1f, 0f, 0f, alpha),
+            VolumeOperationRole.Intersect => new Color(0f, 0.5f, 1f, alpha),
+            _ => Color.white
+        };
+
+        switch (shapeType)
+        {
+            case VolumeShapeType.Sphere:
+                Gizmos.DrawWireSphere(Vector3.zero, sphereRadius);
+                break;
+
+            case VolumeShapeType.Box:
+                Gizmos.DrawWireCube(Vector3.zero, boxHalfExtents * 2f);
+                break;
+
+            case VolumeShapeType.Torus:
+                DrawTorusGizmo(torusMajorRadius, torusMinorRadius);
+                break;
+
+            case VolumeShapeType.Hyperboloid:
+                Gizmos.DrawWireCube(
+                    Vector3.zero,
+                    new Vector3(hyperboloidA * 2f, Mathf.Abs(hyperboloidHeightMax - hyperboloidHeightMin), hyperboloidB * 2f)
+                );
+                break;
+        }
+
+        Gizmos.matrix = oldMatrix;
+        Gizmos.color = oldColor;
+    }
+
+    private void DrawTorusGizmo(float majorRadius, float minorRadius)
+    {
+        const int segments = 64;
+
+        Vector3 prevOuter = Vector3.zero;
+        Vector3 prevInner = Vector3.zero;
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float t = i / (float)segments * Mathf.PI * 2f;
+
+            Vector3 outer = new Vector3(
+                Mathf.Cos(t) * (majorRadius + minorRadius),
+                0f,
+                Mathf.Sin(t) * (majorRadius + minorRadius)
+            );
+
+            Vector3 inner = new Vector3(
+                Mathf.Cos(t) * Mathf.Max(0f, majorRadius - minorRadius),
+                0f,
+                Mathf.Sin(t) * Mathf.Max(0f, majorRadius - minorRadius)
+            );
+
+            if (i > 0)
+            {
+                Gizmos.DrawLine(prevOuter, outer);
+                Gizmos.DrawLine(prevInner, inner);
+            }
+
+            prevOuter = outer;
+            prevInner = inner;
+        }
+    }
+
+    private void Update()
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying && transform.hasChanged)
+        {
+            transform.hasChanged = false;
+            QueueComposerRebuild();
+        }
+#endif
     }
 }
