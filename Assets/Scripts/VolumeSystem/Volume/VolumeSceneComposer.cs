@@ -41,4 +41,15 @@ public class VolumeSceneComposer : MonoBehaviour
             obj.name = $"VolumeObject_{i:00}_{shapeName}_{roleName}";
         }
     }
+
+    public void MarkDirtyAndRebuild()
+    {
+        if (_sampler == null)
+            _sampler = GetComponent<VolumeSampler>();
+
+        RebuildComposition();
+
+        if (_sampler != null)
+            _sampler.MarkDirty();
+    }
 }

@@ -1,3 +1,4 @@
+using Unity.VisualScripting;
 using UnityEngine;
 
 public enum VolumeMesherType
@@ -5,6 +6,7 @@ public enum VolumeMesherType
     DualContouring
 }
 
+[ExecuteAlways]
 [RequireComponent(typeof(VolumeSampler))]
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
@@ -23,8 +25,6 @@ public class VolumeMeshRenderer : MonoBehaviour
 
     private VolumeSampler _sampler;
     private MeshFilter _meshFilter;
-
-    private readonly DualContouringVoxelMesher _dualContouringMesher = new();
     private IVolumeMesher<VoxelGrid> _mesher;
 
     private float _lastIsoLevel;
@@ -33,18 +33,74 @@ public class VolumeMeshRenderer : MonoBehaviour
     private void Awake()
     {
         EnsureReferences();
+        EnsureMesher();
+    }
+
+    private void OnSamplerChanged()
+    {
+        if (autoRebuildOnChange)
+            QueueRebuild();
     }
 
     private void OnEnable()
     {
         EnsureReferences();
+        EnsureMesher();
+
+        if (_sampler != null)
+            _sampler.Changed += OnSamplerChanged;
+    }
+
+    private void OnDisable()
+    {
+        if (_sampler != null)
+            _sampler.Changed -= OnSamplerChanged;
+    }
+
+    private void OnValidate()
+    {
+        if (!autoRebuildOnChange)
+            return;
+
+        QueueRebuild();
     }
 
     private void Update()
     {
-        if (rebuildEveryFrame || (autoRebuildOnChange && IsDirty()))
+        if (rebuildEveryFrame)
+        {
+            RebuildMesh();
+            return;
+        }
+
+        if (autoRebuildOnChange && IsDirty())
             RebuildMesh();
     }
+
+    private void QueueRebuild()
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            UnityEditor.EditorApplication.delayCall -= DelayedRebuild;
+            UnityEditor.EditorApplication.delayCall += DelayedRebuild;
+            return;
+        }
+#endif
+
+        RebuildMesh();
+    }
+
+#if UNITY_EDITOR
+    private void DelayedRebuild()
+    {
+        if (this == null)
+            return;
+
+        RebuildMesh();
+    }
+#endif
+
 
     private void EnsureReferences()
     {
@@ -53,6 +109,22 @@ public class VolumeMeshRenderer : MonoBehaviour
 
         if (_meshFilter == null)
             _meshFilter = GetComponent<MeshFilter>();
+    }
+
+    private void EnsureMesher()
+    {
+        if (_mesher != null && _lastMesherType == mesherType)
+            return;
+
+        switch (mesherType)
+        {
+            case VolumeMesherType.DualContouring:
+            default:
+                _mesher = new DualContouringVoxelMesher();
+                break;
+        }
+
+        _lastMesherType = mesherType;
     }
 
     private bool IsDirty()
@@ -70,8 +142,10 @@ public class VolumeMeshRenderer : MonoBehaviour
     public void RebuildMesh()
     {
         EnsureReferences();
+        EnsureMesher();
 
-        if (_sampler == null || _meshFilter == null)
+
+        if (_sampler == null || _meshFilter == null || _mesher == null)
             return;
 
         if (_sampler.IsDirty || _sampler.Volume == null)
@@ -86,25 +160,12 @@ public class VolumeMeshRenderer : MonoBehaviour
 
         DestroyMesh();
 
-        Mesh mesh = BuildMesh(_sampler.Volume);
+        MeshData meshData = _mesher.BuildMeshData(_sampler.Volume, isoLevel);
+        Mesh mesh = meshData.ToMesh(recalculateNormals);
+
         _meshFilter.sharedMesh = mesh;
 
         CacheState();
-    }
-
-    private Mesh BuildMesh(VoxelGrid volume)
-    {
-        MeshData meshData;
-
-        switch (mesherType)
-        {
-            case VolumeMesherType.DualContouring:
-            default:
-                meshData = _dualContouringMesher.BuildMeshData(volume, isoLevel);
-                break;
-        }
-
-        return meshData.ToMesh(recalculateNormals);
     }
 
     private void CacheState()
