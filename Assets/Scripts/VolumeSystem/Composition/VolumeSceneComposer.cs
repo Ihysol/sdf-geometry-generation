@@ -1,30 +1,31 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(VolumeSampler))]
-public class VolumeSceneComposer : MonoBehaviour
+public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 {
     public List<VolumeObject> objects = new();
 
-    private VolumeSampler _sampler;
-
-    private void Awake()
-    {
-        _sampler = GetComponent<VolumeSampler>();
-    }
+    private SceneCompositeSDF _composite;
 
     [ContextMenu("Rebuild Composition")]
     public void RebuildComposition()
     {
-        if (_sampler == null)
-            _sampler = GetComponent<VolumeSampler>();
-
         objects.RemoveAll(o => o == null);
 
         RenameChildren();
 
-        SceneCompositeSDF composite = new SceneCompositeSDF(transform, objects);
-        _sampler.SetRuntimeSource(composite);
+        _composite = new SceneCompositeSDF(transform, objects);
+    }
+
+    public float Evaluate(Vector3 p)
+    {
+        if (_composite == null)
+            RebuildComposition();
+
+        if (_composite == null)
+            return 1f;
+
+        return _composite.Evaluate(p);
     }
 
     public void RenameChildren()
@@ -44,12 +45,11 @@ public class VolumeSceneComposer : MonoBehaviour
 
     public void MarkDirtyAndRebuild()
     {
-        if (_sampler == null)
-            _sampler = GetComponent<VolumeSampler>();
-
         RebuildComposition();
 
-        if (_sampler != null)
-            _sampler.MarkDirty();
+        VolumeModel model = GetComponent<VolumeModel>();
+
+        if (model != null)
+            model.RebuildModel();
     }
 }
