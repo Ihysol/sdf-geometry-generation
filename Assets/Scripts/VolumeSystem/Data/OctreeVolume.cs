@@ -2,14 +2,28 @@ using UnityEngine;
 
 public class OctreeVolume : IVolumeData
 {
-    public OctreeNode Root { get; private set; }
-    public Bounds Bounds { get; private set; }
-    public int MaxDepth { get; private set; }
+    public OctreeNode Root { get; }
+    public Bounds Bounds { get; }
+    public int MaxDepth { get; }
 
-    public OctreeVolume(OctreeNode root, Bounds bounds, int maxDepth)
+    public int TotalNodes { get; }
+    public int SurfaceLeaves { get; }
+
+    public IScalarFieldSource Source { get; }
+
+    public OctreeVolume(
+        OctreeNode root,
+        Bounds bounds,
+        int maxDepth,
+        int totalNodes,
+        int surfaceLeaves,
+        IScalarFieldSource source)
     {
         Root = root;
         Bounds = bounds;
         MaxDepth = maxDepth;
+        TotalNodes = totalNodes;
+        SurfaceLeaves = surfaceLeaves;
+        Source = source;
     }
 }

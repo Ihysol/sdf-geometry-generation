@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
@@ -20,6 +21,8 @@ public class VolumeMeshRenderer : MonoBehaviour
     {
         EnsureSetup();
 
+        // Wichtig: vor Clear/SetTriangles setzen
+        mesh.indexFormat = IndexFormat.UInt32;
         mesh.Clear();
 
         switch (model.dataStructure)
@@ -30,50 +33,26 @@ public class VolumeMeshRenderer : MonoBehaviour
                         model.voxelGridSampler.Volume,
                         model.isoLevel
                     );
-                    ApplyMeshData(meshData);
 
+                    ApplyMeshData(meshData, model);
                     break;
                 }
 
             case VolumeDataStructure.Octree:
                 {
-                    octreeMesher.BuildMesh(
-                        model.octreeSampler.Volume,
-                        mesh
-                    );
+                    octreeMesher.isoLevel = model.isoLevel;
+                    octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);    
 
                     break;
                 }
         }
 
-        Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}");
+        Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
     }
 
-    private void EnsureSetup()
+    private void ApplyMeshData(MeshData meshData, VolumeModel model)
     {
-        if (meshFilter == null)
-            meshFilter = GetComponent<MeshFilter>();
-
-        if (meshRenderer == null)
-            meshRenderer = GetComponent<MeshRenderer>();
-
-        if (mesh == null)
-        {
-            mesh = new Mesh();
-            mesh.name = "Volume Mesh";
-
-            meshFilter.sharedMesh = mesh;
-        }
-
-        if (meshRenderer.sharedMaterial == null)
-        {
-            meshRenderer.sharedMaterial =
-                new Material(Shader.Find("Standard"));
-        }
-    }
-
-    private void ApplyMeshData(MeshData meshData)
-    {
+        mesh.indexFormat = IndexFormat.UInt32;
         mesh.Clear();
 
         if (meshData == null)
@@ -85,7 +64,32 @@ public class VolumeMeshRenderer : MonoBehaviour
         if (meshData.Bounds.size != Vector3.zero)
             mesh.bounds = meshData.Bounds;
 
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
+        if (model.recalculateNormals)
+            mesh.RecalculateNormals();
+
+        if (model.recalculateBounds)
+            mesh.RecalculateBounds();
+    }
+
+    private void EnsureSetup()
+    {
+        if (meshFilter == null)
+            meshFilter = GetComponent<MeshFilter>();
+
+        if (meshRenderer == null)
+            meshRenderer = GetComponent<MeshRenderer>();
+
+        if (mesh == null || mesh.indexFormat != IndexFormat.UInt32)
+        {
+            mesh = new Mesh();
+            mesh.name = "Volume Mesh";
+            mesh.indexFormat = IndexFormat.UInt32;
+            meshFilter.sharedMesh = mesh;
+        }
+
+        if (meshRenderer.sharedMaterial == null)
+        {
+            meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
+        }
     }
 }

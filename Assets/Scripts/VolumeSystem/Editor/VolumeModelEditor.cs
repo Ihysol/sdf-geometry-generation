@@ -10,21 +10,29 @@ public class VolumeModelEditor : Editor
 
         VolumeModel model = (VolumeModel)target;
 
-        EditorGUILayout.LabelField("Pipeline", EditorStyles.boldLabel);
+        DrawPipeline(model);
 
-        SerializedProperty dataStructureProp =
-            serializedObject.FindProperty("dataStructure");
+        GUILayout.Space(10);
 
         EditorGUI.BeginChangeCheck();
 
-        EditorGUILayout.PropertyField(dataStructureProp, new GUIContent("Data Structure"));
+        DrawActiveSamplerSettings(model);
+
+        GUILayout.Space(10);
+
+        DrawMeshingSettings(model);
+
+        GUILayout.Space(10);
+
+        DrawRebuildSettings();
 
         if (EditorGUI.EndChangeCheck())
         {
             serializedObject.ApplyModifiedProperties();
 
-            Undo.RecordObject(model, "Change Volume Pipeline");
-            model.RebuildModel();
+            if (model.autoRebuildOnChange)
+                model.RebuildModel();
+
             EditorUtility.SetDirty(model);
 
             serializedObject.Update();
@@ -32,27 +40,168 @@ public class VolumeModelEditor : Editor
 
         GUILayout.Space(10);
 
-        DrawActiveSamplerSettings(model);
+        DrawObjectCreation(model);
 
         GUILayout.Space(10);
 
+        DrawRebuildButton(model);
+
+        serializedObject.ApplyModifiedProperties();
+    }
+
+    private void DrawPipeline(VolumeModel model)
+    {
+        EditorGUILayout.LabelField("Pipeline", EditorStyles.boldLabel);
+
+        SerializedProperty dataStructureProp =
+            serializedObject.FindProperty("dataStructure");
+
+        EditorGUI.BeginChangeCheck();
+
+        EditorGUILayout.PropertyField(
+            dataStructureProp,
+            new GUIContent("Data Structure")
+        );
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            serializedObject.ApplyModifiedProperties();
+
+            Undo.RecordObject(model, "Change Volume Pipeline");
+
+            if (model.autoRebuildOnChange)
+                model.RebuildModel();
+
+            EditorUtility.SetDirty(model);
+
+            serializedObject.Update();
+        }
+    }
+
+    private void DrawActiveSamplerSettings(VolumeModel model)
+    {
+        switch (model.dataStructure)
+        {
+            case VolumeDataStructure.VoxelGrid:
+                DrawVoxelGridSettings();
+                break;
+
+            case VolumeDataStructure.Octree:
+                DrawOctreeSettings();
+                break;
+        }
+    }
+
+    private void DrawVoxelGridSettings()
+    {
+        EditorGUILayout.LabelField("Voxel Grid", EditorStyles.boldLabel);
+
+        SerializedProperty samplerProp =
+            serializedObject.FindProperty("voxelGridSampler");
+
+        if (samplerProp == null)
+            return;
+
+        SerializedProperty builderProp =
+            samplerProp.FindPropertyRelative("builder");
+
+        if (builderProp == null)
+            return;
+
+        EditorGUILayout.PropertyField(
+            builderProp.FindPropertyRelative("uniformExtent")
+        );
+
+        EditorGUILayout.PropertyField(
+            builderProp.FindPropertyRelative("gridExtent")
+        );
+
+        EditorGUILayout.PropertyField(
+            builderProp.FindPropertyRelative("uniformResolution")
+        );
+
+        EditorGUILayout.PropertyField(
+            builderProp.FindPropertyRelative("gridSize")
+        );
+    }
+
+    private void DrawOctreeSettings()
+    {
+        EditorGUILayout.LabelField("Octree", EditorStyles.boldLabel);
+
+        SerializedProperty samplerProp =
+            serializedObject.FindProperty("octreeSampler");
+
+        if (samplerProp == null)
+            return;
+
+        SerializedProperty centerProp =
+            samplerProp.FindPropertyRelative("center");
+
+        SerializedProperty extentProp =
+            samplerProp.FindPropertyRelative("extent");
+
+        SerializedProperty builderProp =
+            samplerProp.FindPropertyRelative("builder");
+
+        if (centerProp != null)
+            EditorGUILayout.PropertyField(centerProp);
+
+        if (extentProp != null)
+            EditorGUILayout.PropertyField(extentProp);
+
+        if (builderProp != null)
+            EditorGUILayout.PropertyField(builderProp, true);
+    }
+
+    private void DrawMeshingSettings(VolumeModel model)
+    {
         EditorGUILayout.LabelField("Meshing", EditorStyles.boldLabel);
 
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("isoLevel"));
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("recalculateNormals"));
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("recalculateBounds"));
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("isoLevel")
+        );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("recalculateNormals")
+        );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("recalculateBounds")
+        );
 
         if (model.dataStructure == VolumeDataStructure.Octree)
         {
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("renderOctreeDebugCubes"));
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("renderOctreeDebugCubes")
+            );
         }
+    }
 
-        GUILayout.Space(10);
+    private void DrawRebuildSettings()
+    {
+        EditorGUILayout.LabelField("Rebuild", EditorStyles.boldLabel);
 
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("autoRebuildOnChange")
+        );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("rebuildEveryFrame")
+        );
+    }
+
+    private void DrawObjectCreation(VolumeModel model)
+    {
         EditorGUILayout.LabelField("Create SDF Object", EditorStyles.boldLabel);
 
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("shapeToAdd"));
-        EditorGUILayout.PropertyField(serializedObject.FindProperty("roleToAdd"));
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("shapeToAdd")
+        );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("roleToAdd")
+        );
 
         GUILayout.Space(5);
 
@@ -63,7 +212,9 @@ public class VolumeModelEditor : Editor
             serializedObject.ApplyModifiedProperties();
 
             Undo.RecordObject(model, "Add SDF Object");
+
             model.AddSelectedObject();
+
             EditorUtility.SetDirty(model);
         }
 
@@ -72,7 +223,9 @@ public class VolumeModelEditor : Editor
             serializedObject.ApplyModifiedProperties();
 
             Undo.RecordObject(model, "Remove Last SDF Object");
+
             model.RemoveLastObject();
+
             EditorUtility.SetDirty(model);
         }
 
@@ -88,72 +241,24 @@ public class VolumeModelEditor : Editor
             serializedObject.ApplyModifiedProperties();
 
             Undo.RecordObject(model, "Clear SDF Objects");
+
             model.ClearObjects();
+
             EditorUtility.SetDirty(model);
         }
 
         GUI.backgroundColor = oldColor;
+    }
 
-        GUILayout.Space(10);
-
+    private void DrawRebuildButton(VolumeModel model)
+    {
         if (GUILayout.Button("Rebuild Model", GUILayout.Height(30)))
         {
             serializedObject.ApplyModifiedProperties();
 
             model.RebuildModel();
+
             EditorUtility.SetDirty(model);
-        }
-
-        serializedObject.ApplyModifiedProperties();
-    }
-
-    private void DrawActiveSamplerSettings(VolumeModel model)
-    {
-        switch (model.dataStructure)
-        {
-            case VolumeDataStructure.VoxelGrid:
-                {
-                    EditorGUILayout.LabelField("Voxel Grid", EditorStyles.boldLabel);
-
-                    SerializedProperty samplerProp =
-                        serializedObject.FindProperty("voxelGridSampler");
-
-                    SerializedProperty builderProp =
-                        samplerProp.FindPropertyRelative("builder");
-
-                    EditorGUILayout.PropertyField(
-                        builderProp.FindPropertyRelative("uniformExtent")
-                    );
-
-                    EditorGUILayout.PropertyField(
-                        builderProp.FindPropertyRelative("gridExtent")
-                    );
-
-                    EditorGUILayout.PropertyField(
-                        builderProp.FindPropertyRelative("uniformResolution")
-                    );
-
-                    EditorGUILayout.PropertyField(
-                        builderProp.FindPropertyRelative("gridSize")
-                    );
-
-                    break;
-                }
-
-            case VolumeDataStructure.Octree:
-                {
-                    EditorGUILayout.LabelField("Octree", EditorStyles.boldLabel);
-
-                    SerializedProperty samplerProp =
-                        serializedObject.FindProperty("octreeSampler");
-
-                    SerializedProperty builderProp =
-                        samplerProp.FindPropertyRelative("builder");
-
-                    EditorGUILayout.PropertyField(builderProp, true);
-
-                    break;
-                }
         }
     }
 }

@@ -19,6 +19,8 @@ public enum VolumeDataStructure
 public class VolumeModel : MonoBehaviour
 {
 #if UNITY_EDITOR
+    private bool _editorRebuildQueued;
+
     private void Reset()
     {
         MoveToTop();
@@ -27,6 +29,27 @@ public class VolumeModel : MonoBehaviour
     private void OnValidate()
     {
         MoveToTop();
+
+        voxelGridSampler?.builder?.Validate();
+
+        // if (!autoRebuildOnChange)
+        //     return;
+
+        // if (_editorRebuildQueued)
+        //     return;
+
+        // _editorRebuildQueued = true;
+        // EditorApplication.delayCall += DelayedEditorRebuild;
+    }
+
+    private void DelayedEditorRebuild()
+    {
+        if (this == null)
+            return;
+
+        _editorRebuildQueued = false;
+
+        RebuildModel();
     }
 
     private void MoveToTop()
@@ -36,7 +59,7 @@ public class VolumeModel : MonoBehaviour
 #endif
 
     [Header("Pipeline")]
-    public VolumeDataStructure dataStructure = VolumeDataStructure.VoxelGrid;
+    public VolumeDataStructure dataStructure = VolumeDataStructure.Octree;
 
     [Header("Samplers")]
     public VoxelGridSampler voxelGridSampler = new();
@@ -47,12 +70,22 @@ public class VolumeModel : MonoBehaviour
     public bool recalculateNormals = true;
     public bool recalculateBounds = true;
 
+    [Header("Rebuild")]
+    public bool autoRebuildOnChange = true;
+    public bool rebuildEveryFrame = false;
+
     [Header("Debug")]
     public bool renderOctreeDebugCubes = true;
 
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
     public VolumeOperationRole roleToAdd = VolumeOperationRole.Add;
+
+    private void Update()
+    {
+        if (rebuildEveryFrame)
+            RebuildModel();
+    }
 
     public void AddSelectedObject()
     {
@@ -79,6 +112,10 @@ public class VolumeModel : MonoBehaviour
     public void RebuildModel()
     {
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+
+        if (composer == null)
+            return;
+
         composer.RebuildComposition();
 
         IScalarFieldSource source = composer;
@@ -97,7 +134,9 @@ public class VolumeModel : MonoBehaviour
         }
 
         VolumeMeshRenderer renderer = GetComponent<VolumeMeshRenderer>();
-        renderer.RebuildMesh(this);
+
+        if (renderer != null)
+            renderer.RebuildMesh(this);
     }
 
     public IVolumeData GetActiveVolume()
@@ -118,6 +157,9 @@ public class VolumeModel : MonoBehaviour
     public void ClearObjects()
     {
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+
+        if (composer == null)
+            return;
 
         for (int i = composer.objects.Count - 1; i >= 0; i--)
         {
@@ -144,6 +186,9 @@ public class VolumeModel : MonoBehaviour
     {
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
 
+        if (composer == null)
+            return;
+
         composer.objects.RemoveAll(o => o == null);
 
         if (composer.objects.Count == 0)
@@ -162,5 +207,44 @@ public class VolumeModel : MonoBehaviour
 #endif
 
         RebuildModel();
+    }
+
+    private void OnDrawGizmos()
+    {
+        DrawActiveBoundsGizmo(false);
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        DrawActiveBoundsGizmo(true);
+    }
+
+    private void DrawActiveBoundsGizmo(bool selected)
+    {
+        Bounds bounds;
+
+        switch (dataStructure)
+        {
+            case VolumeDataStructure.VoxelGrid:
+                bounds = voxelGridSampler.builder.Bounds;
+                break;
+
+            case VolumeDataStructure.Octree:
+                bounds = octreeSampler.builder.Bounds;
+                break;
+
+            default:
+                return;
+        }
+
+        Gizmos.matrix = transform.localToWorldMatrix;
+
+        Gizmos.color = selected
+            ? new Color(0f, 1f, 1f, 1f)
+            : new Color(0f, 1f, 1f, 0.35f);
+
+        Gizmos.DrawWireCube(bounds.center, bounds.size);
+
+        Gizmos.matrix = Matrix4x4.identity;
     }
 }

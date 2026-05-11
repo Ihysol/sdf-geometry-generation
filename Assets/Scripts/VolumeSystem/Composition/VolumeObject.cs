@@ -34,7 +34,12 @@ public class VolumeObject : MonoBehaviour
 {
 #if UNITY_EDITOR
     private bool _rebuildQueued;
+
+    private Vector3 _lastLocalPosition;
+    private Quaternion _lastLocalRotation;
+    private Vector3 _lastLocalScale;
 #endif
+
     [Header("Object")]
     public VolumeShapeType shapeType = VolumeShapeType.Sphere;
     public VolumeOperationRole role = VolumeOperationRole.Add;
@@ -81,16 +86,52 @@ public class VolumeObject : MonoBehaviour
     public bool useYLines = true;
     public bool useZLines = true;
 
+#if UNITY_EDITOR
+    private void OnEnable()
+    {
+        CacheLocalTransform();
+    }
+#endif
 
     private void OnValidate()
     {
 #if UNITY_EDITOR
         UpdateGameObjectName();
-        QueueComposerRebuild();
+        CacheLocalTransform();
+
+        // Kein QueueComposerRebuild hier:
+        // OnValidate feuert auch bei Parent-/Inspector-Änderungen.
+        // Rebuild läuft über lokalen Transform-Check oder VolumeModelEditor.
 #endif
     }
 
 #if UNITY_EDITOR
+    private void Update()
+    {
+        if (Application.isPlaying)
+            return;
+
+        if (!LocalTransformChanged())
+            return;
+
+        CacheLocalTransform();
+        QueueComposerRebuild();
+    }
+
+    private void CacheLocalTransform()
+    {
+        _lastLocalPosition = transform.localPosition;
+        _lastLocalRotation = transform.localRotation;
+        _lastLocalScale = transform.localScale;
+    }
+
+    private bool LocalTransformChanged()
+    {
+        return _lastLocalPosition != transform.localPosition ||
+               _lastLocalRotation != transform.localRotation ||
+               _lastLocalScale != transform.localScale;
+    }
+
     private void QueueComposerRebuild()
     {
         if (_rebuildQueued)
@@ -112,9 +153,7 @@ public class VolumeObject : MonoBehaviour
         if (composer != null)
             composer.MarkDirtyAndRebuild();
     }
-#endif
 
-#if UNITY_EDITOR
     private void UpdateGameObjectName()
     {
         string shapeName = shapeType.ToString();
@@ -130,6 +169,7 @@ public class VolumeObject : MonoBehaviour
             gameObject.name = newName;
     }
 #endif
+
     public float EvaluateLocal(Vector3 p)
     {
         float d = EvaluateShape(p);
@@ -147,18 +187,21 @@ public class VolumeObject : MonoBehaviour
     {
         switch (shapeType)
         {
-
             case VolumeShapeType.Box:
                 return Box(p, boxHalfExtents);
 
             case VolumeShapeType.Torus:
+            {
                 Vector2 q = new Vector2(
                     new Vector2(p.x, p.z).magnitude - torusMajorRadius,
                     p.y
                 );
+
                 return q.magnitude - torusMinorRadius;
+            }
 
             case VolumeShapeType.Hyperboloid:
+            {
                 float a = Mathf.Max(0.0001f, hyperboloidA);
                 float b = Mathf.Max(0.0001f, hyperboloidB);
                 float c = Mathf.Max(0.0001f, hyperboloidC);
@@ -168,6 +211,7 @@ public class VolumeObject : MonoBehaviour
                     (p.z * p.z) / (b * b) -
                     (p.y * p.y) / (c * c) -
                     1f;
+            }
 
             case VolumeShapeType.CustomAsset:
                 return customAsset != null ? customAsset.Evaluate(p) : 1f;
@@ -266,16 +310,24 @@ public class VolumeObject : MonoBehaviour
         int height = Mathf.Max(1, hyperboloidHeightSegments);
 
         float radialSpacing = Mathf.PI * 2f / radial;
-        float heightSpacing = Mathf.Max(0.0001f, (hyperboloidHeightMax - hyperboloidHeightMin) / height);
+        float heightSpacing = Mathf.Max(
+            0.0001f,
+            (hyperboloidHeightMax - hyperboloidHeightMin) / height
+        );
 
         float rx = p.x / safeA;
         float rz = p.z / safeB;
         float localRadius = Mathf.Sqrt(rx * rx + rz * rz);
 
-        float angularScale = Mathf.Max(0.0001f, localRadius * Mathf.Min(safeA, safeB));
+        float angularScale = Mathf.Max(
+            0.0001f,
+            localRadius * Mathf.Min(safeA, safeB)
+        );
 
         float radialDist = Mathf.Abs(RepeatCentered(theta, radialSpacing)) * angularScale;
-        float heightDist = Mathf.Abs(RepeatCentered(p.y - hyperboloidHeightMin + gridOffset.y, heightSpacing));
+        float heightDist = Mathf.Abs(
+            RepeatCentered(p.y - hyperboloidHeightMin + gridOffset.y, heightSpacing)
+        );
 
         return Mathf.Min(radialDist, heightDist) - gridWidth;
     }
@@ -288,7 +340,11 @@ public class VolumeObject : MonoBehaviour
 
     private static Vector3 Abs(Vector3 v)
     {
-        return new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
+        return new Vector3(
+            Mathf.Abs(v.x),
+            Mathf.Abs(v.y),
+            Mathf.Abs(v.z)
+        );
     }
 
     private static float Box(Vector3 p, Vector3 halfExtents)
@@ -343,7 +399,11 @@ public class VolumeObject : MonoBehaviour
             case VolumeShapeType.Hyperboloid:
                 Gizmos.DrawWireCube(
                     Vector3.zero,
-                    new Vector3(hyperboloidA * 2f, Mathf.Abs(hyperboloidHeightMax - hyperboloidHeightMin), hyperboloidB * 2f)
+                    new Vector3(
+                        hyperboloidA * 2f,
+                        Mathf.Abs(hyperboloidHeightMax - hyperboloidHeightMin),
+                        hyperboloidB * 2f
+                    )
                 );
                 break;
         }
@@ -384,16 +444,5 @@ public class VolumeObject : MonoBehaviour
             prevOuter = outer;
             prevInner = inner;
         }
-    }
-
-    private void Update()
-    {
-#if UNITY_EDITOR
-        if (!Application.isPlaying && transform.hasChanged)
-        {
-            transform.hasChanged = false;
-            QueueComposerRebuild();
-        }
-#endif
     }
 }
