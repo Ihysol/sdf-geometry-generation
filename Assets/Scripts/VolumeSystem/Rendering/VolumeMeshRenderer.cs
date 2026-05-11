@@ -1,193 +1,91 @@
-using Unity.VisualScripting;
 using UnityEngine;
 
-public enum VolumeMesherType
-{
-    DualContouring
-}
-
-[ExecuteAlways]
-[RequireComponent(typeof(VolumeSampler))]
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 public class VolumeMeshRenderer : MonoBehaviour
 {
-    [Header("Mesher")]
-    public VolumeMesherType mesherType = VolumeMesherType.DualContouring;
+    private MeshFilter meshFilter;
+    private MeshRenderer meshRenderer;
+    private Mesh mesh;
 
-    [Header("Iso Surface")]
-    public float isoLevel = 0f;
-
-    [Header("Rebuild")]
-    public bool rebuildEveryFrame = false;
-    public bool autoRebuildOnChange = true;
-    public bool recalculateNormals = true;
-
-    private VolumeSampler _sampler;
-    private MeshFilter _meshFilter;
-    private IVolumeMesher<VoxelGrid> _mesher;
-
-    private float _lastIsoLevel;
-    private VolumeMesherType _lastMesherType;
-
-    private void Awake()
-    {
-        EnsureReferences();
-        EnsureMesher();
-    }
-
-    private void OnSamplerChanged()
-    {
-        if (autoRebuildOnChange)
-            QueueRebuild();
-    }
+    private readonly DualContouringVoxelMesher voxelMesher = new();
+    private readonly DualContouringOctreeMesher octreeMesher = new();
 
     private void OnEnable()
     {
-        EnsureReferences();
-        EnsureMesher();
-
-        if (_sampler != null)
-            _sampler.Changed += OnSamplerChanged;
+        EnsureSetup();
     }
 
-    private void OnDisable()
+    public void RebuildMesh(VolumeModel model)
     {
-        if (_sampler != null)
-            _sampler.Changed -= OnSamplerChanged;
-    }
+        EnsureSetup();
 
-    private void OnValidate()
-    {
-        if (!autoRebuildOnChange)
-            return;
+        mesh.Clear();
 
-        QueueRebuild();
-    }
-
-    private void Update()
-    {
-        if (rebuildEveryFrame)
+        switch (model.dataStructure)
         {
-            RebuildMesh();
-            return;
+            case VolumeDataStructure.VoxelGrid:
+                {
+                    MeshData meshData = voxelMesher.BuildMeshData(
+                        model.voxelGridSampler.Volume,
+                        model.isoLevel
+                    );
+                    ApplyMeshData(meshData);
+
+                    break;
+                }
+
+            case VolumeDataStructure.Octree:
+                {
+                    octreeMesher.BuildMesh(
+                        model.octreeSampler.Volume,
+                        mesh
+                    );
+
+                    break;
+                }
         }
 
-        if (autoRebuildOnChange && IsDirty())
-            RebuildMesh();
+        Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}");
     }
 
-    private void QueueRebuild()
+    private void EnsureSetup()
     {
-#if UNITY_EDITOR
-        if (!Application.isPlaying)
+        if (meshFilter == null)
+            meshFilter = GetComponent<MeshFilter>();
+
+        if (meshRenderer == null)
+            meshRenderer = GetComponent<MeshRenderer>();
+
+        if (mesh == null)
         {
-            UnityEditor.EditorApplication.delayCall -= DelayedRebuild;
-            UnityEditor.EditorApplication.delayCall += DelayedRebuild;
-            return;
-        }
-#endif
+            mesh = new Mesh();
+            mesh.name = "Volume Mesh";
 
-        RebuildMesh();
-    }
-
-#if UNITY_EDITOR
-    private void DelayedRebuild()
-    {
-        if (this == null)
-            return;
-
-        RebuildMesh();
-    }
-#endif
-
-
-    private void EnsureReferences()
-    {
-        if (_sampler == null)
-            _sampler = GetComponent<VolumeSampler>();
-
-        if (_meshFilter == null)
-            _meshFilter = GetComponent<MeshFilter>();
-    }
-
-    private void EnsureMesher()
-    {
-        if (_mesher != null && _lastMesherType == mesherType)
-            return;
-
-        switch (mesherType)
-        {
-            case VolumeMesherType.DualContouring:
-            default:
-                _mesher = new DualContouringVoxelMesher();
-                break;
+            meshFilter.sharedMesh = mesh;
         }
 
-        _lastMesherType = mesherType;
-    }
-
-    private bool IsDirty()
-    {
-        EnsureReferences();
-
-        return _sampler == null
-            || _sampler.IsDirty
-            || _sampler.Volume == null
-            || !Mathf.Approximately(_lastIsoLevel, isoLevel)
-            || _lastMesherType != mesherType;
-    }
-
-    [ContextMenu("Rebuild Mesh")]
-    public void RebuildMesh()
-    {
-        EnsureReferences();
-        EnsureMesher();
-
-
-        if (_sampler == null || _meshFilter == null || _mesher == null)
-            return;
-
-        if (_sampler.IsDirty || _sampler.Volume == null)
-            _sampler.RebuildVolume();
-
-        if (_sampler.Volume == null)
+        if (meshRenderer.sharedMaterial == null)
         {
-            DestroyMesh();
-            CacheState();
-            return;
+            meshRenderer.sharedMaterial =
+                new Material(Shader.Find("Standard"));
         }
-
-        DestroyMesh();
-
-        MeshData meshData = _mesher.BuildMeshData(_sampler.Volume, isoLevel);
-        Mesh mesh = meshData.ToMesh(recalculateNormals);
-
-        _meshFilter.sharedMesh = mesh;
-
-        CacheState();
     }
 
-    private void CacheState()
+    private void ApplyMeshData(MeshData meshData)
     {
-        _lastIsoLevel = isoLevel;
-        _lastMesherType = mesherType;
-    }
+        mesh.Clear();
 
-    public void DestroyMesh()
-    {
-        EnsureReferences();
-
-        if (_meshFilter == null || _meshFilter.sharedMesh == null)
+        if (meshData == null)
             return;
 
-#if UNITY_EDITOR
-        if (!Application.isPlaying)
-            DestroyImmediate(_meshFilter.sharedMesh);
-        else
-#endif
-            Destroy(_meshFilter.sharedMesh);
+        mesh.SetVertices(meshData.Vertices);
+        mesh.SetTriangles(meshData.Triangles, 0);
 
-        _meshFilter.sharedMesh = null;
+        if (meshData.Bounds.size != Vector3.zero)
+            mesh.bounds = meshData.Bounds;
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
     }
 }

@@ -98,7 +98,7 @@ public class VolumeObjectEditor : Editor
 
             if (model != null)
             {
-                var sampler = model.GetComponent<VolumeSampler>();
+                var sampler = model.GetComponent<VoxelGridSampler>();
                 if (sampler != null)
                     sampler.MarkDirty();
             }
