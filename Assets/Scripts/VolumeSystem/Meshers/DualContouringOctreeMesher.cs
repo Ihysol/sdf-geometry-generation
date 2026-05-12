@@ -170,7 +170,9 @@ public class DualContouringOctreeMesher
         {
             node.MeshVertexIndex = -1;
 
-            _leafMap[node.Coord] = node;
+            if (node.ContainsSurface)
+                _leafMap[node.Coord] = node;
+
             return;
         }
 
@@ -297,12 +299,7 @@ public class DualContouringOctreeMesher
         }
     }
 
-    private bool TryAddQuad(
-        OctreeNode a,
-        OctreeNode b,
-        OctreeNode c,
-        OctreeNode d,
-        bool flip)
+    private bool TryAddQuad(OctreeNode a, OctreeNode b, OctreeNode c, OctreeNode d, bool flip)
     {
         if (a == null || b == null || c == null || d == null)
         {
@@ -310,7 +307,7 @@ public class DualContouringOctreeMesher
             return false;
         }
 
-        if (a == b || b == c || c == d || d == a || a == c || b == d)
+        if (a == b || a == c || a == d || b == c || b == d || c == d)
         {
             _skippedInvalidQuads++;
             return false;
@@ -377,12 +374,12 @@ public class DualContouringOctreeMesher
         if (_leafMap.TryGetValue(coord, out OctreeNode node))
             return node;
 
-        node = FindLeafContainingCoord(coord);
+        OctreeNode containingLeaf = FindLeafContainingCoord(coord);
 
-        if (node != null)
+        if (containingLeaf != null)
         {
-            _leafMap[coord] = node;
-            return node;
+            _leafMap[coord] = containingLeaf;
+            return containingLeaf;
         }
 
         return CreateGhostLeaf(coord);
@@ -391,9 +388,6 @@ public class DualContouringOctreeMesher
 
     private OctreeNode FindLeafContainingCoord(Vector3Int coord)
     {
-        if (_volume == null || _volume.Root == null)
-            return null;
-
         if (coord.x < 0 || coord.y < 0 || coord.z < 0 ||
             coord.x >= _resolution ||
             coord.y >= _resolution ||
@@ -411,29 +405,30 @@ public class DualContouringOctreeMesher
 
     private OctreeNode FindLeafContainingPoint(OctreeNode node, Vector3 point)
     {
-        if (node == null)
-            return null;
-
-        if (!node.Bounds.Contains(point))
-            return null;
-
-        if (node.IsLeaf)
-            return node;
-
-        if (node.Children == null)
-            return node;
-
-        for (int i = 0; i < node.Children.Length; i++)
+        while (node != null && !node.IsLeaf)
         {
-            OctreeNode child = node.Children[i];
+            if (node.Children == null)
+                return node;
+
+            Vector3 c = node.Bounds.center;
+
+            int index = 0;
+
+            if (point.x >= c.x)
+                index += 4;
+
+            if (point.y >= c.y)
+                index += 2;
+
+            if (point.z >= c.z)
+                index += 1;
+
+            OctreeNode child = node.Children[index];
 
             if (child == null)
-                continue;
+                return node;
 
-            if (!child.Bounds.Contains(point))
-                continue;
-
-            return FindLeafContainingPoint(child, point);
+            node = child;
         }
 
         return node;
