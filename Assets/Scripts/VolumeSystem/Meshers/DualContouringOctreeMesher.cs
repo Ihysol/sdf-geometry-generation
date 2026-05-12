@@ -202,7 +202,10 @@ public class DualContouringOctreeMesher
 
     private void BuildEdgeQuads()
     {
-        foreach (KeyValuePair<Vector3Int, OctreeNode> pair in _leafMap)
+        List<KeyValuePair<Vector3Int, OctreeNode>> entries =
+            new List<KeyValuePair<Vector3Int, OctreeNode>>(_leafMap);
+
+        foreach (KeyValuePair<Vector3Int, OctreeNode> pair in entries)
         {
             Vector3Int cellCoord = pair.Key;
             OctreeNode node = pair.Value;
