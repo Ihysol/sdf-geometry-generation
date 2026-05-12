@@ -170,6 +170,13 @@ public class VolumeModelEditor : Editor
             serializedObject.FindProperty("recalculateBounds")
         );
 
+        EditorGUILayout.Space(5);
+        EditorGUILayout.LabelField("Debug", EditorStyles.boldLabel);
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("drawChildGizmos")
+        );
+
         if (model.dataStructure == VolumeDataStructure.Octree)
         {
             EditorGUILayout.PropertyField(

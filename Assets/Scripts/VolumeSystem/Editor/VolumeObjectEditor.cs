@@ -8,11 +8,16 @@ public class VolumeObjectEditor : Editor
     {
         serializedObject.Update();
 
+        EditorGUI.BeginChangeCheck();
+
         Draw("shapeType");
         Draw("role");
 
-        VolumeShapeType shape = (VolumeShapeType)serializedObject.FindProperty("shapeType").enumValueIndex;
-        VolumeGridType grid = (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
+        VolumeShapeType shape =
+            (VolumeShapeType)serializedObject.FindProperty("shapeType").enumValueIndex;
+
+        VolumeGridType grid =
+            (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
 
         EditorGUILayout.Space(8);
 
@@ -48,6 +53,7 @@ public class VolumeObjectEditor : Editor
         }
 
         EditorGUILayout.Space(8);
+
         Header("Surface Grid / Cutter");
         Draw("gridType");
 
@@ -87,27 +93,32 @@ public class VolumeObjectEditor : Editor
             }
         }
 
-        serializedObject.ApplyModifiedProperties();
-
-        if (GUI.changed)
+        if (EditorGUI.EndChangeCheck())
         {
-            EditorUtility.SetDirty(target);
+            serializedObject.ApplyModifiedProperties();
 
             VolumeObject obj = (VolumeObject)target;
-            var model = obj.GetComponentInParent<VolumeModel>();
 
-            if (model != null)
+            EditorUtility.SetDirty(obj);
+
+            VolumeModel model = obj.GetComponentInParent<VolumeModel>();
+
+            if (model != null && model.autoRebuildOnChange)
             {
-                var sampler = model.GetComponent<VoxelGridSampler>();
-                if (sampler != null)
-                    sampler.MarkDirty();
+                model.RebuildModel();
+                EditorUtility.SetDirty(model);
             }
+        }
+        else
+        {
+            serializedObject.ApplyModifiedProperties();
         }
     }
 
     private void Draw(string propertyName)
     {
         SerializedProperty prop = serializedObject.FindProperty(propertyName);
+
         if (prop != null)
             EditorGUILayout.PropertyField(prop);
     }
