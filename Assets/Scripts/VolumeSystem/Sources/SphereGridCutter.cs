@@ -13,6 +13,7 @@ public class SphereGridCutter : SDFCutter
     public float width = 0.02f;
     public float depth = 0.04f;
 
+    /// <summary>Evaluates longitude and latitude grooves inside a sphere surface shell.</summary>
     public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
@@ -43,6 +44,7 @@ public class SphereGridCutter : SDFCutter
         return Mathf.Max(gridD, shell);
     }
 
+    /// <summary>Repeats an angular coordinate around zero with the given spacing.</summary>
     private float RepeatCentered(float v, float spacing)
     {
         spacing = Mathf.Max(0.0001f, spacing);
