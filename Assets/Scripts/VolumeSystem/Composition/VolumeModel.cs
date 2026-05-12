@@ -18,6 +18,8 @@ public enum VolumeDataStructure
 [RequireComponent(typeof(MeshRenderer))]
 public class VolumeModel : MonoBehaviour
 {
+
+
 #if UNITY_EDITOR
     private bool _editorRebuildQueued;
 
@@ -41,6 +43,8 @@ public class VolumeModel : MonoBehaviour
         // _editorRebuildQueued = true;
         // EditorApplication.delayCall += DelayedEditorRebuild;
     }
+
+
 
     private void DelayedEditorRebuild()
     {
@@ -75,7 +79,8 @@ public class VolumeModel : MonoBehaviour
     public bool rebuildEveryFrame = false;
 
     [Header("Debug")]
-    public bool renderOctreeDebugCubes = true;
+    public bool drawChildGizmos = true;
+    public bool renderOctreeDebugCubes = false;
 
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
@@ -245,6 +250,42 @@ public class VolumeModel : MonoBehaviour
 
         Gizmos.DrawWireCube(bounds.center, bounds.size);
 
+        if (dataStructure == VolumeDataStructure.Octree &&
+            renderOctreeDebugCubes &&
+            octreeSampler.Volume != null)
+        {
+            DrawOctreeNode(octreeSampler.Volume.Root);
+        }
+
         Gizmos.matrix = Matrix4x4.identity;
+    }
+
+    private void DrawOctreeNode(OctreeNode node)
+    {
+        if (node == null)
+            return;
+
+        if (node.IsLeaf)
+        {
+            if (node.ContainsSurface)
+            {
+                Gizmos.color = new Color(1f, 1f, 0f, 0.2f);
+
+                Gizmos.DrawWireCube(
+                    node.Bounds.center,
+                    node.Bounds.size
+                );
+            }
+
+            return;
+        }
+
+        if (node.Children == null)
+            return;
+
+        for (int i = 0; i < node.Children.Length; i++)
+        {
+            DrawOctreeNode(node.Children[i]);
+        }
     }
 }

@@ -86,6 +86,7 @@ public class VolumeObject : MonoBehaviour
     public bool useYLines = true;
     public bool useZLines = true;
 
+
 #if UNITY_EDITOR
     private void OnEnable()
     {
@@ -191,27 +192,27 @@ public class VolumeObject : MonoBehaviour
                 return Box(p, boxHalfExtents);
 
             case VolumeShapeType.Torus:
-            {
-                Vector2 q = new Vector2(
-                    new Vector2(p.x, p.z).magnitude - torusMajorRadius,
-                    p.y
-                );
+                {
+                    Vector2 q = new Vector2(
+                        new Vector2(p.x, p.z).magnitude - torusMajorRadius,
+                        p.y
+                    );
 
-                return q.magnitude - torusMinorRadius;
-            }
+                    return q.magnitude - torusMinorRadius;
+                }
 
             case VolumeShapeType.Hyperboloid:
-            {
-                float a = Mathf.Max(0.0001f, hyperboloidA);
-                float b = Mathf.Max(0.0001f, hyperboloidB);
-                float c = Mathf.Max(0.0001f, hyperboloidC);
+                {
+                    float a = Mathf.Max(0.0001f, hyperboloidA);
+                    float b = Mathf.Max(0.0001f, hyperboloidB);
+                    float c = Mathf.Max(0.0001f, hyperboloidC);
 
-                return
-                    (p.x * p.x) / (a * a) +
-                    (p.z * p.z) / (b * b) -
-                    (p.y * p.y) / (c * c) -
-                    1f;
-            }
+                    return
+                        (p.x * p.x) / (a * a) +
+                        (p.z * p.z) / (b * b) -
+                        (p.y * p.y) / (c * c) -
+                        1f;
+                }
 
             case VolumeShapeType.CustomAsset:
                 return customAsset != null ? customAsset.Evaluate(p) : 1f;
@@ -355,16 +356,6 @@ public class VolumeObject : MonoBehaviour
                Mathf.Min(Mathf.Max(q.x, Mathf.Max(q.y, q.z)), 0f);
     }
 
-    private void OnDrawGizmos()
-    {
-        DrawVolumeGizmo(false);
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        DrawVolumeGizmo(true);
-    }
-
     private void DrawVolumeGizmo(bool selected)
     {
         Matrix4x4 oldMatrix = Gizmos.matrix;
@@ -444,5 +435,31 @@ public class VolumeObject : MonoBehaviour
             prevOuter = outer;
             prevInner = inner;
         }
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (!ShouldDrawGizmos())
+            return;
+
+        DrawVolumeGizmo(false);
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        if (!ShouldDrawGizmos())
+            return;
+
+        DrawVolumeGizmo(true);
+    }
+
+    private bool ShouldDrawGizmos()
+    {
+        VolumeModel model = GetComponentInParent<VolumeModel>();
+
+        if (model == null)
+            return true;
+
+        return model.drawChildGizmos;
     }
 }
