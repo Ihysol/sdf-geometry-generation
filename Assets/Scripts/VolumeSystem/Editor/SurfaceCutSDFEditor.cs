@@ -7,6 +7,7 @@ public class SurfaceCutSDFEditor : Editor
     private Editor _baseEditor;
     private Editor _cutterEditor;
 
+    /// <summary>Draws nested inspectors for the base shape and cutter assets.</summary>
     public override void OnInspectorGUI()
     {
         serializedObject.Update();

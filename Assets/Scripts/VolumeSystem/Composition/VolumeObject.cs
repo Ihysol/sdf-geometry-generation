@@ -88,12 +88,14 @@ public class VolumeObject : MonoBehaviour
 
 
 #if UNITY_EDITOR
+    /// <summary>Stores the initial transform state for editor change detection.</summary>
     private void OnEnable()
     {
         CacheLocalTransform();
     }
 #endif
 
+    /// <summary>Updates editor metadata after inspector changes.</summary>
     private void OnValidate()
     {
 #if UNITY_EDITOR
@@ -107,6 +109,7 @@ public class VolumeObject : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    /// <summary>Watches local transform changes in edit mode and queues rebuilds.</summary>
     private void Update()
     {
         if (Application.isPlaying)
@@ -119,6 +122,7 @@ public class VolumeObject : MonoBehaviour
         QueueComposerRebuild();
     }
 
+    /// <summary>Caches the current local transform values.</summary>
     private void CacheLocalTransform()
     {
         _lastLocalPosition = transform.localPosition;
@@ -126,6 +130,7 @@ public class VolumeObject : MonoBehaviour
         _lastLocalScale = transform.localScale;
     }
 
+    /// <summary>Checks whether the local transform changed since the last cache.</summary>
     private bool LocalTransformChanged()
     {
         return _lastLocalPosition != transform.localPosition ||
@@ -133,6 +138,7 @@ public class VolumeObject : MonoBehaviour
                _lastLocalScale != transform.localScale;
     }
 
+    /// <summary>Queues a delayed composition rebuild in the editor.</summary>
     private void QueueComposerRebuild()
     {
         if (_rebuildQueued)
@@ -142,6 +148,7 @@ public class VolumeObject : MonoBehaviour
         EditorApplication.delayCall += DelayedComposerRebuild;
     }
 
+    /// <summary>Runs the queued editor rebuild if this object still exists.</summary>
     private void DelayedComposerRebuild()
     {
         _rebuildQueued = false;
@@ -155,6 +162,7 @@ public class VolumeObject : MonoBehaviour
             composer.MarkDirtyAndRebuild();
     }
 
+    /// <summary>Renames the GameObject from its shape, role, and grid mode.</summary>
     private void UpdateGameObjectName()
     {
         string shapeName = shapeType.ToString();
@@ -171,6 +179,7 @@ public class VolumeObject : MonoBehaviour
     }
 #endif
 
+    /// <summary>Samples this object's local SDF including optional grid cutters.</summary>
     public float EvaluateLocal(Vector3 p)
     {
         float d = EvaluateShape(p);
@@ -184,6 +193,7 @@ public class VolumeObject : MonoBehaviour
         return d;
     }
 
+    /// <summary>Samples the base primitive or custom SDF in local space.</summary>
     private float EvaluateShape(Vector3 p)
     {
         switch (shapeType)
@@ -223,6 +233,7 @@ public class VolumeObject : MonoBehaviour
         }
     }
 
+    /// <summary>Evaluates the active grid cutter inside the surface shell.</summary>
     private float EvaluateGridCutter(Vector3 p, float baseDistance)
     {
         float shell = Mathf.Max(baseDistance, -baseDistance - gridDepth);
@@ -239,6 +250,7 @@ public class VolumeObject : MonoBehaviour
         return Mathf.Max(gridD, shell);
     }
 
+    /// <summary>Evaluates axis-aligned global grid grooves.</summary>
     private float EvaluateGlobalGrid(Vector3 p)
     {
         Vector3 q = p + gridOffset;
@@ -257,6 +269,7 @@ public class VolumeObject : MonoBehaviour
         return d;
     }
 
+    /// <summary>Evaluates longitude and latitude grooves on a sphere.</summary>
     private float EvaluateSphereGrid(Vector3 p)
     {
         float r = p.magnitude;
@@ -281,6 +294,7 @@ public class VolumeObject : MonoBehaviour
         return Mathf.Min(lonDist, latDist) - gridWidth;
     }
 
+    /// <summary>Evaluates major and minor grooves on a torus.</summary>
     private float EvaluateTorusGrid(Vector3 p)
     {
         float theta = Mathf.Atan2(p.z, p.x) + gridOffset.x;
@@ -300,6 +314,7 @@ public class VolumeObject : MonoBehaviour
         return Mathf.Min(majorDist, minorDist) - gridWidth;
     }
 
+    /// <summary>Evaluates radial and height grooves on a hyperboloid.</summary>
     private float EvaluateHyperboloidGrid(Vector3 p)
     {
         float safeA = Mathf.Max(0.0001f, hyperboloidA);
@@ -333,12 +348,14 @@ public class VolumeObject : MonoBehaviour
         return Mathf.Min(radialDist, heightDist) - gridWidth;
     }
 
+    /// <summary>Repeats a coordinate around zero with the given spacing.</summary>
     private static float RepeatCentered(float v, float spacing)
     {
         spacing = Mathf.Max(0.0001f, spacing);
         return v - spacing * Mathf.Floor(v / spacing + 0.5f);
     }
 
+    /// <summary>Returns the component-wise absolute value.</summary>
     private static Vector3 Abs(Vector3 v)
     {
         return new Vector3(
@@ -348,6 +365,7 @@ public class VolumeObject : MonoBehaviour
         );
     }
 
+    /// <summary>Evaluates an axis-aligned box SDF.</summary>
     private static float Box(Vector3 p, Vector3 halfExtents)
     {
         Vector3 q = Abs(p) - halfExtents;
@@ -356,6 +374,7 @@ public class VolumeObject : MonoBehaviour
                Mathf.Min(Mathf.Max(q.x, Mathf.Max(q.y, q.z)), 0f);
     }
 
+    /// <summary>Draws a scene-view outline for this volume object.</summary>
     private void DrawVolumeGizmo(bool selected)
     {
         Matrix4x4 oldMatrix = Gizmos.matrix;
@@ -403,6 +422,7 @@ public class VolumeObject : MonoBehaviour
         Gizmos.color = oldColor;
     }
 
+    /// <summary>Draws a simple torus outline for the scene-view gizmo.</summary>
     private void DrawTorusGizmo(float majorRadius, float minorRadius)
     {
         const int segments = 64;
@@ -437,6 +457,7 @@ public class VolumeObject : MonoBehaviour
         }
     }
 
+    /// <summary>Draws the object gizmo when child gizmos are enabled.</summary>
     private void OnDrawGizmos()
     {
         if (!ShouldDrawGizmos())
@@ -445,6 +466,7 @@ public class VolumeObject : MonoBehaviour
         DrawVolumeGizmo(false);
     }
 
+    /// <summary>Draws the selected object gizmo when child gizmos are enabled.</summary>
     private void OnDrawGizmosSelected()
     {
         if (!ShouldDrawGizmos())
@@ -453,6 +475,7 @@ public class VolumeObject : MonoBehaviour
         DrawVolumeGizmo(true);
     }
 
+    /// <summary>Checks the parent model setting that controls child gizmos.</summary>
     private bool ShouldDrawGizmos()
     {
         VolumeModel model = GetComponentInParent<VolumeModel>();

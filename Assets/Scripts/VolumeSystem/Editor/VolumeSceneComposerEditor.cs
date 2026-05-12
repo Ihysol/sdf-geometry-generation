@@ -4,6 +4,7 @@ using UnityEngine;
 [CustomEditor(typeof(VolumeSceneComposer))]
 public class VolumeSceneComposerEditor : Editor
 {
+    /// <summary>Draws composer object-list and maintenance controls.</summary>
     public override void OnInspectorGUI()
     {
         serializedObject.Update();

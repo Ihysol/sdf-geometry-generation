@@ -12,6 +12,7 @@ public class GlobalGridCutter : SDFCutter
     public bool useYLines = true;
     public bool useZLines = true;
 
+    /// <summary>Evaluates axis-aligned grid cuts inside the base surface shell.</summary>
     public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
@@ -35,6 +36,7 @@ public class GlobalGridCutter : SDFCutter
         return Mathf.Max(gridD, shell);
     }
 
+    /// <summary>Repeats a coordinate around zero with the given spacing.</summary>
     private float Repeat(float v, float s)
     {
         s = Mathf.Max(0.0001f, s);

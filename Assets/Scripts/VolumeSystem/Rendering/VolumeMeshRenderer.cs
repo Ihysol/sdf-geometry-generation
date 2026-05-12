@@ -3,7 +3,7 @@ using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
-public class VolumeMeshRenderer : MonoBehaviour
+public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 {
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
@@ -12,13 +12,35 @@ public class VolumeMeshRenderer : MonoBehaviour
     private readonly DualContouringVoxelMesher voxelMesher = new();
     private readonly DualContouringOctreeMesher octreeMesher = new();
 
-    private void OnEnable()
+    /// <summary>Regenerates the single-mesh output for the model.</summary>
+    public void Rebuild(VolumeModel model)
     {
-        EnsureSetup();
+        RebuildMesh(model);
     }
 
+    /// <summary>Clears the generated mesh and detaches it from the mesh filter.</summary>
+    public void Clear()
+    {
+        if (mesh != null)
+            mesh.Clear();
+
+        if (meshFilter == null)
+            meshFilter = GetComponent<MeshFilter>();
+
+        if (meshFilter != null)
+            meshFilter.sharedMesh = null;
+    }
+
+    /// <summary>Builds the active volume data structure into one Unity mesh.</summary>
     public void RebuildMesh(VolumeModel model)
     {
+        if (model.renderMode != VolumeRenderMode.SingleMesh)
+        {
+            Clear();
+            enabled = false;
+            return;
+        }
+
         EnsureSetup();
 
         // Wichtig: vor Clear/SetTriangles setzen
@@ -41,7 +63,7 @@ public class VolumeMeshRenderer : MonoBehaviour
             case VolumeDataStructure.Octree:
                 {
                     octreeMesher.isoLevel = model.isoLevel;
-                    octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);    
+                    octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);
 
                     break;
                 }
@@ -50,6 +72,7 @@ public class VolumeMeshRenderer : MonoBehaviour
         Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
     }
 
+    /// <summary>Copies generated mesh buffers into the Unity mesh.</summary>
     private void ApplyMeshData(MeshData meshData, VolumeModel model)
     {
         mesh.indexFormat = IndexFormat.UInt32;
@@ -71,6 +94,7 @@ public class VolumeMeshRenderer : MonoBehaviour
             mesh.RecalculateBounds();
     }
 
+    /// <summary>Initializes required components, mesh, and fallback material.</summary>
     private void EnsureSetup()
     {
         if (meshFilter == null)
@@ -84,12 +108,15 @@ public class VolumeMeshRenderer : MonoBehaviour
             mesh = new Mesh();
             mesh.name = "Volume Mesh";
             mesh.indexFormat = IndexFormat.UInt32;
-            meshFilter.sharedMesh = mesh;
         }
 
+        // WICHTIG:
+        // Nach Clear() kann sharedMesh null sein.
+        // Deshalb immer wieder zuweisen.
+        if (meshFilter.sharedMesh != mesh)
+            meshFilter.sharedMesh = mesh;
+
         if (meshRenderer.sharedMaterial == null)
-        {
             meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
-        }
     }
 }
