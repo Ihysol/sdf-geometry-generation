@@ -169,6 +169,7 @@ public class DualContouringOctreeMesher
         if (node.IsLeaf)
         {
             node.MeshVertexIndex = -1;
+
             _leafMap[node.Coord] = node;
             return;
         }
@@ -256,43 +257,43 @@ public class DualContouringOctreeMesher
         switch (axis)
         {
             case Axis.X:
-            {
-                v0 = Get(new Vector3Int(g.x, g.y - 1, g.z - 1));
-                v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
-                v2 = Get(new Vector3Int(g.x, g.y, g.z));
-                v3 = Get(new Vector3Int(g.x, g.y - 1, g.z));
+                {
+                    v0 = Get(new Vector3Int(g.x, g.y - 1, g.z - 1));
+                    v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
+                    v2 = Get(new Vector3Int(g.x, g.y, g.z));
+                    v3 = Get(new Vector3Int(g.x, g.y - 1, g.z));
 
-                flip = startValue < isoLevel;
+                    flip = startValue < isoLevel;
 
-                TryAddQuad(v0, v1, v2, v3, flip);
-                break;
-            }
+                    TryAddQuad(v0, v1, v2, v3, flip);
+                    break;
+                }
 
             case Axis.Y:
-            {
-                v0 = Get(new Vector3Int(g.x - 1, g.y, g.z - 1));
-                v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
-                v2 = Get(new Vector3Int(g.x, g.y, g.z));
-                v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
+                {
+                    v0 = Get(new Vector3Int(g.x - 1, g.y, g.z - 1));
+                    v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
+                    v2 = Get(new Vector3Int(g.x, g.y, g.z));
+                    v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
 
-                flip = startValue > isoLevel;
+                    flip = startValue > isoLevel;
 
-                TryAddQuad(v0, v1, v2, v3, flip);
-                break;
-            }
+                    TryAddQuad(v0, v1, v2, v3, flip);
+                    break;
+                }
 
             case Axis.Z:
-            {
-                v0 = Get(new Vector3Int(g.x - 1, g.y - 1, g.z));
-                v1 = Get(new Vector3Int(g.x, g.y - 1, g.z));
-                v2 = Get(new Vector3Int(g.x, g.y, g.z));
-                v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
+                {
+                    v0 = Get(new Vector3Int(g.x - 1, g.y - 1, g.z));
+                    v1 = Get(new Vector3Int(g.x, g.y - 1, g.z));
+                    v2 = Get(new Vector3Int(g.x, g.y, g.z));
+                    v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
 
-                flip = startValue < isoLevel;
+                    flip = startValue < isoLevel;
 
-                TryAddQuad(v0, v1, v2, v3, flip);
-                break;
-            }
+                    TryAddQuad(v0, v1, v2, v3, flip);
+                    break;
+                }
         }
     }
 
@@ -306,6 +307,12 @@ public class DualContouringOctreeMesher
         if (a == null || b == null || c == null || d == null)
         {
             _skippedNullQuads++;
+            return false;
+        }
+
+        if (a == b || b == c || c == d || d == a || a == c || b == d)
+        {
+            _skippedInvalidQuads++;
             return false;
         }
 
@@ -370,7 +377,66 @@ public class DualContouringOctreeMesher
         if (_leafMap.TryGetValue(coord, out OctreeNode node))
             return node;
 
+        node = FindLeafContainingCoord(coord);
+
+        if (node != null)
+        {
+            _leafMap[coord] = node;
+            return node;
+        }
+
         return CreateGhostLeaf(coord);
+    }
+
+
+    private OctreeNode FindLeafContainingCoord(Vector3Int coord)
+    {
+        if (_volume == null || _volume.Root == null)
+            return null;
+
+        if (coord.x < 0 || coord.y < 0 || coord.z < 0 ||
+            coord.x >= _resolution ||
+            coord.y >= _resolution ||
+            coord.z >= _resolution)
+            return null;
+
+        Vector3 point = _origin + new Vector3(
+            (coord.x + 0.5f) * _cellSize.x,
+            (coord.y + 0.5f) * _cellSize.y,
+            (coord.z + 0.5f) * _cellSize.z
+        );
+
+        return FindLeafContainingPoint(_volume.Root, point);
+    }
+
+    private OctreeNode FindLeafContainingPoint(OctreeNode node, Vector3 point)
+    {
+        if (node == null)
+            return null;
+
+        if (!node.Bounds.Contains(point))
+            return null;
+
+        if (node.IsLeaf)
+            return node;
+
+        if (node.Children == null)
+            return node;
+
+        for (int i = 0; i < node.Children.Length; i++)
+        {
+            OctreeNode child = node.Children[i];
+
+            if (child == null)
+                continue;
+
+            if (!child.Bounds.Contains(point))
+                continue;
+
+            return FindLeafContainingPoint(child, point);
+        }
+
+        return node;
     }
 
     private OctreeNode CreateGhostLeaf(Vector3Int coord)

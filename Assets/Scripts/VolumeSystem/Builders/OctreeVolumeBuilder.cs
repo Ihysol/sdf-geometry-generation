@@ -105,6 +105,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 
         node.CornerValues = corners;
         node.Coord = GetCoord(bounds, origin, cellSize);
+        node.SizeInCells = GetSizeInCells(bounds, cellSize);
         node.CenterValue = centerValue;
 
         bool cornerHasNegative = false;
@@ -286,5 +287,14 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
     {
         return (a <= 0f && b > 0f)
             || (a > 0f && b <= 0f);
+    }
+
+    private Vector3Int GetSizeInCells(Bounds bounds, Vector3 cellSize)
+    {
+        return new Vector3Int(
+            Mathf.Max(1, Mathf.RoundToInt(bounds.size.x / cellSize.x)),
+            Mathf.Max(1, Mathf.RoundToInt(bounds.size.y / cellSize.y)),
+            Mathf.Max(1, Mathf.RoundToInt(bounds.size.z / cellSize.z))
+        );
     }
 }
