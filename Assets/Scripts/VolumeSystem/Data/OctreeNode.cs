@@ -13,9 +13,9 @@ public class OctreeNode
     public Vector3 SurfaceVertex;
     public int MeshVertexIndex = -1;
 
-    public Vector3Int Coord;
     public float[] CornerValues;
-
+    public Vector3Int Coord;
+    public Vector3Int SizeInCells = Vector3Int.one;
     public int Depth;
 
     public bool HasChildren =>
