@@ -9,11 +9,29 @@ using UnityEngine;
 public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
 {
     public Vector3Int chunkCount = new Vector3Int(2, 2, 2);
-    public float chunkPadding = 0.1f;
+    public bool buildSeamMesh = false;
+
+    private readonly ChunkSeamStitcher _seamStitcher = new();
+    private VolumeSeamMesh _seamMesh;
 
     private readonly List<MeshVolumeChunk> _chunks = new();
 
     private Transform _chunkRoot;
+
+    private Transform SeamRoot
+    {
+        get
+        {
+            Transform existing = transform.Find("Seams");
+
+            if (existing != null)
+                return existing;
+
+            GameObject go = new GameObject("Seams");
+            go.transform.SetParent(transform, false);
+            return go.transform;
+        }
+    }
 
     private Transform ChunkRoot
     {
@@ -22,7 +40,7 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
             if (_chunkRoot != null)
                 return _chunkRoot;
 
-            Transform existing = transform.Find("Volume Mesh");
+            Transform existing = transform.Find("Chunks");
 
 
             if (existing != null)
@@ -31,7 +49,7 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
                 return _chunkRoot;
             }
 
-            GameObject go = new GameObject("Volume Mesh");
+            GameObject go = new GameObject("Chunks");
             go.transform.SetParent(transform, false);
 
             _chunkRoot = go.transform;
@@ -39,16 +57,19 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
         }
     }
 
+    /// <summary>Regenerates all chunk meshes for the model.</summary>
     public void Rebuild(VolumeModel model)
     {
         RebuildChunks(model);
     }
 
+    /// <summary>Clears all generated chunk meshes.</summary>
     public void Clear()
     {
         ClearChunks();
     }
 
+    /// <summary>Ensures chunk objects exist and rebuilds each chunk from the current composition.</summary>
     public void RebuildChunks(VolumeModel model)
     {
         if (model == null)
@@ -63,8 +84,70 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
 
         EnsureChunks(model);
         RebuildAll(model, composer);
+
+        if (buildSeamMesh)
+            RebuildSeams(model, composer);
+        else
+            ClearSeams();
     }
 
+    /// <summary>Builds the optional seam mesh used for debugging or legacy stitching.</summary>
+    private void RebuildSeams(VolumeModel model, IScalarFieldSource source)
+    {
+        if (_seamMesh == null)
+        {
+            Transform root = SeamRoot;
+
+            Transform existing = root.Find("ChunkSeamMesh");
+
+            if (existing != null)
+                _seamMesh = existing.GetComponent<VolumeSeamMesh>();
+
+            if (_seamMesh == null)
+            {
+                GameObject go = new GameObject("ChunkSeamMesh");
+                go.transform.SetParent(root, false);
+                _seamMesh = go.AddComponent<VolumeSeamMesh>();
+            }
+        }
+
+        Bounds globalBounds = model.octreeSampler.builder.Bounds;
+
+        _seamStitcher.RebuildSeams(
+            model,
+            source,
+            globalBounds,
+            chunkCount,
+            _seamMesh.Mesh
+        );
+    }
+
+    /// <summary>Clears any existing seam mesh when seam stitching is disabled.</summary>
+    private void ClearSeams()
+    {
+        if (_seamMesh != null)
+        {
+            _seamMesh.Clear();
+            return;
+        }
+
+        Transform root = transform.Find("Seams");
+
+        if (root == null)
+            return;
+
+        Transform existing = root.Find("ChunkSeamMesh");
+
+        if (existing == null)
+            return;
+
+        _seamMesh = existing.GetComponent<VolumeSeamMesh>();
+
+        if (_seamMesh != null)
+            _seamMesh.Clear();
+    }
+
+    /// <summary>Destroys generated chunk GameObjects under the chunk root.</summary>
     public void ClearChunks()
     {
         _chunks.Clear();
@@ -86,6 +169,7 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
         }
     }
 
+    /// <summary>Creates or removes chunk objects to match the requested chunk count.</summary>
     private void EnsureChunks(VolumeModel model)
     {
         chunkCount.x = Mathf.Max(1, chunkCount.x);
@@ -134,6 +218,7 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
         AssignChunkBounds(model);
     }
 
+    /// <summary>Assigns half-open ownership bounds to each chunk.</summary>
     private void AssignChunkBounds(VolumeModel model)
     {
         Bounds bounds = model.octreeSampler.builder.Bounds;
@@ -158,22 +243,17 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
 
                     Bounds core = new Bounds(center, baseSize);
 
-                    // Vector3 paddedSize =
-                    //     baseSize + Vector3.one * chunkPadding * 2f;
-
-                    // Bounds build = new Bounds(center, paddedSize);
-                    Bounds build = core;
-
                     MeshVolumeChunk chunk = _chunks[index];
 
                     chunk.name = $"MeshVolumeChunk_{x}_{y}_{z}";
                     chunk.coreBounds = core;
-                    chunk.buildBounds = build;
+                    chunk.buildBounds = core;
 
                     index++;
                 }
     }
 
+    /// <summary>Rebuilds every chunk mesh from the shared model volume.</summary>
     private void RebuildAll(
         VolumeModel model,
         IScalarFieldSource source)

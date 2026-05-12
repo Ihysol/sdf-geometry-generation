@@ -12,6 +12,7 @@ public class VolumeRenderOutput : MonoBehaviour
     private MeshRenderer _meshRenderer;
     private MeshFilter _meshFilter;
 
+    /// <summary>Fetches the renderers and host mesh components.</summary>
     private void EnsureSetup()
     {
         if (_single == null)
@@ -27,6 +28,7 @@ public class VolumeRenderOutput : MonoBehaviour
             _meshFilter = GetComponent<MeshFilter>();
     }
 
+    /// <summary>Routes rebuilds to either the single-mesh or chunked renderer.</summary>
     public void Rebuild(VolumeModel model)
     {
         EnsureSetup();
@@ -43,6 +45,7 @@ public class VolumeRenderOutput : MonoBehaviour
         }
     }
 
+    /// <summary>Clears both render modes and detaches the host mesh.</summary>
     public void Clear()
     {
         EnsureSetup();
@@ -54,6 +57,7 @@ public class VolumeRenderOutput : MonoBehaviour
             _meshFilter.sharedMesh = null;
     }
 
+    /// <summary>Enables and rebuilds the single-mesh renderer.</summary>
     private void RebuildSingle(VolumeModel model)
     {
         _chunked.ClearChunks();
@@ -67,6 +71,7 @@ public class VolumeRenderOutput : MonoBehaviour
         _single.RebuildMesh(model);
     }
 
+    /// <summary>Enables and rebuilds the chunked renderer.</summary>
     private void RebuildChunked(VolumeModel model)
     {
         _single.Clear();

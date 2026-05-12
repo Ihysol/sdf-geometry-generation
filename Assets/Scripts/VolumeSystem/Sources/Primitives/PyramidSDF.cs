@@ -6,6 +6,7 @@ public class PyramidSDF : SDF
     public float height = 2f;
     public float halfBase = 1f;
 
+    /// <summary>Evaluates a centered square-pyramid SDF.</summary>
     public override float Evaluate(Vector3 p)
     {
         float safeHeight = Mathf.Max(0.0001f, height);

@@ -7,6 +7,7 @@ public class HyperboloidSDF : SDF
     public float b = 1f;
     public float c = 1f;
 
+    /// <summary>Evaluates a centered hyperboloid implicit field.</summary>
     public override float Evaluate(Vector3 p)
     {
         float safeA = Mathf.Max(0.0001f, a);

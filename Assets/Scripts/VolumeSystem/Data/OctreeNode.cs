@@ -22,6 +22,7 @@ public class OctreeNode
         Children != null &&
         Children.Length > 0;
 
+    /// <summary>Creates an octree node for the supplied world-space bounds.</summary>
     public OctreeNode(Bounds bounds)
     {
         Bounds = bounds;
