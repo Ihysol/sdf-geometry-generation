@@ -4,6 +4,7 @@ using UnityEngine;
 [CustomEditor(typeof(VolumeObject))]
 public class VolumeObjectEditor : Editor
 {
+    /// <summary>Draws the shape-specific inspector for a volume object.</summary>
     public override void OnInspectorGUI()
     {
         serializedObject.Update();
@@ -15,9 +16,6 @@ public class VolumeObjectEditor : Editor
 
         VolumeShapeType shape =
             (VolumeShapeType)serializedObject.FindProperty("shapeType").enumValueIndex;
-
-        VolumeGridType grid =
-            (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
 
         EditorGUILayout.Space(8);
 
@@ -57,7 +55,8 @@ public class VolumeObjectEditor : Editor
         Header("Surface Grid / Cutter");
         Draw("gridType");
 
-        grid = (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
+        VolumeGridType grid =
+            (VolumeGridType)serializedObject.FindProperty("gridType").enumValueIndex;
 
         if (grid != VolumeGridType.None)
         {
@@ -115,6 +114,7 @@ public class VolumeObjectEditor : Editor
         }
     }
 
+    /// <summary>Draws a serialized property when it exists.</summary>
     private void Draw(string propertyName)
     {
         SerializedProperty prop = serializedObject.FindProperty(propertyName);
@@ -123,6 +123,7 @@ public class VolumeObjectEditor : Editor
             EditorGUILayout.PropertyField(prop);
     }
 
+    /// <summary>Draws a bold section header.</summary>
     private void Header(string label)
     {
         EditorGUILayout.LabelField(label, EditorStyles.boldLabel);

@@ -21,6 +21,7 @@ public class VoxelGrid : IVolumeData
         }
     }
 
+    /// <summary>Creates a dense voxel grid with one scalar value per grid point.</summary>
     public VoxelGrid(Vector3Int gridSize, Vector3 origin, Vector3 cellSize)
     {
         GridSize = gridSize;
@@ -29,21 +30,25 @@ public class VoxelGrid : IVolumeData
         Values = new float[gridSize.x * gridSize.y * gridSize.z];
     }
 
+    /// <summary>Converts 3D grid coordinates into the flat values array index.</summary>
     public int GetIndex(int x, int y, int z)
     {
         return x + GridSize.x * (y + GridSize.y * z);
     }
 
+    /// <summary>Reads a scalar value at the given grid coordinate.</summary>
     public float GetValue(int x, int y, int z)
     {
         return Values[GetIndex(x, y, z)];
     }
 
+    /// <summary>Writes a scalar value at the given grid coordinate.</summary>
     public void SetValue(int x, int y, int z, float value)
     {
         Values[GetIndex(x, y, z)] = value;
     }
 
+    /// <summary>Returns the world position for a grid coordinate.</summary>
     public Vector3 GetWorldPosition(int x, int y, int z)
     {
         return new Vector3(

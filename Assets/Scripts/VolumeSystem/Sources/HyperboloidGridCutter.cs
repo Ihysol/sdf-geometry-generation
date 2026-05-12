@@ -21,6 +21,7 @@ public class HyperboloidGridCutter : SDFCutter
     public float width = 0.05f;
     public float depth = 0.15f;
 
+    /// <summary>Evaluates radial and height grooves inside a hyperboloid surface shell.</summary>
     public override float Evaluate(Vector3 p, SDF baseShape)
     {
         float baseD = baseShape.Evaluate(p);
@@ -53,6 +54,7 @@ public class HyperboloidGridCutter : SDFCutter
         return Mathf.Max(gridD, shell);
     }
 
+    /// <summary>Repeats a coordinate around zero with the given spacing.</summary>
     private float RepeatCentered(float v, float spacing)
     {
         spacing = Mathf.Max(0.0001f, spacing);

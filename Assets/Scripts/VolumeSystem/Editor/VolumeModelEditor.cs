@@ -4,6 +4,7 @@ using UnityEngine;
 [CustomEditor(typeof(VolumeModel))]
 public class VolumeModelEditor : Editor
 {
+    /// <summary>Draws the custom inspector for model pipeline and rebuild controls.</summary>
     public override void OnInspectorGUI()
     {
         serializedObject.Update();
@@ -49,6 +50,7 @@ public class VolumeModelEditor : Editor
         serializedObject.ApplyModifiedProperties();
     }
 
+    /// <summary>Draws data-structure and render-mode controls.</summary>
     private void DrawPipeline(VolumeModel model)
     {
         EditorGUILayout.LabelField("Pipeline", EditorStyles.boldLabel);
@@ -89,6 +91,7 @@ public class VolumeModelEditor : Editor
         }
     }
 
+    /// <summary>Draws the sampler settings for the active data structure.</summary>
     private void DrawActiveSamplerSettings(VolumeModel model)
     {
         switch (model.dataStructure)
@@ -103,6 +106,7 @@ public class VolumeModelEditor : Editor
         }
     }
 
+    /// <summary>Draws voxel grid builder settings.</summary>
     private void DrawVoxelGridSettings()
     {
         EditorGUILayout.LabelField("Voxel Grid", EditorStyles.boldLabel);
@@ -136,6 +140,7 @@ public class VolumeModelEditor : Editor
         );
     }
 
+    /// <summary>Draws octree sampler and builder settings.</summary>
     private void DrawOctreeSettings()
     {
         EditorGUILayout.LabelField("Octree", EditorStyles.boldLabel);
@@ -165,6 +170,7 @@ public class VolumeModelEditor : Editor
             EditorGUILayout.PropertyField(builderProp, true);
     }
 
+    /// <summary>Draws iso-level, normals, bounds, and debug settings.</summary>
     private void DrawMeshingSettings(VolumeModel model)
     {
         EditorGUILayout.LabelField("Meshing", EditorStyles.boldLabel);
@@ -196,6 +202,7 @@ public class VolumeModelEditor : Editor
         }
     }
 
+    /// <summary>Draws automatic and realtime rebuild settings.</summary>
     private void DrawRebuildSettings()
     {
         EditorGUILayout.LabelField("Rebuild", EditorStyles.boldLabel);
@@ -209,6 +216,7 @@ public class VolumeModelEditor : Editor
         );
     }
 
+    /// <summary>Draws controls for adding, removing, and clearing volume objects.</summary>
     private void DrawObjectCreation(VolumeModel model)
     {
         EditorGUILayout.LabelField("Create SDF Object", EditorStyles.boldLabel);
@@ -268,6 +276,7 @@ public class VolumeModelEditor : Editor
         GUI.backgroundColor = oldColor;
     }
 
+    /// <summary>Draws the manual rebuild button.</summary>
     private void DrawRebuildButton(VolumeModel model)
     {
         if (GUILayout.Button("Rebuild Model", GUILayout.Height(30)))

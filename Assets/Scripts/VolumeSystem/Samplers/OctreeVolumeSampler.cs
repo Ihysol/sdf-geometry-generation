@@ -14,11 +14,13 @@ public class OctreeVolumeSampler : IVolumeSampler
 
     public bool IsDirty { get; private set; } = true;
 
+    /// <summary>Marks the sampled octree as stale.</summary>
     public void MarkDirty()
     {
         IsDirty = true;
     }
 
+    /// <summary>Rebuilds the octree volume from the given scalar field.</summary>
     public void RebuildVolume(IScalarFieldSource source)
     {
         if (source == null)

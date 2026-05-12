@@ -6,6 +6,7 @@ public class SurfaceCutSDF : SDF
     public SDF baseShape;
     public SDFCutter cutter;
 
+    /// <summary>Evaluates the base shape with the cutter subtracted from it.</summary>
     public override float Evaluate(Vector3 p)
     {
         if (baseShape == null)

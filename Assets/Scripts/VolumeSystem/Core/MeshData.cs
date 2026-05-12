@@ -8,6 +8,7 @@ public class MeshData
 
     public Bounds Bounds;
 
+    /// <summary>Removes all vertices, triangles, and cached bounds.</summary>
     public void Clear()
     {
         Vertices.Clear();
@@ -16,6 +17,7 @@ public class MeshData
         Bounds = new Bounds(Vector3.zero, Vector3.zero);
     }
 
+    /// <summary>Creates a Unity mesh from the stored buffers.</summary>
     public Mesh ToMesh(bool recalculateNormals = true)
     {
         Mesh mesh = new Mesh();
