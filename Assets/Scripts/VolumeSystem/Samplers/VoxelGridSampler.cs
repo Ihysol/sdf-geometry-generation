@@ -12,11 +12,13 @@ public class VoxelGridSampler : IVolumeSampler
 
     public bool IsDirty { get; private set; } = true;
 
+    /// <summary>Marks the sampled voxel grid as stale.</summary>
     public void MarkDirty()
     {
         IsDirty = true;
     }
 
+    /// <summary>Rebuilds the voxel grid from the given scalar field.</summary>
     public void RebuildVolume(IScalarFieldSource source)
     {
         if (source == null)

@@ -11,32 +11,29 @@ public class MeshVolumeChunk : VolumeChunkBase
 
     private readonly DualContouringOctreeMesher _mesher = new();
 
-    public override void Rebuild(
-        VolumeModel model,
-        IScalarFieldSource source)
+    /// <summary>Rebuilds this chunk by meshing only the grid edges owned by its bounds.</summary>
+    public override void Rebuild(VolumeModel model, IScalarFieldSource source)
     {
         EnsureSetup();
 
-        OctreeVolumeBuilder template = model.octreeSampler.builder;
+        OctreeVolume volume = model.octreeSampler.Volume;
 
-        OctreeVolumeBuilder builder = new OctreeVolumeBuilder
+        if (volume == null)
         {
-            center = buildBounds.center,
-            size = buildBounds.size,
-            boundsPadding = template.boundsPadding,
-            minDepth = template.minDepth,
-            maxDepth = template.maxDepth
-        };
-
-        OctreeVolume volume = builder.Build(source);
+            model.octreeSampler.RebuildVolume(source);
+            volume = model.octreeSampler.Volume;
+        }
 
         _mesh.Clear();
         _mesh.indexFormat = IndexFormat.UInt32;
 
-        _mesher.isoLevel = model.isoLevel;
-        _mesher.BuildMesh(volume, _mesh);
+        if (volume == null)
+            return;
 
-        ClipMeshToCoreBounds();
+        _mesher.isoLevel = model.isoLevel;
+        _mesher.ownedBounds = coreBounds;
+        _mesher.BuildMesh(volume, _mesh);
+        _mesher.ownedBounds = null;
 
         if (model.recalculateNormals)
             _mesh.RecalculateNormals();
@@ -45,6 +42,7 @@ public class MeshVolumeChunk : VolumeChunkBase
             _mesh.RecalculateBounds();
     }
 
+    /// <summary>Clears this chunk's generated mesh.</summary>
     public override void Clear()
     {
         EnsureSetup();
@@ -53,6 +51,7 @@ public class MeshVolumeChunk : VolumeChunkBase
             _mesh.Clear();
     }
 
+    /// <summary>Initializes required components, mesh, and fallback material.</summary>
     private void EnsureSetup()
     {
         if (_meshFilter == null)
@@ -66,45 +65,21 @@ public class MeshVolumeChunk : VolumeChunkBase
             _mesh = new Mesh();
             _mesh.name = $"Chunk Mesh {name}";
             _mesh.indexFormat = IndexFormat.UInt32;
-            _meshFilter.sharedMesh = _mesh;
         }
+
+        if (_meshFilter.sharedMesh != _mesh)
+            _meshFilter.sharedMesh = _mesh;
 
         if (_meshRenderer.sharedMaterial == null)
             _meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
     }
 
-    private void ClipMeshToCoreBounds()
-    {
-        if (_mesh == null)
-            return;
-
-        Vector3[] vertices = _mesh.vertices;
-        int[] oldTriangles = _mesh.triangles;
-
-        System.Collections.Generic.List<int> newTriangles = new();
-
-        for (int i = 0; i < oldTriangles.Length; i += 3)
-        {
-            int i0 = oldTriangles[i];
-            int i1 = oldTriangles[i + 1];
-            int i2 = oldTriangles[i + 2];
-
-            Vector3 center =
-                (vertices[i0] + vertices[i1] + vertices[i2]) / 3f;
-
-            if (!coreBounds.Contains(center))
-                continue;
-
-            newTriangles.Add(i0);
-            newTriangles.Add(i1);
-            newTriangles.Add(i2);
-        }
-
-        _mesh.SetTriangles(newTriangles, 0);
-    }
-
+    /// <summary>Draws the chunk ownership bounds when the chunk is selected.</summary>
     private void OnDrawGizmosSelected()
     {
+        Matrix4x4 oldMatrix = Gizmos.matrix;
+        Color oldColor = Gizmos.color;
+
         Gizmos.matrix = transform.parent != null
             ? transform.parent.localToWorldMatrix
             : Matrix4x4.identity;
@@ -115,6 +90,7 @@ public class MeshVolumeChunk : VolumeChunkBase
         Gizmos.color = new Color(1f, 0.4f, 0f, 0.25f);
         Gizmos.DrawWireCube(buildBounds.center, buildBounds.size);
 
-        Gizmos.matrix = Matrix4x4.identity;
+        Gizmos.matrix = oldMatrix;
+        Gizmos.color = oldColor;
     }
 }

@@ -17,6 +17,7 @@ public class VoxelGridBuilder : VolumeBuilderBase<VoxelGrid>
 
     public override Bounds Bounds => new Bounds(Vector3.zero, gridExtent);
 
+    /// <summary>Clamps grid settings and mirrors axes when uniform options are enabled.</summary>
     public void Validate()
     {
         gridExtent.x = Mathf.Max(0.0001f, gridExtent.x);
@@ -43,6 +44,7 @@ public class VoxelGridBuilder : VolumeBuilderBase<VoxelGrid>
         _lastGridSize = gridSize;
     }
 
+    /// <summary>Samples the scalar field into a dense voxel grid.</summary>
     public override VoxelGrid Build(IScalarFieldSource source)
     {
         Validate();
@@ -101,6 +103,7 @@ public class VoxelGridBuilder : VolumeBuilderBase<VoxelGrid>
         return grid;
     }
 
+    /// <summary>Finds which vector component changed most recently for uniform editing.</summary>
     private float GetChangedComponent(Vector3 oldVal, Vector3 newVal)
     {
         if (!Mathf.Approximately(oldVal.x, newVal.x))
@@ -115,6 +118,7 @@ public class VoxelGridBuilder : VolumeBuilderBase<VoxelGrid>
         return newVal.x;
     }
 
+    /// <summary>Finds which integer vector component changed most recently for uniform editing.</summary>
     private int GetChangedComponent(Vector3Int oldVal, Vector3Int newVal)
     {
         if (oldVal.x != newVal.x)

@@ -30,6 +30,7 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         public readonly int A;
         public readonly int B;
 
+        /// <summary>Stores the two corner indices for one cell edge.</summary>
         public Edge(int a, int b)
         {
             A = a;
@@ -44,6 +45,7 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         new Edge(0, 4), new Edge(1, 5), new Edge(2, 6), new Edge(3, 7)
     };
 
+    /// <summary>Builds dual-contouring mesh buffers from a dense voxel grid.</summary>
     public MeshData BuildMeshData(VoxelGrid volume, float isoLevel)
     {
         _isoLevel = isoLevel;
@@ -114,11 +116,13 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         return meshData;
     }
 
+    /// <summary>Converts cell coordinates into the flat cell-vertex array index.</summary>
     private static int CellIndex(int x, int y, int z, Vector3Int cells)
     {
         return x + cells.x * (y + cells.y * z);
     }
 
+    /// <summary>Checks whether two scalar samples cross the active iso level.</summary>
     private bool HasCrossing(float a, float b)
     {
         float da = a - _isoLevel;
@@ -127,6 +131,7 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         return (da <= 0f && db > 0f) || (da > 0f && db <= 0f);
     }
 
+    /// <summary>Interpolates the iso-surface position along one sampled edge.</summary>
     private Vector3 Interpolate(Vector3 pa, float va, Vector3 pb, float vb)
     {
         float denom = vb - va;
@@ -138,6 +143,7 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         return Vector3.Lerp(pa, pb, t);
     }
 
+    /// <summary>Creates one dual vertex for a cell by averaging all edge crossings.</summary>
     private int CreateCellVertex(
         float[] values,
         Vector3Int size,
@@ -217,6 +223,7 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         return vertexIndex;
     }
 
+    /// <summary>Adds two triangles for a quad when all four cell vertices exist.</summary>
     private void AddQuad(int v0, int v1, int v2, int v3, bool flip)
     {
         if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0)
@@ -244,6 +251,7 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
         }
     }
 
+    /// <summary>Emits quads around all crossed grid edges.</summary>
     private void BuildQuads(float[] values, Vector3Int size, Vector3Int cells)
     {
         int sizeX = size.x;

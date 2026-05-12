@@ -12,11 +12,13 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private readonly DualContouringVoxelMesher voxelMesher = new();
     private readonly DualContouringOctreeMesher octreeMesher = new();
 
+    /// <summary>Regenerates the single-mesh output for the model.</summary>
     public void Rebuild(VolumeModel model)
     {
         RebuildMesh(model);
     }
 
+    /// <summary>Clears the generated mesh and detaches it from the mesh filter.</summary>
     public void Clear()
     {
         if (mesh != null)
@@ -29,6 +31,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             meshFilter.sharedMesh = null;
     }
 
+    /// <summary>Builds the active volume data structure into one Unity mesh.</summary>
     public void RebuildMesh(VolumeModel model)
     {
         if (model.renderMode != VolumeRenderMode.SingleMesh)
@@ -69,6 +72,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
     }
 
+    /// <summary>Copies generated mesh buffers into the Unity mesh.</summary>
     private void ApplyMeshData(MeshData meshData, VolumeModel model)
     {
         mesh.indexFormat = IndexFormat.UInt32;
@@ -90,6 +94,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             mesh.RecalculateBounds();
     }
 
+    /// <summary>Initializes required components, mesh, and fallback material.</summary>
     private void EnsureSetup()
     {
         if (meshFilter == null)

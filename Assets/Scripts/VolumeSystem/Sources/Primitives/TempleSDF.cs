@@ -6,17 +6,13 @@ public class TempleSDF : SDF
     [Header("Global Scale")]
     public float scale = 1f;
 
+    /// <summary>Evaluates the complete temple SDF in local space.</summary>
     public override float Evaluate(Vector3 p)
     {
 
         p /= scale;
 
         float d = 9999f;
-
-        // ===== Main proportions =====
-        float width = 4.8f;
-        float depth = 6.2f;
-        float height = 3.2f;
 
         // ===== Base platform =====
         d = Union(d, Box(p - new Vector3(0, 0.15f, 0), new Vector3(3.2f, 0.15f, 3.8f)));
@@ -88,6 +84,7 @@ public class TempleSDF : SDF
     // Temple parts
     // =========================
 
+    /// <summary>Evaluates a fluted column with base and capital rings.</summary>
     private float Column(Vector3 p, Vector3 center, float r, float h)
     {
         Vector3 q = p - center;
@@ -114,6 +111,7 @@ public class TempleSDF : SDF
         return col;
     }
 
+    /// <summary>Evaluates the gabled roof prism.</summary>
     private float TempleRoof(Vector3 p, float halfWidth, float halfDepth, float roofHeight)
     {
         // Prism-like gable roof along Z
@@ -129,6 +127,7 @@ public class TempleSDF : SDF
         return Mathf.Max(Mathf.Max(side, bottom), zLimit);
     }
 
+    /// <summary>Evaluates a triangular front or back pediment.</summary>
     private float Pediment(Vector3 p, float halfWidth, float height, float thickness)
     {
         Vector3 q = p;
@@ -143,12 +142,14 @@ public class TempleSDF : SDF
         return Mathf.Max(Mathf.Max(insideTri, widthLimit), depthLimit);
     }
 
+    /// <summary>Evaluates a horizontal groove cutter band.</summary>
     private float GrooveBand(Vector3 p, float y)
     {
         Vector3 q = p - new Vector3(0, y, 0);
         return Box(q, new Vector3(3.0f, 0.025f, 3.3f));
     }
 
+    /// <summary>Evaluates vertical groove cutters around a column shaft.</summary>
     private float FlutedColumnCut(Vector3 p, float radius, float height)
     {
         float angle = Mathf.Atan2(p.z, p.x);
@@ -174,12 +175,14 @@ public class TempleSDF : SDF
     // SDF primitives
     // =========================
 
+    /// <summary>Evaluates an axis-aligned box SDF.</summary>
     private float Box(Vector3 p, Vector3 b)
     {
         Vector3 q = Abs(p) - b;
         return LengthMax(q) + Mathf.Min(Mathf.Max(q.x, Mathf.Max(q.y, q.z)), 0f);
     }
 
+    /// <summary>Evaluates a capped cylinder SDF aligned to the Y axis.</summary>
     private float Cylinder(Vector3 p, float r, float h)
     {
         Vector2 d = new Vector2(
@@ -194,31 +197,29 @@ public class TempleSDF : SDF
     // SDF operations
     // =========================
 
+    /// <summary>Combines two SDFs with a hard union.</summary>
     private float Union(float a, float b)
     {
         return Mathf.Min(a, b);
     }
 
+    /// <summary>Subtracts one SDF from another.</summary>
     private float Subtract(float a, float b)
     {
         return Mathf.Max(a, -b);
-    }
-
-    private float SmoothUnion(float a, float b, float k)
-    {
-        float h = Mathf.Clamp01(0.5f + 0.5f * (b - a) / k);
-        return Mathf.Lerp(b, a, h) - k * h * (1f - h);
     }
 
     // =========================
     // Helpers
     // =========================
 
+    /// <summary>Returns the component-wise absolute value.</summary>
     private Vector3 Abs(Vector3 v)
     {
         return new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
     }
 
+    /// <summary>Returns the length of the positive part of a vector.</summary>
     private float LengthMax(Vector3 v)
     {
         return new Vector3(
@@ -228,6 +229,7 @@ public class TempleSDF : SDF
         ).magnitude;
     }
 
+    /// <summary>Repeats a coordinate around zero for radial groove placement.</summary>
     private float Repeat(float x, float period)
     {
         return x - period * Mathf.Round(x / period);

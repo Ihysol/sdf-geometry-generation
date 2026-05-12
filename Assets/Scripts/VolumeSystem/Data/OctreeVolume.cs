@@ -11,13 +11,19 @@ public class OctreeVolume : IVolumeData
 
     public IScalarFieldSource Source { get; }
 
+    public Vector3 GridOrigin { get; }
+    public Vector3 CellSize { get; }
+
+    /// <summary>Stores a built octree volume and its global grid metadata.</summary>
     public OctreeVolume(
         OctreeNode root,
         Bounds bounds,
         int maxDepth,
         int totalNodes,
         int surfaceLeaves,
-        IScalarFieldSource source)
+        IScalarFieldSource source,
+        Vector3 gridOrigin,
+        Vector3 cellSize)
     {
         Root = root;
         Bounds = bounds;
@@ -25,5 +31,7 @@ public class OctreeVolume : IVolumeData
         TotalNodes = totalNodes;
         SurfaceLeaves = surfaceLeaves;
         Source = source;
+        GridOrigin = gridOrigin;
+        CellSize = cellSize;
     }
 }

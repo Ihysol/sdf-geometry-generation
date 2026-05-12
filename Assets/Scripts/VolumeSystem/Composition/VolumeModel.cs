@@ -23,7 +23,7 @@ public class VolumeModel : MonoBehaviour
 {
 
     [Header("Rendering")]
-    public VolumeRenderMode renderMode = VolumeRenderMode.SingleMesh;
+    public VolumeRenderMode renderMode = VolumeRenderMode.Chunked;
 
     private Transform ObjectsRoot
     {
@@ -43,29 +43,21 @@ public class VolumeModel : MonoBehaviour
 
 
 #if UNITY_EDITOR
-    private bool _editorRebuildQueued;
-
+    /// <summary>Keeps VolumeModel first in the component stack when added.</summary>
     private void Reset()
     {
         MoveToTop();
     }
 
+    /// <summary>Validates nested sampler settings after inspector edits.</summary>
     private void OnValidate()
     {
         MoveToTop();
 
         voxelGridSampler?.builder?.Validate();
-
-        // if (!autoRebuildOnChange)
-        //     return;
-
-        // if (_editorRebuildQueued)
-        //     return;
-
-        // _editorRebuildQueued = true;
-        // EditorApplication.delayCall += DelayedEditorRebuild;
     }
 
+    /// <summary>Moves this component above companion components in the inspector.</summary>
     private void MoveToTop()
     {
         while (ComponentUtility.MoveComponentUp(this)) { }
@@ -96,17 +88,20 @@ public class VolumeModel : MonoBehaviour
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
     public VolumeOperationRole roleToAdd = VolumeOperationRole.Add;
 
+    /// <summary>Continuously rebuilds the model when realtime rebuild is enabled.</summary>
     private void Update()
     {
         if (rebuildEveryFrame)
             RebuildModel();
     }
 
+    /// <summary>Adds an object using the currently selected inspector defaults.</summary>
     public void AddSelectedObject()
     {
         AddObject(shapeToAdd, roleToAdd);
     }
 
+    /// <summary>Creates a new child volume object and rebuilds the model.</summary>
     public void AddObject(VolumeShapeType shape, VolumeOperationRole role)
     {
         GameObject child = new GameObject($"VolumeObject_{shape}_{role}");
@@ -124,6 +119,7 @@ public class VolumeModel : MonoBehaviour
         RebuildModel();
     }
 
+    /// <summary>Rebuilds composition, volume data, and render output.</summary>
     public void RebuildModel()
     {
         RenderOutput.Clear();
@@ -153,6 +149,7 @@ public class VolumeModel : MonoBehaviour
         RenderOutput.Rebuild(this);
     }
 
+    /// <summary>Returns the currently active sampled volume data.</summary>
     public IVolumeData GetActiveVolume()
     {
         switch (dataStructure)
@@ -168,6 +165,7 @@ public class VolumeModel : MonoBehaviour
         }
     }
 
+    /// <summary>Deletes all child volume objects and clears generated output.</summary>
     public void ClearObjects()
     {
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
@@ -195,6 +193,7 @@ public class VolumeModel : MonoBehaviour
         ClearRenderOutput();
     }
 
+    /// <summary>Deletes the last registered volume object and rebuilds if needed.</summary>
     public void RemoveLastObject()
     {
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
@@ -233,16 +232,19 @@ public class VolumeModel : MonoBehaviour
         RebuildModel();
     }
 
+    /// <summary>Draws the active volume bounds in the scene view.</summary>
     private void OnDrawGizmos()
     {
         DrawActiveBoundsGizmo(false);
     }
 
+    /// <summary>Draws selected-state bounds and optional octree debug nodes.</summary>
     private void OnDrawGizmosSelected()
     {
         DrawActiveBoundsGizmo(true);
     }
 
+    /// <summary>Draws the active sampler bounds and optional octree leaf boxes.</summary>
     private void DrawActiveBoundsGizmo(bool selected)
     {
         Bounds bounds;
@@ -279,6 +281,7 @@ public class VolumeModel : MonoBehaviour
         Gizmos.matrix = Matrix4x4.identity;
     }
 
+    /// <summary>Recursively draws octree leaves that contain surface samples.</summary>
     private void DrawOctreeNode(OctreeNode node)
     {
         if (node == null)
@@ -329,6 +332,7 @@ public class VolumeModel : MonoBehaviour
         }
     }
 
+    /// <summary>Clears the current render output if it exists.</summary>
     private void ClearRenderOutput()
     {
         VolumeRenderOutput output = RenderOutput;
