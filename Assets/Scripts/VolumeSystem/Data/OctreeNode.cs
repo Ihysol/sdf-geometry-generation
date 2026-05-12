@@ -13,15 +13,16 @@ public class OctreeNode
     public Vector3 SurfaceVertex;
     public int MeshVertexIndex = -1;
 
-    public Vector3Int Coord;
     public float[] CornerValues;
-
+    public Vector3Int Coord;
+    public Vector3Int SizeInCells = Vector3Int.one;
     public int Depth;
 
     public bool HasChildren =>
         Children != null &&
         Children.Length > 0;
 
+    /// <summary>Creates an octree node for the supplied world-space bounds.</summary>
     public OctreeNode(Bounds bounds)
     {
         Bounds = bounds;

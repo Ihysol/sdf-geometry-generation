@@ -6,12 +6,14 @@ public class SceneCompositeSDF : IScalarFieldSource
     private readonly Transform _root;
     private readonly List<VolumeObject> _objects;
 
+    /// <summary>Creates a composed SDF from a snapshot of volume objects.</summary>
     public SceneCompositeSDF(Transform root, List<VolumeObject> objects)
     {
         _root = root;
         _objects = new List<VolumeObject>(objects);
     }
 
+    /// <summary>Evaluates add, subtract, and intersect objects in composition order.</summary>
     public float Evaluate(Vector3 rootLocalPoint)
     {
         float result = float.PositiveInfinity;
@@ -46,6 +48,7 @@ public class SceneCompositeSDF : IScalarFieldSource
         return result;
     }
 
+    /// <summary>Transforms a model-local sample into object-local space and evaluates it.</summary>
     private float EvaluateObject(VolumeObject obj, Vector3 rootLocalPoint)
     {
         Vector3 worldPoint = _root.TransformPoint(rootLocalPoint);

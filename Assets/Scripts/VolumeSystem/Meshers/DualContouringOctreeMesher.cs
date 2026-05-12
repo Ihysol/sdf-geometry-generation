@@ -17,9 +17,11 @@ public class DualContouringOctreeMesher
     private OctreeVolume _volume;
     private int _maxDepth;
 
+    public Bounds? ownedBounds = null;
+
     private Vector3 _origin;
     private Vector3 _cellSize;
-    private int _resolution;
+    public System.Collections.Generic.List<Bounds> ownedBoundsList = null;
 
     private enum Axis
     {
@@ -35,6 +37,7 @@ public class DualContouringOctreeMesher
         public readonly Axis Axis;
         public readonly Vector3Int GridStart;
 
+        /// <summary>Describes one cube edge and its start coordinate in grid space.</summary>
         public CellEdge(int a, int b, Axis axis, Vector3Int gridStart)
         {
             A = a;
@@ -49,6 +52,7 @@ public class DualContouringOctreeMesher
         public readonly int A;
         public readonly int B;
 
+        /// <summary>Stores the two corner indices for one cell edge.</summary>
         public Edge(int a, int b)
         {
             A = a;
@@ -61,17 +65,20 @@ public class DualContouringOctreeMesher
         public readonly Vector3Int Start;
         public readonly Axis Axis;
 
+        /// <summary>Identifies one finest-grid edge for duplicate suppression.</summary>
         public EdgeKey(Vector3Int start, Axis axis)
         {
             Start = start;
             Axis = axis;
         }
 
+        /// <summary>Hashes the grid edge key for the processed-edge set.</summary>
         public override int GetHashCode()
         {
             return Start.GetHashCode() ^ ((int)Axis * 397);
         }
 
+        /// <summary>Compares two grid edge keys by start coordinate and axis.</summary>
         public override bool Equals(object obj)
         {
             if (obj is not EdgeKey other)
@@ -120,6 +127,7 @@ public class DualContouringOctreeMesher
         new CellEdge(2, 6, Axis.Z, new Vector3Int(1, 1, 0)),
     };
 
+    /// <summary>Builds a Unity mesh from an octree using dual contouring.</summary>
     public void BuildMesh(OctreeVolume volume, Mesh mesh)
     {
         mesh.Clear();
@@ -139,10 +147,8 @@ public class DualContouringOctreeMesher
         _volume = volume;
         _maxDepth = volume.MaxDepth;
 
-        _resolution = 1 << _maxDepth;
-
-        _origin = volume.Bounds.min;
-        _cellSize = volume.Bounds.size / _resolution;
+        _origin = volume.GridOrigin;
+        _cellSize = volume.CellSize;
 
         CollectLeaves(volume.Root);
 
@@ -161,6 +167,7 @@ public class DualContouringOctreeMesher
         );
     }
 
+    /// <summary>Collects surface leaves and resets cached mesh vertex indices.</summary>
     private void CollectLeaves(OctreeNode node)
     {
         if (node == null)
@@ -169,7 +176,10 @@ public class DualContouringOctreeMesher
         if (node.IsLeaf)
         {
             node.MeshVertexIndex = -1;
-            _leafMap[node.Coord] = node;
+
+            if (node.ContainsSurface)
+                _leafMap[node.Coord] = node;
+
             return;
         }
 
@@ -180,6 +190,7 @@ public class DualContouringOctreeMesher
             CollectLeaves(child);
     }
 
+    /// <summary>Creates initial mesh vertices for all surface leaves.</summary>
     private void CreateVertices()
     {
         foreach (KeyValuePair<Vector3Int, OctreeNode> pair in _leafMap)
@@ -197,9 +208,13 @@ public class DualContouringOctreeMesher
         }
     }
 
+    /// <summary>Creates quads around crossed grid edges owned by this mesher pass.</summary>
     private void BuildEdgeQuads()
     {
-        foreach (KeyValuePair<Vector3Int, OctreeNode> pair in _leafMap)
+        List<KeyValuePair<Vector3Int, OctreeNode>> entries =
+            new List<KeyValuePair<Vector3Int, OctreeNode>>(_leafMap);
+
+        foreach (KeyValuePair<Vector3Int, OctreeNode> pair in entries)
         {
             Vector3Int cellCoord = pair.Key;
             OctreeNode node = pair.Value;
@@ -230,6 +245,13 @@ public class DualContouringOctreeMesher
                 if (_processedEdges.Contains(key))
                     continue;
 
+                if (ownedBounds.HasValue || ownedBoundsList != null)
+                {
+                    if (!IsOwnedGridEdgeAny(gridEdgeStart, edge.Axis))
+                        continue;
+                }
+
+                // Erst NACH Ownership-Test als processed markieren.
                 _processedEdges.Add(key);
 
                 BuildQuadForEdge(
@@ -241,6 +263,64 @@ public class DualContouringOctreeMesher
         }
     }
 
+    /// <summary>Checks whether a grid edge belongs to any active ownership bound.</summary>
+    private bool IsOwnedGridEdgeAny(Vector3Int g, Axis axis)
+    {
+        if (ownedBounds.HasValue && IsOwnedGridEdge(g, axis, ownedBounds.Value))
+            return true;
+
+        if (ownedBoundsList != null)
+        {
+            for (int i = 0; i < ownedBoundsList.Count; i++)
+            {
+                if (IsOwnedGridEdge(g, axis, ownedBoundsList[i]))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Tests grid-edge ownership against one half-open world-space bound.</summary>
+    private bool IsOwnedGridEdge(Vector3Int g, Axis axis, Bounds bounds)
+    {
+        Vector3Int min = WorldToGridCoord(bounds.min);
+        Vector3Int max = WorldToGridCoord(bounds.max);
+
+        int gx2 = g.x * 2 + (axis == Axis.X ? 1 : 0);
+        int gy2 = g.y * 2 + (axis == Axis.Y ? 1 : 0);
+        int gz2 = g.z * 2 + (axis == Axis.Z ? 1 : 0);
+
+        int minX2 = min.x * 2;
+        int minY2 = min.y * 2;
+        int minZ2 = min.z * 2;
+
+        int maxX2 = max.x * 2;
+        int maxY2 = max.y * 2;
+        int maxZ2 = max.z * 2;
+
+        return
+            gx2 >= minX2 &&
+            gy2 >= minY2 &&
+            gz2 >= minZ2 &&
+            gx2 < maxX2 &&
+            gy2 < maxY2 &&
+            gz2 < maxZ2;
+    }
+
+    /// <summary>Converts a world position to the nearest finest-grid coordinate.</summary>
+    private Vector3Int WorldToGridCoord(Vector3 p)
+    {
+        Vector3 local = p - _origin;
+
+        return new Vector3Int(
+            Mathf.RoundToInt(local.x / _cellSize.x),
+            Mathf.RoundToInt(local.y / _cellSize.y),
+            Mathf.RoundToInt(local.z / _cellSize.z)
+        );
+    }
+
+    /// <summary>Finds the four surrounding cells for a crossed edge and emits its quad.</summary>
     private void BuildQuadForEdge(
         Vector3Int g,
         Axis axis,
@@ -256,56 +336,58 @@ public class DualContouringOctreeMesher
         switch (axis)
         {
             case Axis.X:
-            {
-                v0 = Get(new Vector3Int(g.x, g.y - 1, g.z - 1));
-                v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
-                v2 = Get(new Vector3Int(g.x, g.y, g.z));
-                v3 = Get(new Vector3Int(g.x, g.y - 1, g.z));
+                {
+                    v0 = Get(new Vector3Int(g.x, g.y - 1, g.z - 1));
+                    v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
+                    v2 = Get(new Vector3Int(g.x, g.y, g.z));
+                    v3 = Get(new Vector3Int(g.x, g.y - 1, g.z));
 
-                flip = startValue < isoLevel;
+                    flip = startValue < isoLevel;
 
-                TryAddQuad(v0, v1, v2, v3, flip);
-                break;
-            }
+                    TryAddQuad(v0, v1, v2, v3, flip);
+                    break;
+                }
 
             case Axis.Y:
-            {
-                v0 = Get(new Vector3Int(g.x - 1, g.y, g.z - 1));
-                v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
-                v2 = Get(new Vector3Int(g.x, g.y, g.z));
-                v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
+                {
+                    v0 = Get(new Vector3Int(g.x - 1, g.y, g.z - 1));
+                    v1 = Get(new Vector3Int(g.x, g.y, g.z - 1));
+                    v2 = Get(new Vector3Int(g.x, g.y, g.z));
+                    v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
 
-                flip = startValue > isoLevel;
+                    flip = startValue > isoLevel;
 
-                TryAddQuad(v0, v1, v2, v3, flip);
-                break;
-            }
+                    TryAddQuad(v0, v1, v2, v3, flip);
+                    break;
+                }
 
             case Axis.Z:
-            {
-                v0 = Get(new Vector3Int(g.x - 1, g.y - 1, g.z));
-                v1 = Get(new Vector3Int(g.x, g.y - 1, g.z));
-                v2 = Get(new Vector3Int(g.x, g.y, g.z));
-                v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
+                {
+                    v0 = Get(new Vector3Int(g.x - 1, g.y - 1, g.z));
+                    v1 = Get(new Vector3Int(g.x, g.y - 1, g.z));
+                    v2 = Get(new Vector3Int(g.x, g.y, g.z));
+                    v3 = Get(new Vector3Int(g.x - 1, g.y, g.z));
 
-                flip = startValue < isoLevel;
+                    flip = startValue < isoLevel;
 
-                TryAddQuad(v0, v1, v2, v3, flip);
-                break;
-            }
+                    TryAddQuad(v0, v1, v2, v3, flip);
+                    break;
+                }
         }
     }
 
-    private bool TryAddQuad(
-        OctreeNode a,
-        OctreeNode b,
-        OctreeNode c,
-        OctreeNode d,
-        bool flip)
+    /// <summary>Adds a quad if all four octree cells resolve to distinct vertices.</summary>
+    private bool TryAddQuad(OctreeNode a, OctreeNode b, OctreeNode c, OctreeNode d, bool flip)
     {
         if (a == null || b == null || c == null || d == null)
         {
             _skippedNullQuads++;
+            return false;
+        }
+
+        if (a == b || a == c || a == d || b == c || b == d || c == d)
+        {
+            _skippedInvalidQuads++;
             return false;
         }
 
@@ -349,6 +431,7 @@ public class DualContouringOctreeMesher
         return true;
     }
 
+    /// <summary>Creates a fallback mesh vertex for a node when one is not cached yet.</summary>
     private void EnsureVertex(OctreeNode node)
     {
         if (node == null)
@@ -365,23 +448,93 @@ public class DualContouringOctreeMesher
             _vertices.Add(node.Bounds.center);
     }
 
+    /// <summary>Resolves the leaf covering a finest-grid cell, creating a ghost leaf if needed.</summary>
     private OctreeNode Get(Vector3Int coord)
     {
         if (_leafMap.TryGetValue(coord, out OctreeNode node))
             return node;
 
+        OctreeNode containingLeaf = FindLeafContainingCoord(coord);
+
+        if (containingLeaf != null)
+        {
+            _leafMap[coord] = containingLeaf;
+            return containingLeaf;
+        }
+
         return CreateGhostLeaf(coord);
     }
 
+
+    /// <summary>Finds the adaptive octree leaf that contains a finest-grid coordinate.</summary>
+    private OctreeNode FindLeafContainingCoord(Vector3Int coord)
+    {
+        Vector3 point = _origin + new Vector3(
+            (coord.x + 0.5f) * _cellSize.x,
+            (coord.y + 0.5f) * _cellSize.y,
+            (coord.z + 0.5f) * _cellSize.z
+        );
+
+        if (!IsInsideVolumeBounds(point))
+            return null;
+
+        return FindLeafContainingPoint(_volume.Root, point);
+    }
+    /// <summary>Checks whether a point is inside the source volume bounds with a cell-sized tolerance.</summary>
+    private bool IsInsideVolumeBounds(Vector3 p)
+    {
+        Bounds b = _volume.Bounds;
+
+        float eps = Mathf.Max(
+            _cellSize.x,
+            Mathf.Max(_cellSize.y, _cellSize.z)
+        ) * 0.5f;
+
+        return
+            p.x >= b.min.x - eps &&
+            p.y >= b.min.y - eps &&
+            p.z >= b.min.z - eps &&
+            p.x <= b.max.x + eps &&
+            p.y <= b.max.y + eps &&
+            p.z <= b.max.z + eps;
+    }
+
+    /// <summary>Walks down the octree to find the leaf containing a point.</summary>
+    private OctreeNode FindLeafContainingPoint(OctreeNode node, Vector3 point)
+    {
+        while (node != null && !node.IsLeaf)
+        {
+            if (node.Children == null)
+                return node;
+
+            Vector3 c = node.Bounds.center;
+
+            int index = 0;
+
+            if (point.x >= c.x)
+                index += 4;
+
+            if (point.y >= c.y)
+                index += 2;
+
+            if (point.z >= c.z)
+                index += 1;
+
+            OctreeNode child = node.Children[index];
+
+            if (child == null)
+                return node;
+
+            node = child;
+        }
+
+        return node;
+    }
+
+    /// <summary>Samples a missing finest-grid leaf so boundary quads can be completed.</summary>
     private OctreeNode CreateGhostLeaf(Vector3Int coord)
     {
         if (_volume == null || _volume.Source == null)
-            return null;
-
-        if (coord.x < 0 || coord.y < 0 || coord.z < 0 ||
-            coord.x >= _resolution ||
-            coord.y >= _resolution ||
-            coord.z >= _resolution)
             return null;
 
         Vector3 min = _origin + new Vector3(
@@ -394,6 +547,9 @@ public class DualContouringOctreeMesher
             min + _cellSize * 0.5f,
             _cellSize
         );
+
+        if (!IsInsideVolumeBounds(bounds.center))
+            return null;
 
         OctreeNode ghost = new OctreeNode(bounds);
 
@@ -421,23 +577,16 @@ public class DualContouringOctreeMesher
 
         ghost.ContainsSurface = hasNegative && hasPositive;
 
-        if (ghost.ContainsSurface)
-        {
-            ghost.SurfaceVertex = EstimateSurfaceVertex(
-                bounds,
-                corners
-            );
-        }
-        else
-        {
-            ghost.SurfaceVertex = bounds.center;
-        }
+        ghost.SurfaceVertex = ghost.ContainsSurface
+            ? EstimateSurfaceVertex(bounds, corners)
+            : bounds.center;
 
         _leafMap[coord] = ghost;
 
         return ghost;
     }
 
+    /// <summary>Samples all eight corners of a finest-grid leaf.</summary>
     private float[] SampleCorners(
         IScalarFieldSource source,
         Bounds bounds)
@@ -457,6 +606,7 @@ public class DualContouringOctreeMesher
         };
     }
 
+    /// <summary>Returns the eight corner positions for a bound.</summary>
     private Vector3[] GetCornerPositions(Bounds bounds)
     {
         Vector3 min = bounds.min;
@@ -476,6 +626,7 @@ public class DualContouringOctreeMesher
         };
     }
 
+    /// <summary>Estimates a dual-contouring vertex from edge crossing positions.</summary>
     private Vector3 EstimateSurfaceVertex(
         Bounds bounds,
         float[] cornerValues)
@@ -513,6 +664,7 @@ public class DualContouringOctreeMesher
         return sum / count;
     }
 
+    /// <summary>Checks whether two scalar samples cross the active iso level.</summary>
     private bool HasCrossing(float a, float b)
     {
         float da = a - isoLevel;

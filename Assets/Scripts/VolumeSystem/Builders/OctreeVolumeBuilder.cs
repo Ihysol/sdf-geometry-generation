@@ -3,6 +3,12 @@ using UnityEngine;
 [System.Serializable]
 public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 {
+
+    [Header("Global Grid")]
+    public bool useGlobalGrid = false;
+    public Vector3 globalOrigin;
+    public Vector3 globalCellSize;
+
     [Header("Bounds")]
     public Vector3 center = Vector3.zero;
     public Vector3 size = new Vector3(4f, 4f, 4f);
@@ -56,6 +62,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         new Edge(3, 7)
     };
 
+    /// <summary>Builds an adaptive octree by recursively sampling the scalar field.</summary>
     public OctreeVolume Build(IScalarFieldSource source)
     {
         _totalNodes = 0;
@@ -63,8 +70,19 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 
         Bounds buildBounds = Bounds;
 
-        Vector3 origin = buildBounds.min;
-        Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        Vector3 origin;
+        Vector3 cellSize;
+
+        if (useGlobalGrid)
+        {
+            origin = globalOrigin;
+            cellSize = globalCellSize;
+        }
+        else
+        {
+            origin = buildBounds.min;
+            cellSize = buildBounds.size / (1 << maxDepth);
+        }
 
         OctreeNode root = BuildNode(
             source,
@@ -84,10 +102,13 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
             maxDepth,
             _totalNodes,
             _surfaceLeaves,
-            source
+            source,
+            origin,
+            cellSize
         );
     }
 
+    /// <summary>Builds one octree node and subdivides it when it may contain surface detail.</summary>
     private OctreeNode BuildNode(
      IScalarFieldSource source,
      Bounds bounds,
@@ -105,6 +126,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 
         node.CornerValues = corners;
         node.Coord = GetCoord(bounds, origin, cellSize);
+        node.SizeInCells = GetSizeInCells(bounds, cellSize);
         node.CenterValue = centerValue;
 
         bool cornerHasNegative = false;
@@ -197,6 +219,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         return node;
     }
 
+    /// <summary>Maps a node bound to its integer coordinate on the global finest grid.</summary>
     private Vector3Int GetCoord(Bounds bounds, Vector3 origin, Vector3 cellSize)
     {
         Vector3 local = bounds.center - origin;
@@ -208,6 +231,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         );
     }
 
+    /// <summary>Samples all eight corners of a node bound.</summary>
     private float[] SampleCorners(IScalarFieldSource source, Bounds bounds)
     {
         Vector3[] positions = GetCornerPositions(bounds);
@@ -225,6 +249,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         };
     }
 
+    /// <summary>Returns the eight corner positions for a bound.</summary>
     private Vector3[] GetCornerPositions(Bounds bounds)
     {
         Vector3 min = bounds.min;
@@ -244,6 +269,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         };
     }
 
+    /// <summary>Estimates a dual-contouring vertex from edge crossing positions.</summary>
     private Vector3 EstimateSurfaceVertex(
         IScalarFieldSource source,
         Bounds bounds,
@@ -282,9 +308,20 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         return sum / count;
     }
 
+    /// <summary>Checks whether two scalar samples cross the zero iso surface.</summary>
     private bool HasCrossing(float a, float b)
     {
         return (a <= 0f && b > 0f)
             || (a > 0f && b <= 0f);
+    }
+
+    /// <summary>Converts node size into finest-grid cell counts.</summary>
+    private Vector3Int GetSizeInCells(Bounds bounds, Vector3 cellSize)
+    {
+        return new Vector3Int(
+            Mathf.Max(1, Mathf.RoundToInt(bounds.size.x / cellSize.x)),
+            Mathf.Max(1, Mathf.RoundToInt(bounds.size.y / cellSize.y)),
+            Mathf.Max(1, Mathf.RoundToInt(bounds.size.z / cellSize.z))
+        );
     }
 }
