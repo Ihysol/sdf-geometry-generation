@@ -5,6 +5,12 @@ using UnityEditorInternal;
 
 using UnityEngine;
 
+public enum VolumeRenderMode
+{
+    SingleMesh,
+    Chunked
+}
+
 public enum VolumeDataStructure
 {
     VoxelGrid,
@@ -13,11 +19,27 @@ public enum VolumeDataStructure
 
 [DisallowMultipleComponent]
 [RequireComponent(typeof(VolumeSceneComposer))]
-[RequireComponent(typeof(VolumeMeshRenderer))]
-[RequireComponent(typeof(MeshFilter))]
-[RequireComponent(typeof(MeshRenderer))]
 public class VolumeModel : MonoBehaviour
 {
+
+    [Header("Rendering")]
+    public VolumeRenderMode renderMode = VolumeRenderMode.SingleMesh;
+
+    private Transform ObjectsRoot
+    {
+        get
+        {
+            Transform existing = transform.Find("Objects");
+
+            if (existing != null)
+                return existing;
+
+            GameObject go = new GameObject("Objects");
+            go.transform.SetParent(transform, false);
+
+            return go.transform;
+        }
+    }
 
 
 #if UNITY_EDITOR
@@ -42,18 +64,6 @@ public class VolumeModel : MonoBehaviour
 
         // _editorRebuildQueued = true;
         // EditorApplication.delayCall += DelayedEditorRebuild;
-    }
-
-
-
-    private void DelayedEditorRebuild()
-    {
-        if (this == null)
-            return;
-
-        _editorRebuildQueued = false;
-
-        RebuildModel();
     }
 
     private void MoveToTop()
@@ -100,7 +110,7 @@ public class VolumeModel : MonoBehaviour
     public void AddObject(VolumeShapeType shape, VolumeOperationRole role)
     {
         GameObject child = new GameObject($"VolumeObject_{shape}_{role}");
-        child.transform.SetParent(transform, false);
+        child.transform.SetParent(ObjectsRoot, false);
 
         VolumeObject volumeObject = child.AddComponent<VolumeObject>();
         volumeObject.shapeType = shape;
@@ -116,6 +126,8 @@ public class VolumeModel : MonoBehaviour
 
     public void RebuildModel()
     {
+        RenderOutput.Clear();
+
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
 
         if (composer == null)
@@ -138,10 +150,7 @@ public class VolumeModel : MonoBehaviour
                 break;
         }
 
-        VolumeMeshRenderer renderer = GetComponent<VolumeMeshRenderer>();
-
-        if (renderer != null)
-            renderer.RebuildMesh(this);
+        RenderOutput.Rebuild(this);
     }
 
     public IVolumeData GetActiveVolume()
@@ -166,25 +175,24 @@ public class VolumeModel : MonoBehaviour
         if (composer == null)
             return;
 
-        for (int i = composer.objects.Count - 1; i >= 0; i--)
+        VolumeObject[] allObjects = GetComponentsInChildren<VolumeObject>(true);
+
+        for (int i = allObjects.Length - 1; i >= 0; i--)
         {
-            VolumeObject obj = composer.objects[i];
-
-            if (obj == null)
-                continue;
-
 #if UNITY_EDITOR
             if (!Application.isPlaying)
-                DestroyImmediate(obj.gameObject);
+                DestroyImmediate(allObjects[i].gameObject);
             else
-                Destroy(obj.gameObject);
+                Destroy(allObjects[i].gameObject);
 #else
-            Destroy(obj.gameObject);
+        Destroy(allObjects[i].gameObject);
 #endif
         }
 
         composer.objects.Clear();
-        RebuildModel();
+        composer.RebuildComposition();
+
+        ClearRenderOutput();
     }
 
     public void RemoveLastObject()
@@ -197,7 +205,10 @@ public class VolumeModel : MonoBehaviour
         composer.objects.RemoveAll(o => o == null);
 
         if (composer.objects.Count == 0)
+        {
+            ClearRenderOutput();
             return;
+        }
 
         VolumeObject last = composer.objects[composer.objects.Count - 1];
         composer.objects.RemoveAt(composer.objects.Count - 1);
@@ -208,8 +219,16 @@ public class VolumeModel : MonoBehaviour
         else
             Destroy(last.gameObject);
 #else
-        Destroy(last.gameObject);
+    Destroy(last.gameObject);
 #endif
+
+        composer.RebuildComposition();
+
+        if (composer.objects.Count == 0)
+        {
+            ClearRenderOutput();
+            return;
+        }
 
         RebuildModel();
     }
@@ -287,5 +306,34 @@ public class VolumeModel : MonoBehaviour
         {
             DrawOctreeNode(node.Children[i]);
         }
+    }
+
+    private VolumeRenderOutput RenderOutput
+    {
+        get
+        {
+            Transform existing = transform.Find("VolumeRenderOutput");
+
+            if (existing != null)
+            {
+                VolumeRenderOutput output = existing.GetComponent<VolumeRenderOutput>();
+
+                if (output != null)
+                    return output;
+            }
+
+            GameObject go = new GameObject("VolumeRenderOutput");
+            go.transform.SetParent(transform, false);
+
+            return go.AddComponent<VolumeRenderOutput>();
+        }
+    }
+
+    private void ClearRenderOutput()
+    {
+        VolumeRenderOutput output = RenderOutput;
+
+        if (output != null)
+            output.Clear();
     }
 }

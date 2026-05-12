@@ -3,7 +3,7 @@ using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
-public class VolumeMeshRenderer : MonoBehaviour
+public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 {
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
@@ -12,13 +12,32 @@ public class VolumeMeshRenderer : MonoBehaviour
     private readonly DualContouringVoxelMesher voxelMesher = new();
     private readonly DualContouringOctreeMesher octreeMesher = new();
 
-    private void OnEnable()
+    public void Rebuild(VolumeModel model)
     {
-        EnsureSetup();
+        RebuildMesh(model);
+    }
+
+    public void Clear()
+    {
+        if (mesh != null)
+            mesh.Clear();
+
+        if (meshFilter == null)
+            meshFilter = GetComponent<MeshFilter>();
+
+        if (meshFilter != null)
+            meshFilter.sharedMesh = null;
     }
 
     public void RebuildMesh(VolumeModel model)
     {
+        if (model.renderMode != VolumeRenderMode.SingleMesh)
+        {
+            Clear();
+            enabled = false;
+            return;
+        }
+
         EnsureSetup();
 
         // Wichtig: vor Clear/SetTriangles setzen
@@ -41,7 +60,7 @@ public class VolumeMeshRenderer : MonoBehaviour
             case VolumeDataStructure.Octree:
                 {
                     octreeMesher.isoLevel = model.isoLevel;
-                    octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);    
+                    octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);
 
                     break;
                 }
@@ -84,12 +103,15 @@ public class VolumeMeshRenderer : MonoBehaviour
             mesh = new Mesh();
             mesh.name = "Volume Mesh";
             mesh.indexFormat = IndexFormat.UInt32;
-            meshFilter.sharedMesh = mesh;
         }
 
+        // WICHTIG:
+        // Nach Clear() kann sharedMesh null sein.
+        // Deshalb immer wieder zuweisen.
+        if (meshFilter.sharedMesh != mesh)
+            meshFilter.sharedMesh = mesh;
+
         if (meshRenderer.sharedMaterial == null)
-        {
             meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
-        }
     }
 }

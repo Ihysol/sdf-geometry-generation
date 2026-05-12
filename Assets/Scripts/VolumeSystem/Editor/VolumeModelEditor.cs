@@ -56,12 +56,23 @@ public class VolumeModelEditor : Editor
         SerializedProperty dataStructureProp =
             serializedObject.FindProperty("dataStructure");
 
+        SerializedProperty renderModeProp =
+            serializedObject.FindProperty("renderMode");
+
         EditorGUI.BeginChangeCheck();
 
         EditorGUILayout.PropertyField(
             dataStructureProp,
             new GUIContent("Data Structure")
         );
+
+        if (renderModeProp != null)
+        {
+            EditorGUILayout.PropertyField(
+                renderModeProp,
+                new GUIContent("Render Mode")
+            );
+        }
 
         if (EditorGUI.EndChangeCheck())
         {
