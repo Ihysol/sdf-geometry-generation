@@ -72,6 +72,31 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
     }
 
+    public void SetSurfaceMaterial(Material material)
+    {
+        EnsureSetup();
+
+        ApplyMaterial(material);
+    }
+
+    private void ApplyMaterial(Material material)
+    {
+        if (meshRenderer == null)
+            meshRenderer = GetComponent<MeshRenderer>();
+
+        if (meshRenderer == null)
+            return;
+
+        if (material != null)
+        {
+            meshRenderer.sharedMaterial = material;
+            return;
+        }
+
+        if (meshRenderer.sharedMaterial == null)
+            meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
+    }
+
     /// <summary>Copies generated mesh buffers into the Unity mesh.</summary>
     private void ApplyMeshData(MeshData meshData, VolumeModel model)
     {
@@ -115,8 +140,5 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         // Deshalb immer wieder zuweisen.
         if (meshFilter.sharedMesh != mesh)
             meshFilter.sharedMesh = mesh;
-
-        if (meshRenderer.sharedMaterial == null)
-            meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
     }
 }

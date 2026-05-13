@@ -67,9 +67,11 @@ public class VolumeObject : MonoBehaviour
 
     public float gridWidth = 0.02f;
     public float gridDepth = 0.04f;
+    public bool autoClampGridToSampling = true;
 
     public Vector3 gridSpacing = new Vector3(0.4f, 0.4f, 0.4f);
     public Vector3 gridOffset = Vector3.zero;
+    public bool globalGridInWorldSpace = false;
 
     public int longitudeCount = 16;
     public int latitudeCount = 8;
@@ -81,11 +83,9 @@ public class VolumeObject : MonoBehaviour
     public int hyperboloidHeightSegments = 12;
     public float hyperboloidHeightMin = -2f;
     public float hyperboloidHeightMax = 2f;
-
     public bool useXLines = true;
     public bool useYLines = true;
     public bool useZLines = true;
-
 
 #if UNITY_EDITOR
     /// <summary>Stores the initial transform state for editor change detection.</summary>
@@ -236,14 +236,16 @@ public class VolumeObject : MonoBehaviour
     /// <summary>Evaluates the active grid cutter inside the surface shell.</summary>
     private float EvaluateGridCutter(Vector3 p, float baseDistance)
     {
-        float shell = Mathf.Max(baseDistance, -baseDistance - gridDepth);
+        GetEffectiveGridMetrics(out float width, out float depth);
+
+        float shell = Mathf.Max(baseDistance, -baseDistance - depth);
 
         float gridD = gridType switch
         {
-            VolumeGridType.Global => EvaluateGlobalGrid(p),
-            VolumeGridType.Sphere => EvaluateSphereGrid(p),
-            VolumeGridType.Torus => EvaluateTorusGrid(p),
-            VolumeGridType.Hyperboloid => EvaluateHyperboloidGrid(p),
+            VolumeGridType.Global => EvaluateGlobalGrid(p, width),
+            VolumeGridType.Sphere => EvaluateSphereGrid(p, width),
+            VolumeGridType.Torus => EvaluateTorusGrid(p, width),
+            VolumeGridType.Hyperboloid => EvaluateHyperboloidGrid(p, width),
             _ => 1f
         };
 
@@ -251,26 +253,82 @@ public class VolumeObject : MonoBehaviour
     }
 
     /// <summary>Evaluates axis-aligned global grid grooves.</summary>
-    private float EvaluateGlobalGrid(Vector3 p)
+    private float EvaluateGlobalGrid(Vector3 p, float width)
     {
-        Vector3 q = p + gridOffset;
+        Vector3 samplePoint = globalGridInWorldSpace
+            ? transform.TransformPoint(p)
+            : p;
+
+        Vector3 q = samplePoint + gridOffset;
 
         float d = float.PositiveInfinity;
 
         if (useXLines)
-            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.x, gridSpacing.x)) - gridWidth);
+            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.x, gridSpacing.x)) - width);
 
         if (useYLines)
-            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.y, gridSpacing.y)) - gridWidth);
+            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.y, gridSpacing.y)) - width);
 
         if (useZLines)
-            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.z, gridSpacing.z)) - gridWidth);
+            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.z, gridSpacing.z)) - width);
 
         return d;
     }
 
+    private void GetEffectiveGridMetrics(out float width, out float depth)
+    {
+        width = Mathf.Max(0.0001f, gridWidth);
+        depth = Mathf.Max(0.0001f, gridDepth);
+
+        if (!autoClampGridToSampling)
+            return;
+
+        float minCell = EstimateMinSamplingCellSize();
+
+        if (minCell <= 0f)
+            return;
+
+        width = Mathf.Max(width, minCell * 0.55f);
+        depth = Mathf.Max(depth, minCell * 0.75f);
+    }
+
+    private float EstimateMinSamplingCellSize()
+    {
+        VolumeModel model = GetComponentInParent<VolumeModel>();
+
+        if (model == null)
+            return 0f;
+
+        switch (model.dataStructure)
+        {
+            case VolumeDataStructure.VoxelGrid:
+                {
+                    Vector3Int size = model.voxelGridSampler.builder.gridSize;
+                    Vector3 extent = model.voxelGridSampler.builder.gridExtent;
+
+                    float cx = extent.x / Mathf.Max(1, size.x - 1);
+                    float cy = extent.y / Mathf.Max(1, size.y - 1);
+                    float cz = extent.z / Mathf.Max(1, size.z - 1);
+
+                    return Mathf.Min(cx, Mathf.Min(cy, cz));
+                }
+
+            case VolumeDataStructure.Octree:
+                {
+                    OctreeVolumeBuilder builder = model.octreeSampler.builder;
+                    int resolution = 1 << Mathf.Max(0, builder.maxDepth);
+                    Vector3 cell = builder.size / Mathf.Max(1, resolution);
+
+                    return Mathf.Min(cell.x, Mathf.Min(cell.y, cell.z));
+                }
+
+            default:
+                return 0f;
+        }
+    }
+
     /// <summary>Evaluates longitude and latitude grooves on a sphere.</summary>
-    private float EvaluateSphereGrid(Vector3 p)
+    private float EvaluateSphereGrid(Vector3 p, float width)
     {
         float r = p.magnitude;
 
@@ -291,11 +349,11 @@ public class VolumeObject : MonoBehaviour
         float lonDist = Mathf.Abs(RepeatCentered(theta, lonSpacing)) * r * Mathf.Sin(phi);
         float latDist = Mathf.Abs(RepeatCentered(phi, latSpacing)) * r;
 
-        return Mathf.Min(lonDist, latDist) - gridWidth;
+        return Mathf.Min(lonDist, latDist) - width;
     }
 
     /// <summary>Evaluates major and minor grooves on a torus.</summary>
-    private float EvaluateTorusGrid(Vector3 p)
+    private float EvaluateTorusGrid(Vector3 p, float width)
     {
         float theta = Mathf.Atan2(p.z, p.x) + gridOffset.x;
 
@@ -311,11 +369,11 @@ public class VolumeObject : MonoBehaviour
         float majorDist = Mathf.Abs(RepeatCentered(theta, majorSpacing)) * Mathf.Max(0.0001f, torusMajorRadius);
         float minorDist = Mathf.Abs(RepeatCentered(phi, minorSpacing)) * Mathf.Max(0.0001f, torusMinorRadius);
 
-        return Mathf.Min(majorDist, minorDist) - gridWidth;
+        return Mathf.Min(majorDist, minorDist) - width;
     }
 
     /// <summary>Evaluates radial and height grooves on a hyperboloid.</summary>
-    private float EvaluateHyperboloidGrid(Vector3 p)
+    private float EvaluateHyperboloidGrid(Vector3 p, float width)
     {
         float safeA = Mathf.Max(0.0001f, hyperboloidA);
         float safeB = Mathf.Max(0.0001f, hyperboloidB);
@@ -345,7 +403,7 @@ public class VolumeObject : MonoBehaviour
             RepeatCentered(p.y - hyperboloidHeightMin + gridOffset.y, heightSpacing)
         );
 
-        return Mathf.Min(radialDist, heightDist) - gridWidth;
+        return Mathf.Min(radialDist, heightDist) - width;
     }
 
     /// <summary>Repeats a coordinate around zero with the given spacing.</summary>

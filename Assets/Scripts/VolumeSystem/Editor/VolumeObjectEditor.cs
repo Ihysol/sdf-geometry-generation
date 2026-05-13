@@ -62,11 +62,13 @@ public class VolumeObjectEditor : Editor
         {
             Draw("gridWidth");
             Draw("gridDepth");
+            Draw("autoClampGridToSampling");
             Draw("gridOffset");
 
             switch (grid)
             {
                 case VolumeGridType.Global:
+                    Draw("globalGridInWorldSpace");
                     Draw("gridSpacing");
                     Draw("useXLines");
                     Draw("useYLines");

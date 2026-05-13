@@ -81,5 +81,9 @@ crashlytics-build.properties
 .vscode/
 .idea/
 
-# Local generated assets/output (uncomment if these should stay untracked)
-# /GeneratedAssets/
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local generated assets/output
+/GeneratedAssets/

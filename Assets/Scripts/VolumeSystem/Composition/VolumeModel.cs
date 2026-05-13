@@ -24,6 +24,7 @@ public class VolumeModel : MonoBehaviour
 
     [Header("Rendering")]
     public VolumeRenderMode renderMode = VolumeRenderMode.Chunked;
+    public Material surfaceMaterial;
 
     private Transform ObjectsRoot
     {
@@ -340,4 +341,5 @@ public class VolumeModel : MonoBehaviour
         if (output != null)
             output.Clear();
     }
+
 }
