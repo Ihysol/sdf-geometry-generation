@@ -11,7 +11,12 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
     public Vector3Int chunkCount = new Vector3Int(2, 2, 2);
     public bool buildSeamMesh = false;
 
-    private readonly ChunkSeamStitcher _seamStitcher = new();
+    private readonly IChunkSeamStitcher[] _seamStitchers =
+    {
+        new ChunkSeamStitcher(),
+        new VoxelGridChunkSeamStitcher()
+    };
+
     private VolumeSeamMesh _seamMesh;
 
     private readonly List<MeshVolumeChunk> _chunks = new();
@@ -83,6 +88,7 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
         composer.RebuildComposition();
 
         EnsureChunks(model);
+        SetSurfaceMaterial(model.surfaceMaterial);
         RebuildAll(model, composer);
 
         if (buildSeamMesh)
@@ -94,12 +100,6 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
     /// <summary>Builds the optional seam mesh used for debugging or legacy stitching.</summary>
     private void RebuildSeams(VolumeModel model, IScalarFieldSource source)
     {
-        if (model.dataStructure != VolumeDataStructure.Octree)
-        {
-            ClearSeams();
-            return;
-        }
-
         if (_seamMesh == null)
         {
             Transform root = SeamRoot;
@@ -122,9 +122,17 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
         if (activeVolume == null)
             return;
 
+        IChunkSeamStitcher seamStitcher = ResolveSeamStitcher(model, activeVolume);
+
+        if (seamStitcher == null)
+        {
+            ClearSeams();
+            return;
+        }
+
         Bounds globalBounds = activeVolume.Bounds;
 
-        _seamStitcher.RebuildSeams(
+        seamStitcher.RebuildSeams(
             model,
             source,
             globalBounds,
@@ -283,5 +291,27 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
                 source
             );
         }
+    }
+
+    public void SetSurfaceMaterial(Material material)
+    {
+        for (int i = 0; i < _chunks.Count; i++)
+            _chunks[i].SetSurfaceMaterial(material);
+
+        if (_seamMesh != null)
+            _seamMesh.ApplyMaterial(material);
+    }
+
+    private IChunkSeamStitcher ResolveSeamStitcher(VolumeModel model, IVolumeData activeVolume)
+    {
+        for (int i = 0; i < _seamStitchers.Length; i++)
+        {
+            IChunkSeamStitcher stitcher = _seamStitchers[i];
+
+            if (stitcher.CanHandle(model, activeVolume))
+                return stitcher;
+        }
+
+        return null;
     }
 }

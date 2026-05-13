@@ -2,9 +2,15 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class ChunkSeamStitcher
+    : IChunkSeamStitcher
 {
     private readonly DualContouringOctreeMesher _mesher = new();
     private readonly List<Bounds> _seamBounds = new();
+
+    public bool CanHandle(VolumeModel model, IVolumeData activeVolume)
+    {
+        return model != null && model.dataStructure == VolumeDataStructure.Octree;
+    }
 
     /// <summary>Builds optional seam-only geometry around internal chunk borders.</summary>
     public void RebuildSeams(
