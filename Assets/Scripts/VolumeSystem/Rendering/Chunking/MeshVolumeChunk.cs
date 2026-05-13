@@ -9,27 +9,31 @@ public class MeshVolumeChunk : VolumeChunkBase
     private MeshRenderer _meshRenderer;
     private Mesh _mesh;
 
-    private readonly DualContouringOctreeMesher _mesher = new();
-    private readonly DualContouringVoxelMesher _voxelMesher = new();
+    private readonly IChunkMesher[] _chunkMeshers =
+    {
+        new OctreeChunkMesher(),
+        new VoxelGridChunkMesher()
+    };
 
     /// <summary>Rebuilds this chunk by meshing only the grid edges owned by its bounds.</summary>
     public override void Rebuild(VolumeModel model, IScalarFieldSource source)
     {
         EnsureSetup();
-        ApplySurfaceMaterial(model);
 
         _mesh.Clear();
         _mesh.indexFormat = IndexFormat.UInt32;
 
-        switch (model.dataStructure)
-        {
-            case VolumeDataStructure.Octree:
-                RebuildOctree(model, source);
-                break;
+        IVolumeData activeVolume = model.GetActiveVolume();
+        IChunkMesher mesher = ResolveMesher(model, activeVolume);
 
-            case VolumeDataStructure.VoxelGrid:
-                RebuildVoxelGrid(model, source);
-                break;
+        if (mesher != null)
+        {
+            mesher.BuildChunk(
+                model,
+                source,
+                coreBounds,
+                _mesh
+            );
         }
 
         if (model.recalculateNormals)
@@ -39,53 +43,26 @@ public class MeshVolumeChunk : VolumeChunkBase
             _mesh.RecalculateBounds();
     }
 
-    private void RebuildOctree(VolumeModel model, IScalarFieldSource source)
+    public void SetSurfaceMaterial(Material material)
     {
-        OctreeVolume volume = model.octreeSampler.Volume;
-
-        if (volume == null)
-        {
-            model.octreeSampler.RebuildVolume(source);
-            volume = model.octreeSampler.Volume;
-        }
-
-        if (volume == null)
-            return;
-
-        _mesher.isoLevel = model.isoLevel;
-        _mesher.ownedBounds = coreBounds;
-        _mesher.BuildMesh(volume, _mesh);
-        _mesher.ownedBounds = null;
+        EnsureSetup();
+        ApplyMaterial(material);
     }
 
-    private void RebuildVoxelGrid(VolumeModel model, IScalarFieldSource source)
+    private IChunkMesher ResolveMesher(VolumeModel model, IVolumeData activeVolume)
     {
-        VoxelGrid volume = model.voxelGridSampler.Volume;
-
-        if (volume == null)
+        for (int i = 0; i < _chunkMeshers.Length; i++)
         {
-            model.voxelGridSampler.RebuildVolume(source);
-            volume = model.voxelGridSampler.Volume;
+            IChunkMesher mesher = _chunkMeshers[i];
+
+            if (mesher.CanHandle(model, activeVolume))
+                return mesher;
         }
 
-        if (volume == null)
-            return;
-
-        _voxelMesher.ownedBounds = coreBounds;
-        MeshData meshData = _voxelMesher.BuildMeshData(volume, model.isoLevel);
-        _voxelMesher.ownedBounds = null;
-
-        if (meshData == null)
-            return;
-
-        _mesh.SetVertices(meshData.Vertices);
-        _mesh.SetTriangles(meshData.Triangles, 0);
-
-        if (meshData.Bounds.size != Vector3.zero)
-            _mesh.bounds = meshData.Bounds;
+        return null;
     }
 
-    private void ApplySurfaceMaterial(VolumeModel model)
+    private void ApplyMaterial(Material material)
     {
         if (_meshRenderer == null)
             _meshRenderer = GetComponent<MeshRenderer>();
@@ -93,9 +70,9 @@ public class MeshVolumeChunk : VolumeChunkBase
         if (_meshRenderer == null)
             return;
 
-        if (model != null && model.surfaceMaterial != null)
+        if (material != null)
         {
-            _meshRenderer.sharedMaterial = model.surfaceMaterial;
+            _meshRenderer.sharedMaterial = material;
             return;
         }
 
@@ -130,9 +107,6 @@ public class MeshVolumeChunk : VolumeChunkBase
 
         if (_meshFilter.sharedMesh != _mesh)
             _meshFilter.sharedMesh = _mesh;
-
-        if (_meshRenderer.sharedMaterial == null)
-            _meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
     }
 
     /// <summary>Draws the chunk ownership bounds when the chunk is selected.</summary>

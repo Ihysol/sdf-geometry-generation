@@ -64,6 +64,7 @@ public class VolumeRenderOutput : MonoBehaviour
         _chunked.enabled = false;
 
         _single.enabled = true;
+        _single.SetSurfaceMaterial(model.surfaceMaterial);
 
         if (_meshRenderer != null)
             _meshRenderer.enabled = true;
@@ -83,6 +84,7 @@ public class VolumeRenderOutput : MonoBehaviour
         if (_meshFilter != null)
             _meshFilter.sharedMesh = null;
 
+        _chunked.SetSurfaceMaterial(model.surfaceMaterial);
         _chunked.enabled = true;
         _chunked.RebuildChunks(model);
     }
