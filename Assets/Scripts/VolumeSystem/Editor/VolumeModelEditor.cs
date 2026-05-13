@@ -4,6 +4,10 @@ using UnityEngine;
 [CustomEditor(typeof(VolumeModel))]
 public class VolumeModelEditor : Editor
 {
+    private bool _showMeshing = true;
+    private bool _showDebug = true;
+    private bool _showRebuild = true;
+
     /// <summary>Draws the custom inspector for model pipeline and rebuild controls.</summary>
     public override void OnInspectorGUI()
     {
@@ -25,7 +29,7 @@ public class VolumeModelEditor : Editor
 
         GUILayout.Space(10);
 
-        DrawRebuildSettings();
+        DrawRebuildSettings(model);
 
         if (EditorGUI.EndChangeCheck())
         {
@@ -175,10 +179,17 @@ public class VolumeModelEditor : Editor
             EditorGUILayout.PropertyField(builderProp, true);
     }
 
-    /// <summary>Draws iso-level, normals, bounds, and debug settings.</summary>
+    /// <summary>Draws meshing settings.</summary>
     private void DrawMeshingSettings(VolumeModel model)
     {
-        EditorGUILayout.LabelField("Meshing", EditorStyles.boldLabel);
+        _showMeshing = EditorGUILayout.Foldout(
+            _showMeshing,
+            "Meshing",
+            true
+        );
+
+        if (!_showMeshing)
+            return;
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("isoLevel")
@@ -192,8 +203,16 @@ public class VolumeModelEditor : Editor
             serializedObject.FindProperty("recalculateBounds")
         );
 
-        EditorGUILayout.Space(5);
-        EditorGUILayout.LabelField("Debug", EditorStyles.boldLabel);
+        EditorGUILayout.Space(8);
+
+        _showDebug = EditorGUILayout.Foldout(
+            _showDebug,
+            "Debug",
+            true
+        );
+
+        if (!_showDebug)
+            return;
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("drawChildGizmos")
@@ -208,9 +227,16 @@ public class VolumeModelEditor : Editor
     }
 
     /// <summary>Draws automatic and realtime rebuild settings.</summary>
-    private void DrawRebuildSettings()
+    private void DrawRebuildSettings(VolumeModel model)
     {
-        EditorGUILayout.LabelField("Rebuild", EditorStyles.boldLabel);
+        _showRebuild = EditorGUILayout.Foldout(
+            _showRebuild,
+            "Rebuild",
+            true
+        );
+
+        if (!_showRebuild)
+            return;
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("autoRebuildOnChange")
