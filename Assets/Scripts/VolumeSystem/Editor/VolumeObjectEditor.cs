@@ -62,6 +62,7 @@ public class VolumeObjectEditor : Editor
         {
             Draw("gridWidth");
             Draw("gridDepth");
+            Draw("autoClampGridToSampling");
             Draw("gridOffset");
 
             switch (grid)
