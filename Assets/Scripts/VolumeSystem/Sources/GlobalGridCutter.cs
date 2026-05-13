@@ -17,7 +17,6 @@ public class GlobalGridCutter : SDFCutter
     {
         float baseD = baseShape.Evaluate(p);
 
-        // Nur Schale: von Oberfläche bis depth nach innen
         float shell = Mathf.Max(baseD, -baseD - depth);
 
         Vector3 q = p + offset;
