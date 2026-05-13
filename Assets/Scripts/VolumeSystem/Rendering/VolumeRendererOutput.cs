@@ -74,6 +74,18 @@ public class VolumeRenderOutput : MonoBehaviour
     /// <summary>Enables and rebuilds the chunked renderer.</summary>
     private void RebuildChunked(VolumeModel model)
     {
+        if (model.dataStructure != VolumeDataStructure.Octree)
+        {
+            Debug.LogWarning(
+                "Chunked render mode currently supports only Octree data. " +
+                "Falling back to SingleMesh for this rebuild.",
+                this
+            );
+
+            RebuildSingle(model);
+            return;
+        }
+
         _single.Clear();
         _single.enabled = false;
 

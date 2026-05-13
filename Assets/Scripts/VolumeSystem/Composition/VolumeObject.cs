@@ -70,6 +70,7 @@ public class VolumeObject : MonoBehaviour
 
     public Vector3 gridSpacing = new Vector3(0.4f, 0.4f, 0.4f);
     public Vector3 gridOffset = Vector3.zero;
+    public bool globalGridInWorldSpace = false;
 
     public int longitudeCount = 16;
     public int latitudeCount = 8;
@@ -253,7 +254,11 @@ public class VolumeObject : MonoBehaviour
     /// <summary>Evaluates axis-aligned global grid grooves.</summary>
     private float EvaluateGlobalGrid(Vector3 p)
     {
-        Vector3 q = p + gridOffset;
+        Vector3 samplePoint = globalGridInWorldSpace
+            ? transform.TransformPoint(p)
+            : p;
+
+        Vector3 q = samplePoint + gridOffset;
 
         float d = float.PositiveInfinity;
 

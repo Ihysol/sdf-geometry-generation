@@ -15,6 +15,7 @@ public class MeshVolumeChunk : VolumeChunkBase
     public override void Rebuild(VolumeModel model, IScalarFieldSource source)
     {
         EnsureSetup();
+        ApplySurfaceMaterial(model);
 
         OctreeVolume volume = model.octreeSampler.Volume;
 
@@ -40,6 +41,24 @@ public class MeshVolumeChunk : VolumeChunkBase
 
         if (model.recalculateBounds)
             _mesh.RecalculateBounds();
+    }
+
+    private void ApplySurfaceMaterial(VolumeModel model)
+    {
+        if (_meshRenderer == null)
+            _meshRenderer = GetComponent<MeshRenderer>();
+
+        if (_meshRenderer == null)
+            return;
+
+        if (model != null && model.surfaceMaterial != null)
+        {
+            _meshRenderer.sharedMaterial = model.surfaceMaterial;
+            return;
+        }
+
+        if (_meshRenderer.sharedMaterial == null)
+            _meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
     }
 
     /// <summary>Clears this chunk's generated mesh.</summary>

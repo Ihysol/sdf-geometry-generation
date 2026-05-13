@@ -76,6 +76,11 @@ public class VolumeModelEditor : Editor
             );
         }
 
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("surfaceMaterial"),
+            new GUIContent("Surface Material")
+        );
+
         if (EditorGUI.EndChangeCheck())
         {
             serializedObject.ApplyModifiedProperties();
