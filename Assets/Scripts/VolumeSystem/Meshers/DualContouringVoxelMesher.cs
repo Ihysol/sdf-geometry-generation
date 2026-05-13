@@ -12,6 +12,10 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
 
     private Vector3Int _lastCellArraySize;
     private float _isoLevel;
+    private Vector3 _origin;
+    private Vector3 _cellSize;
+
+    public Bounds? ownedBounds = null;
 
     private static readonly Vector3Int[] CornerOffsets =
     {
@@ -57,8 +61,8 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
 
         float[] values = volume.Values;
         Vector3Int size = volume.GridSize;
-        Vector3 origin = volume.Origin;
-        Vector3 cellSize = volume.CellSize;
+        _origin = volume.Origin;
+        _cellSize = volume.CellSize;
 
         Vector3Int cells = size - Vector3Int.one;
 
@@ -97,8 +101,8 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
                     _cellVertexIndex[index] = CreateCellVertex(
                         values,
                         size,
-                        origin,
-                        cellSize,
+                        _origin,
+                        _cellSize,
                         x,
                         y,
                         z
@@ -273,6 +277,9 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
                     if (!HasCrossing(a, b))
                         continue;
 
+                    if (!IsOwnedGridEdge(x, y, z, Axis.X))
+                        continue;
+
                     int v0 = _cellVertexIndex[CellIndex(x, y - 1, z - 1, cells)];
                     int v1 = _cellVertexIndex[CellIndex(x, y, z - 1, cells)];
                     int v2 = _cellVertexIndex[CellIndex(x, y, z, cells)];
@@ -296,6 +303,9 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
                     float b = values[baseIndex + sizeX];
 
                     if (!HasCrossing(a, b))
+                        continue;
+
+                    if (!IsOwnedGridEdge(x, y, z, Axis.Y))
                         continue;
 
                     int v0 = _cellVertexIndex[CellIndex(x - 1, y, z - 1, cells)];
@@ -323,6 +333,9 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
                     if (!HasCrossing(a, b))
                         continue;
 
+                    if (!IsOwnedGridEdge(x, y, z, Axis.Z))
+                        continue;
+
                     int v0 = _cellVertexIndex[CellIndex(x - 1, y - 1, z, cells)];
                     int v1 = _cellVertexIndex[CellIndex(x, y - 1, z, cells)];
                     int v2 = _cellVertexIndex[CellIndex(x, y, z, cells)];
@@ -332,5 +345,49 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
                 }
             }
         }
+    }
+
+    private enum Axis
+    {
+        X,
+        Y,
+        Z
+    }
+
+    private bool IsOwnedGridEdge(int x, int y, int z, Axis axis)
+    {
+        if (!ownedBounds.HasValue)
+            return true;
+
+        Bounds bounds = ownedBounds.Value;
+
+        Vector3 start = _origin + new Vector3(
+            x * _cellSize.x,
+            y * _cellSize.y,
+            z * _cellSize.z
+        );
+
+        Vector3 mid = start;
+
+        switch (axis)
+        {
+            case Axis.X:
+                mid.x += _cellSize.x * 0.5f;
+                break;
+            case Axis.Y:
+                mid.y += _cellSize.y * 0.5f;
+                break;
+            case Axis.Z:
+                mid.z += _cellSize.z * 0.5f;
+                break;
+        }
+
+        return
+            mid.x >= bounds.min.x &&
+            mid.y >= bounds.min.y &&
+            mid.z >= bounds.min.z &&
+            mid.x < bounds.max.x &&
+            mid.y < bounds.max.y &&
+            mid.z < bounds.max.z;
     }
 }

@@ -10,6 +10,7 @@ public class MeshVolumeChunk : VolumeChunkBase
     private Mesh _mesh;
 
     private readonly DualContouringOctreeMesher _mesher = new();
+    private readonly DualContouringVoxelMesher _voxelMesher = new();
 
     /// <summary>Rebuilds this chunk by meshing only the grid edges owned by its bounds.</summary>
     public override void Rebuild(VolumeModel model, IScalarFieldSource source)
@@ -17,6 +18,29 @@ public class MeshVolumeChunk : VolumeChunkBase
         EnsureSetup();
         ApplySurfaceMaterial(model);
 
+        _mesh.Clear();
+        _mesh.indexFormat = IndexFormat.UInt32;
+
+        switch (model.dataStructure)
+        {
+            case VolumeDataStructure.Octree:
+                RebuildOctree(model, source);
+                break;
+
+            case VolumeDataStructure.VoxelGrid:
+                RebuildVoxelGrid(model, source);
+                break;
+        }
+
+        if (model.recalculateNormals)
+            _mesh.RecalculateNormals();
+
+        if (model.recalculateBounds)
+            _mesh.RecalculateBounds();
+    }
+
+    private void RebuildOctree(VolumeModel model, IScalarFieldSource source)
+    {
         OctreeVolume volume = model.octreeSampler.Volume;
 
         if (volume == null)
@@ -25,9 +49,6 @@ public class MeshVolumeChunk : VolumeChunkBase
             volume = model.octreeSampler.Volume;
         }
 
-        _mesh.Clear();
-        _mesh.indexFormat = IndexFormat.UInt32;
-
         if (volume == null)
             return;
 
@@ -35,12 +56,33 @@ public class MeshVolumeChunk : VolumeChunkBase
         _mesher.ownedBounds = coreBounds;
         _mesher.BuildMesh(volume, _mesh);
         _mesher.ownedBounds = null;
+    }
 
-        if (model.recalculateNormals)
-            _mesh.RecalculateNormals();
+    private void RebuildVoxelGrid(VolumeModel model, IScalarFieldSource source)
+    {
+        VoxelGrid volume = model.voxelGridSampler.Volume;
 
-        if (model.recalculateBounds)
-            _mesh.RecalculateBounds();
+        if (volume == null)
+        {
+            model.voxelGridSampler.RebuildVolume(source);
+            volume = model.voxelGridSampler.Volume;
+        }
+
+        if (volume == null)
+            return;
+
+        _voxelMesher.ownedBounds = coreBounds;
+        MeshData meshData = _voxelMesher.BuildMeshData(volume, model.isoLevel);
+        _voxelMesher.ownedBounds = null;
+
+        if (meshData == null)
+            return;
+
+        _mesh.SetVertices(meshData.Vertices);
+        _mesh.SetTriangles(meshData.Triangles, 0);
+
+        if (meshData.Bounds.size != Vector3.zero)
+            _mesh.bounds = meshData.Bounds;
     }
 
     private void ApplySurfaceMaterial(VolumeModel model)

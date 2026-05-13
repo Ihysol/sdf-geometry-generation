@@ -94,6 +94,12 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
     /// <summary>Builds the optional seam mesh used for debugging or legacy stitching.</summary>
     private void RebuildSeams(VolumeModel model, IScalarFieldSource source)
     {
+        if (model.dataStructure != VolumeDataStructure.Octree)
+        {
+            ClearSeams();
+            return;
+        }
+
         if (_seamMesh == null)
         {
             Transform root = SeamRoot;
@@ -111,7 +117,12 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
             }
         }
 
-        Bounds globalBounds = model.octreeSampler.builder.Bounds;
+        IVolumeData activeVolume = model.GetActiveVolume();
+
+        if (activeVolume == null)
+            return;
+
+        Bounds globalBounds = activeVolume.Bounds;
 
         _seamStitcher.RebuildSeams(
             model,
@@ -223,7 +234,12 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
     /// <summary>Assigns half-open ownership bounds to each chunk.</summary>
     private void AssignChunkBounds(VolumeModel model)
     {
-        Bounds bounds = model.octreeSampler.builder.Bounds;
+        IVolumeData activeVolume = model.GetActiveVolume();
+
+        if (activeVolume == null)
+            return;
+
+        Bounds bounds = activeVolume.Bounds;
 
         Vector3 baseSize = new Vector3(
             bounds.size.x / chunkCount.x,
