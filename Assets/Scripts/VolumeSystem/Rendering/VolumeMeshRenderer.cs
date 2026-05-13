@@ -42,6 +42,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
 
         EnsureSetup();
+        ApplySurfaceMaterial(model);
 
         // Wichtig: vor Clear/SetTriangles setzen
         mesh.indexFormat = IndexFormat.UInt32;
@@ -70,6 +71,24 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
 
         Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
+    }
+
+    private void ApplySurfaceMaterial(VolumeModel model)
+    {
+        if (meshRenderer == null)
+            meshRenderer = GetComponent<MeshRenderer>();
+
+        if (meshRenderer == null)
+            return;
+
+        if (model != null && model.surfaceMaterial != null)
+        {
+            meshRenderer.sharedMaterial = model.surfaceMaterial;
+            return;
+        }
+
+        if (meshRenderer.sharedMaterial == null)
+            meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
     }
 
     /// <summary>Copies generated mesh buffers into the Unity mesh.</summary>

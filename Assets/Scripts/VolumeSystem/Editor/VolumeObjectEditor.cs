@@ -67,6 +67,7 @@ public class VolumeObjectEditor : Editor
             switch (grid)
             {
                 case VolumeGridType.Global:
+                    Draw("globalGridInWorldSpace");
                     Draw("gridSpacing");
                     Draw("useXLines");
                     Draw("useYLines");

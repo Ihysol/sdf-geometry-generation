@@ -18,6 +18,20 @@ public class VolumeSeamMesh : MonoBehaviour
         }
     }
 
+    public void ApplyMaterial(Material material)
+    {
+        EnsureSetup();
+
+        if (material != null)
+        {
+            _meshRenderer.sharedMaterial = material;
+            return;
+        }
+
+        if (_meshRenderer.sharedMaterial == null)
+            _meshRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
+    }
+
     /// <summary>Clears the generated seam mesh.</summary>
     public void Clear()
     {

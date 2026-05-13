@@ -120,6 +120,8 @@ public class ChunkedVolumeRenderer : MonoBehaviour, IVolumeRenderer
             chunkCount,
             _seamMesh.Mesh
         );
+
+        _seamMesh.ApplyMaterial(model.surfaceMaterial);
     }
 
     /// <summary>Clears any existing seam mesh when seam stitching is disabled.</summary>
