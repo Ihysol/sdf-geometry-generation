@@ -79,6 +79,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             case VolumeDataStructure.Octree:
                 {
                     octreeMesher.isoLevel = model.isoLevel;
+                    octreeMesher.useQefVertices = model.useQefVertices;
+                    octreeMesher.qefVertexMode = model.qefVertexMode;
+                    octreeMesher.qefBlendFactor = model.qefBlendFactor;
+                    octreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
+                    octreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+                    octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
                     octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);
 
                     break;
@@ -140,7 +146,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         {
             QueueDirtyChunks(bounds, expandedDirtyBounds);
             if (model.dataStructure == VolumeDataStructure.Octree && model.octreeExpandDirtyNeighbors)
-                ExpandQueuedChunksByOneCell(bounds);
+                ExpandQueuedChunks(bounds, Mathf.Max(1, model.octreeDirtyNeighborRings));
         }
 
         for (int i = 0; i < _chunks.Count && i < bounds.Count; i++)
@@ -348,33 +354,38 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
     }
 
-    private void ExpandQueuedChunksByOneCell(List<Bounds> bounds)
+    private void ExpandQueuedChunks(List<Bounds> bounds, int rings)
     {
         if (_pendingChunkQueue.Count == 0 || bounds == null || bounds.Count == 0)
             return;
 
-        List<int> seed = new List<int>(_pendingChunkSet);
+        rings = Mathf.Max(1, rings);
 
-        for (int si = 0; si < seed.Count; si++)
+        for (int ring = 0; ring < rings; ring++)
         {
-            int i = seed[si];
+            List<int> seed = new List<int>(_pendingChunkSet);
 
-            if (i < 0 || i >= bounds.Count)
-                continue;
-
-            Bounds b = bounds[i];
-
-            for (int j = 0; j < bounds.Count; j++)
+            for (int si = 0; si < seed.Count; si++)
             {
-                if (_pendingChunkSet.Contains(j))
+                int i = seed[si];
+
+                if (i < 0 || i >= bounds.Count)
                     continue;
 
-                Bounds n = bounds[j];
+                Bounds b = bounds[i];
 
-                if (SharesFaceOrEdge(b, n))
+                for (int j = 0; j < bounds.Count; j++)
                 {
-                    _pendingChunkQueue.Enqueue(j);
-                    _pendingChunkSet.Add(j);
+                    if (_pendingChunkSet.Contains(j))
+                        continue;
+
+                    Bounds n = bounds[j];
+
+                    if (SharesFaceOrEdge(b, n))
+                    {
+                        _pendingChunkQueue.Enqueue(j);
+                        _pendingChunkSet.Add(j);
+                    }
                 }
             }
         }
@@ -514,3 +525,5 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             meshFilter.sharedMesh = mesh;
     }
 }
+
+

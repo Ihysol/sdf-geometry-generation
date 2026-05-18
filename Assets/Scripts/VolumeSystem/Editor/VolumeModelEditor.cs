@@ -140,6 +140,13 @@ public class VolumeModelEditor : Editor
                 serializedObject.FindProperty("octreeExpandDirtyNeighbors"),
                 new GUIContent("Expand Dirty To Neighbor Chunks")
             );
+            if (serializedObject.FindProperty("octreeExpandDirtyNeighbors").boolValue)
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("octreeDirtyNeighborRings"),
+                    new GUIContent("Dirty Neighbor Rings")
+                );
+            }
         }
 
         if (enableChunkingProp != null && enableChunkingProp.boolValue && chunkingProp != null)
@@ -257,6 +264,38 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("isoLevel")
         );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("useQefVertices"),
+            new GUIContent("Use QEF Vertices")
+        );
+        if (serializedObject.FindProperty("useQefVertices").boolValue)
+        {
+            SerializedProperty modeProp = serializedObject.FindProperty("qefVertexMode");
+            EditorGUILayout.PropertyField(
+                modeProp,
+                new GUIContent("QEF Vertex Mode")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefBlendFactor"),
+                new GUIContent("QEF Blend Factor")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefSnapEpsilon"),
+                new GUIContent("QEF Snap Epsilon")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefMaxOffsetCells"),
+                new GUIContent("QEF Max Offset Cells")
+            );
+            if (modeProp != null && (QefVertexMode)modeProp.enumValueIndex == QefVertexMode.QefAxisSnap)
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("qefAxisSnapStrength"),
+                    new GUIContent("Axis Snap Strength")
+                );
+            }
+        }
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("recalculateNormals")

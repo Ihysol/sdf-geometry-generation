@@ -45,12 +45,19 @@ public class ChunkSeamStitcher
             boundsPadding = 0f,
 
             minDepth = template.minDepth,
-            maxDepth = template.maxDepth
+            maxDepth = template.maxDepth,
+            useQefVertices = template.useQefVertices
         };
 
         OctreeVolume volume = builder.Build(source);
 
         _mesher.isoLevel = model.isoLevel;
+        _mesher.useQefVertices = model.useQefVertices;
+        _mesher.qefVertexMode = model.qefVertexMode;
+        _mesher.qefBlendFactor = model.qefBlendFactor;
+        _mesher.qefSnapEpsilon = model.qefSnapEpsilon;
+        _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+        _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
         _mesher.ownedBounds = null;
         _mesher.ownedBoundsList = _seamBounds;
         _mesher.BuildMesh(volume, seamMesh);
@@ -118,3 +125,5 @@ public class ChunkSeamStitcher
         }
     }
 }
+
+

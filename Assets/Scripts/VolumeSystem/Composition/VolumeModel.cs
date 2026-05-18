@@ -11,6 +11,14 @@ public enum VolumeDataStructure
     Octree
 }
 
+public enum QefVertexMode
+{
+    AverageCrossings,
+    QefFast,
+    QefFeaturePreserving,
+    QefAxisSnap
+}
+
 [DisallowMultipleComponent]
 [RequireComponent(typeof(VolumeSceneComposer))]
 public class VolumeModel : MonoBehaviour
@@ -24,6 +32,7 @@ public class VolumeModel : MonoBehaviour
     public bool forceFullChunkRedraw = false;
     public int maxChunksPerRebuild = 8;
     public bool octreeExpandDirtyNeighbors = true;
+    public int octreeDirtyNeighborRings = 2;
     public float dirtyHaloMultiplier = 3f;
     public Material surfaceMaterial;
     public ChunkingSettings chunking = new ChunkingSettings
@@ -66,8 +75,13 @@ public class VolumeModel : MonoBehaviour
 
         voxelGridSampler?.builder?.Validate();
         maxChunksPerRebuild = Mathf.Max(1, maxChunksPerRebuild);
+        octreeDirtyNeighborRings = Mathf.Max(0, octreeDirtyNeighborRings);
         dirtyHaloMultiplier = Mathf.Max(0f, dirtyHaloMultiplier);
         moveReleaseDelaySeconds = Mathf.Max(0f, moveReleaseDelaySeconds);
+        qefBlendFactor = Mathf.Clamp01(qefBlendFactor);
+        qefSnapEpsilon = Mathf.Max(0f, qefSnapEpsilon);
+        qefMaxOffsetCells = Mathf.Max(0f, qefMaxOffsetCells);
+        qefAxisSnapStrength = Mathf.Max(1f, qefAxisSnapStrength);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -86,6 +100,16 @@ public class VolumeModel : MonoBehaviour
 
     [Header("Meshing")]
     public float isoLevel = 0f;
+    public bool useQefVertices = true;
+    public QefVertexMode qefVertexMode = QefVertexMode.QefAxisSnap;
+    [Range(0f, 1f)]
+    public float qefBlendFactor = 0.5f;
+    [Min(0f)]
+    public float qefSnapEpsilon = 0.015f;
+    [Min(0f)]
+    public float qefMaxOffsetCells = 0.75f;
+    [Min(1f)]
+    public float qefAxisSnapStrength = 2.5f;
     public bool recalculateNormals = true;
     public bool recalculateBounds = true;
 
@@ -167,6 +191,12 @@ public class VolumeModel : MonoBehaviour
                 break;
 
             case VolumeDataStructure.Octree:
+                octreeSampler.builder.useQefVertices = useQefVertices;
+                octreeSampler.builder.qefVertexMode = qefVertexMode;
+                octreeSampler.builder.qefBlendFactor = qefBlendFactor;
+                octreeSampler.builder.qefSnapEpsilon = qefSnapEpsilon;
+                octreeSampler.builder.qefMaxOffsetCells = qefMaxOffsetCells;
+                octreeSampler.builder.qefAxisSnapStrength = qefAxisSnapStrength;
                 if (hasDirtyBounds)
                 {
                     bool didIncrementalOctreeUpdate =

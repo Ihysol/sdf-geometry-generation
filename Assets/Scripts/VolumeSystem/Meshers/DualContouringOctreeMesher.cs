@@ -3,7 +3,12 @@ using UnityEngine;
 
 public class DualContouringOctreeMesher
 {
-    private const float GridSnapEpsilonFactor = 0.03f;
+    public bool useQefVertices = true;
+    public QefVertexMode qefVertexMode = QefVertexMode.QefAxisSnap;
+    public float qefBlendFactor = 0.5f;
+    public float qefSnapEpsilon = 0.015f;
+    public float qefMaxOffsetCells = 0.75f;
+    public float qefAxisSnapStrength = 2.5f;
     public float isoLevel = 0f;
 
     private readonly List<Vector3> _vertices = new();
@@ -12,6 +17,8 @@ public class DualContouringOctreeMesher
     private readonly Dictionary<Vector3Int, OctreeNode> _leafMap = new();
     private readonly HashSet<EdgeKey> _processedEdges = new();
     private readonly HashSet<Vector3Int> _missingLeafCoords = new();
+    private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
+    private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
 
     private int _skippedNullQuads;
     private int _skippedInvalidQuads;
@@ -26,6 +33,63 @@ public class DualContouringOctreeMesher
     private Vector3Int _gridMin;
     private Vector3Int _gridMax;
     public System.Collections.Generic.List<Bounds> ownedBoundsList = null;
+    private readonly List<Vector3> _qefPoints = new(12);
+    private readonly List<Vector3> _qefNormals = new(12);
+    private readonly List<float> _qefWeights = new(12);
+
+    private readonly struct HermiteSample
+    {
+        public readonly Vector3 Point;
+        public readonly Vector3 Normal;
+        public readonly float Weight;
+
+        public HermiteSample(Vector3 point, Vector3 normal, float weight)
+        {
+            Point = point;
+            Normal = normal;
+            Weight = weight;
+        }
+    }
+
+    private readonly struct HermiteEdgeKey
+    {
+        public readonly Vector3Int A;
+        public readonly Vector3Int B;
+
+        public HermiteEdgeKey(Vector3Int a, Vector3Int b)
+        {
+            if (LexicographicLessOrEqual(a, b))
+            {
+                A = a;
+                B = b;
+            }
+            else
+            {
+                A = b;
+                B = a;
+            }
+        }
+
+        public override int GetHashCode()
+        {
+            return (A.GetHashCode() * 397) ^ B.GetHashCode();
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is not HermiteEdgeKey other)
+                return false;
+
+            return A == other.A && B == other.B;
+        }
+
+        private static bool LexicographicLessOrEqual(Vector3Int x, Vector3Int y)
+        {
+            if (x.x != y.x) return x.x < y.x;
+            if (x.y != y.y) return x.y < y.y;
+            return x.z <= y.z;
+        }
+    }
 
     private enum Axis
     {
@@ -142,6 +206,8 @@ public class DualContouringOctreeMesher
         _leafMap.Clear();
         _processedEdges.Clear();
         _missingLeafCoords.Clear();
+        _cornerSampleCache.Clear();
+        _hermiteSampleCache.Clear();
 
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
@@ -592,10 +658,7 @@ public class DualContouringOctreeMesher
         ghost.Depth = _maxDepth;
         ghost.Coord = coord;
 
-        float[] corners = SampleCorners(
-            _volume.Source,
-            bounds
-        );
+        float[] corners = SampleCorners(_volume.Source, coord);
 
         ghost.CornerValues = corners;
 
@@ -613,7 +676,7 @@ public class DualContouringOctreeMesher
         ghost.ContainsSurface = hasNegative && hasPositive;
 
         ghost.SurfaceVertex = ghost.ContainsSurface
-            ? EstimateSurfaceVertex(bounds, corners)
+            ? EstimateSurfaceVertex(bounds, corners, _volume.Source, coord)
             : bounds.center;
 
         _leafMap[coord] = ghost;
@@ -622,23 +685,44 @@ public class DualContouringOctreeMesher
     }
 
     /// <summary>Samples all eight corners of a finest-grid leaf.</summary>
-    private float[] SampleCorners(
-        IScalarFieldSource source,
-        Bounds bounds)
+    private float[] SampleCorners(IScalarFieldSource source, Vector3Int cellCoord)
     {
-        Vector3[] positions = GetCornerPositions(bounds);
+        Vector3Int c000 = new Vector3Int(cellCoord.x, cellCoord.y, cellCoord.z);
+        Vector3Int c100 = new Vector3Int(cellCoord.x + 1, cellCoord.y, cellCoord.z);
+        Vector3Int c110 = new Vector3Int(cellCoord.x + 1, cellCoord.y + 1, cellCoord.z);
+        Vector3Int c010 = new Vector3Int(cellCoord.x, cellCoord.y + 1, cellCoord.z);
+        Vector3Int c001 = new Vector3Int(cellCoord.x, cellCoord.y, cellCoord.z + 1);
+        Vector3Int c101 = new Vector3Int(cellCoord.x + 1, cellCoord.y, cellCoord.z + 1);
+        Vector3Int c111 = new Vector3Int(cellCoord.x + 1, cellCoord.y + 1, cellCoord.z + 1);
+        Vector3Int c011 = new Vector3Int(cellCoord.x, cellCoord.y + 1, cellCoord.z + 1);
 
         return new float[]
         {
-            source.Evaluate(positions[0]),
-            source.Evaluate(positions[1]),
-            source.Evaluate(positions[2]),
-            source.Evaluate(positions[3]),
-            source.Evaluate(positions[4]),
-            source.Evaluate(positions[5]),
-            source.Evaluate(positions[6]),
-            source.Evaluate(positions[7])
+            EvaluateCornerCached(source, c000),
+            EvaluateCornerCached(source, c100),
+            EvaluateCornerCached(source, c110),
+            EvaluateCornerCached(source, c010),
+            EvaluateCornerCached(source, c001),
+            EvaluateCornerCached(source, c101),
+            EvaluateCornerCached(source, c111),
+            EvaluateCornerCached(source, c011)
         };
+    }
+
+    private float EvaluateCornerCached(IScalarFieldSource source, Vector3Int gridVertex)
+    {
+        if (_cornerSampleCache.TryGetValue(gridVertex, out float cached))
+            return cached;
+
+        Vector3 worldPos = _origin + new Vector3(
+            gridVertex.x * _cellSize.x,
+            gridVertex.y * _cellSize.y,
+            gridVertex.z * _cellSize.z
+        );
+
+        float value = source.Evaluate(worldPos);
+        _cornerSampleCache[gridVertex] = value;
+        return value;
     }
 
     /// <summary>Returns the eight corner positions for a bound.</summary>
@@ -664,12 +748,18 @@ public class DualContouringOctreeMesher
     /// <summary>Estimates a dual-contouring vertex from edge crossing positions.</summary>
     private Vector3 EstimateSurfaceVertex(
         Bounds bounds,
-        float[] cornerValues)
+        float[] cornerValues,
+        IScalarFieldSource source,
+        Vector3Int cellCoord)
     {
         Vector3[] positions = GetCornerPositions(bounds);
+        Vector3Int[] cornerCoords = GetCellCornerCoords(cellCoord);
 
         Vector3 sum = Vector3.zero;
         int count = 0;
+        _qefPoints.Clear();
+        _qefNormals.Clear();
+        _qefWeights.Clear();
 
         for (int i = 0; i < SurfaceEdges.Length; i++)
         {
@@ -683,20 +773,44 @@ public class DualContouringOctreeMesher
 
             Vector3 pa = positions[edge.A];
             Vector3 pb = positions[edge.B];
+            Vector3Int ca = cornerCoords[edge.A];
+            Vector3Int cb = cornerCoords[edge.B];
 
-            float t = (isoLevel - va) / (vb - va);
-            t = Mathf.Clamp01(t);
+            HermiteSample sample = GetHermiteSample(source, pa, pb, va, vb, ca, cb, isoLevel);
 
-            Vector3 p = Vector3.Lerp(pa, pb, t);
-
-            sum += p;
+            sum += sample.Point;
             count++;
+            _qefPoints.Add(sample.Point);
+            _qefNormals.Add(sample.Normal);
+            _qefWeights.Add(sample.Weight);
+        }
+
+        Vector3 avg = count == 0 ? bounds.center : (sum / count);
+        bool useQef = useQefVertices && qefVertexMode != QefVertexMode.AverageCrossings;
+        bool useAdaptiveBlend = qefVertexMode == QefVertexMode.QefFeaturePreserving || qefVertexMode == QefVertexMode.QefAxisSnap;
+        bool useAxisSnap = qefVertexMode == QefVertexMode.QefAxisSnap;
+
+        if (useQef &&
+            _qefPoints.Count >= 3 &&
+            HasSufficientGradientDiversity(_qefNormals) &&
+            QefSolver.TrySolve(_qefPoints, _qefNormals, _qefWeights, bounds, out Vector3 qef) &&
+            IsQefSolutionAcceptable(qef, avg, bounds))
+        {
+            float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(_qefNormals) : Mathf.Clamp01(qefBlendFactor);
+            Vector3 blended = Vector3.Lerp(avg, qef, blend);
+            Vector3 result = useAxisSnap ? SnapAxisAlignedFeature(blended, _qefNormals) : blended;
+            if (useAxisSnap)
+                result = SnapToGridNearBoundaryWithFactor(result, qefAxisSnapStrength);
+            return SnapToGridNearBoundary(result);
         }
 
         if (count == 0)
             return SnapToGridNearBoundary(bounds.center);
 
-        return SnapToGridNearBoundary(sum / count);
+        Vector3 avgResult = useAxisSnap ? SnapAxisAlignedFeature(avg, _qefNormals) : avg;
+        if (useAxisSnap)
+            avgResult = SnapToGridNearBoundaryWithFactor(avgResult, qefAxisSnapStrength);
+        return SnapToGridNearBoundary(avgResult);
     }
 
     /// <summary>Checks whether two scalar samples cross the active iso level.</summary>
@@ -726,9 +840,10 @@ public class DualContouringOctreeMesher
         float ry = Mathf.Round(gy);
         float rz = Mathf.Round(gz);
 
-        float tx = GridSnapEpsilonFactor;
-        float ty = GridSnapEpsilonFactor;
-        float tz = GridSnapEpsilonFactor;
+        float t = Mathf.Max(0f, qefSnapEpsilon);
+        float tx = t;
+        float ty = t;
+        float tz = t;
 
         if (Mathf.Abs(gx - rx) <= tx)
             p.x = _origin.x + rx * _cellSize.x;
@@ -740,5 +855,244 @@ public class DualContouringOctreeMesher
             p.z = _origin.z + rz * _cellSize.z;
 
         return p;
+    }
+
+    private Vector3 SnapToGridNearBoundaryWithFactor(Vector3 p, float factor)
+    {
+        float sx = Mathf.Abs(_cellSize.x);
+        float sy = Mathf.Abs(_cellSize.y);
+        float sz = Mathf.Abs(_cellSize.z);
+
+        if (sx <= 0f || sy <= 0f || sz <= 0f)
+            return p;
+
+        float gx = (p.x - _origin.x) / _cellSize.x;
+        float gy = (p.y - _origin.y) / _cellSize.y;
+        float gz = (p.z - _origin.z) / _cellSize.z;
+
+        float rx = Mathf.Round(gx);
+        float ry = Mathf.Round(gy);
+        float rz = Mathf.Round(gz);
+
+        float t = Mathf.Max(0f, qefSnapEpsilon) * Mathf.Max(1f, factor);
+
+        if (Mathf.Abs(gx - rx) <= t)
+            p.x = _origin.x + rx * _cellSize.x;
+        if (Mathf.Abs(gy - ry) <= t)
+            p.y = _origin.y + ry * _cellSize.y;
+        if (Mathf.Abs(gz - rz) <= t)
+            p.z = _origin.z + rz * _cellSize.z;
+
+        return p;
+    }
+
+    private Vector3 RefineEdgeIntersection(IScalarFieldSource source, Vector3 pa, Vector3 pb, float va, float vb, float iso)
+    {
+        if (source == null)
+            return Vector3.Lerp(pa, pb, 0.5f);
+
+        float fa = va - iso;
+        float fb = vb - iso;
+
+        if (Mathf.Abs(fa) < 1e-8f)
+            return pa;
+        if (Mathf.Abs(fb) < 1e-8f)
+            return pb;
+
+        float t = fa / (fa - fb);
+        t = Mathf.Clamp01(t);
+        Vector3 best = Vector3.Lerp(pa, pb, t);
+
+        Vector3 a = pa;
+        Vector3 b = pb;
+        float fA = fa;
+
+        for (int i = 0; i < 3; i++)
+        {
+            Vector3 mid = (a + b) * 0.5f;
+            float fM = source.Evaluate(mid) - iso;
+            best = mid;
+
+            if (Mathf.Abs(fM) < 1e-6f)
+                break;
+
+            if ((fA <= 0f && fM > 0f) || (fA > 0f && fM <= 0f))
+            {
+                b = mid;
+            }
+            else
+            {
+                a = mid;
+                fA = fM;
+            }
+        }
+
+        return best;
+    }
+
+    private HermiteSample GetHermiteSample(
+        IScalarFieldSource source,
+        Vector3 pa,
+        Vector3 pb,
+        float va,
+        float vb,
+        Vector3Int ca,
+        Vector3Int cb,
+        float isoLevel)
+    {
+        HermiteEdgeKey key = new HermiteEdgeKey(ca, cb);
+        if (_hermiteSampleCache.TryGetValue(key, out HermiteSample cached))
+            return cached;
+
+        Vector3 p = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
+        Vector3 g = EstimateGradientVector(source, p);
+        float strength = g.magnitude;
+        HermiteSample sample = new HermiteSample(
+            p,
+            SafeNormalize(g),
+            Mathf.Max(0.05f, strength)
+        );
+
+        _hermiteSampleCache[key] = sample;
+        return sample;
+    }
+
+    private static Vector3Int[] GetCellCornerCoords(Vector3Int cellCoord)
+    {
+        return new Vector3Int[]
+        {
+            new Vector3Int(cellCoord.x, cellCoord.y, cellCoord.z),
+            new Vector3Int(cellCoord.x + 1, cellCoord.y, cellCoord.z),
+            new Vector3Int(cellCoord.x + 1, cellCoord.y + 1, cellCoord.z),
+            new Vector3Int(cellCoord.x, cellCoord.y + 1, cellCoord.z),
+            new Vector3Int(cellCoord.x, cellCoord.y, cellCoord.z + 1),
+            new Vector3Int(cellCoord.x + 1, cellCoord.y, cellCoord.z + 1),
+            new Vector3Int(cellCoord.x + 1, cellCoord.y + 1, cellCoord.z + 1),
+            new Vector3Int(cellCoord.x, cellCoord.y + 1, cellCoord.z + 1)
+        };
+    }
+
+    private Vector3 SnapAxisAlignedFeature(Vector3 p, List<Vector3> normals)
+    {
+        if (normals == null || normals.Count == 0)
+            return p;
+
+        Vector3 sum = Vector3.zero;
+        for (int i = 0; i < normals.Count; i++)
+            sum += normals[i];
+
+        Vector3 mean = sum.normalized;
+        float ax = Mathf.Abs(mean.x);
+        float ay = Mathf.Abs(mean.y);
+        float az = Mathf.Abs(mean.z);
+        float dominant = Mathf.Max(ax, Mathf.Max(ay, az));
+
+        if (dominant < 0.75f)
+            return p;
+
+        float strengthen = Mathf.Lerp(1.15f, 1.8f, Mathf.InverseLerp(0.75f, 1f, dominant));
+        float eps = Mathf.Max(0f, qefSnapEpsilon) * strengthen;
+
+        float gx = (p.x - _origin.x) / _cellSize.x;
+        float gy = (p.y - _origin.y) / _cellSize.y;
+        float gz = (p.z - _origin.z) / _cellSize.z;
+
+        if (ax >= ay && ax >= az)
+        {
+            float r = Mathf.Round(gx);
+            if (Mathf.Abs(gx - r) <= eps)
+                p.x = _origin.x + r * _cellSize.x;
+        }
+        else if (ay >= ax && ay >= az)
+        {
+            float r = Mathf.Round(gy);
+            if (Mathf.Abs(gy - r) <= eps)
+                p.y = _origin.y + r * _cellSize.y;
+        }
+        else
+        {
+            float r = Mathf.Round(gz);
+            if (Mathf.Abs(gz - r) <= eps)
+                p.z = _origin.z + r * _cellSize.z;
+        }
+
+        return p;
+    }
+
+    private Vector3 EstimateGradientVector(IScalarFieldSource source, Vector3 p)
+    {
+        if (source == null)
+            return Vector3.zero;
+
+        float hx = Mathf.Max(Mathf.Abs(_cellSize.x), 1e-4f) * 0.5f;
+        float hy = Mathf.Max(Mathf.Abs(_cellSize.y), 1e-4f) * 0.5f;
+        float hz = Mathf.Max(Mathf.Abs(_cellSize.z), 1e-4f) * 0.5f;
+
+        float dx = source.Evaluate(p + new Vector3(hx, 0f, 0f)) - source.Evaluate(p - new Vector3(hx, 0f, 0f));
+        float dy = source.Evaluate(p + new Vector3(0f, hy, 0f)) - source.Evaluate(p - new Vector3(0f, hy, 0f));
+        float dz = source.Evaluate(p + new Vector3(0f, 0f, hz)) - source.Evaluate(p - new Vector3(0f, 0f, hz));
+
+        return new Vector3(dx, dy, dz);
+    }
+
+    private static Vector3 SafeNormalize(Vector3 v)
+    {
+        float len = v.magnitude;
+        if (len < 1e-8f)
+            return Vector3.up;
+        return v / len;
+    }
+
+    private bool IsQefSolutionAcceptable(Vector3 qef, Vector3 avg, Bounds bounds)
+    {
+        float maxCell = Mathf.Max(Mathf.Abs(_cellSize.x), Mathf.Max(Mathf.Abs(_cellSize.y), Mathf.Abs(_cellSize.z)));
+        float maxAllowedOffset = Mathf.Max(maxCell * Mathf.Max(0f, qefMaxOffsetCells), 1e-4f);
+
+        if ((qef - avg).magnitude > maxAllowedOffset)
+            return false;
+
+        if (!bounds.Contains(qef))
+            return false;
+
+        return true;
+    }
+
+    private bool HasSufficientGradientDiversity(List<Vector3> normals)
+    {
+        if (normals == null || normals.Count < 3)
+            return false;
+
+        Vector3 n0 = normals[0].normalized;
+        float maxCross = 0f;
+
+        for (int i = 1; i < normals.Count; i++)
+        {
+            Vector3 ni = normals[i].normalized;
+            float crossMag = Vector3.Cross(n0, ni).magnitude;
+            if (crossMag > maxCross)
+                maxCross = crossMag;
+        }
+
+        return maxCross >= 0.08f;
+    }
+
+    private float GetAdaptiveQefBlend(List<Vector3> normals)
+    {
+        float baseBlend = Mathf.Clamp01(qefBlendFactor);
+        if (normals == null || normals.Count < 3)
+            return baseBlend * 0.35f;
+
+        Vector3 n0 = normals[0].normalized;
+        float maxCross = 0f;
+        for (int i = 1; i < normals.Count; i++)
+        {
+            float crossMag = Vector3.Cross(n0, normals[i].normalized).magnitude;
+            if (crossMag > maxCross)
+                maxCross = crossMag;
+        }
+
+        float featureStrength = Mathf.InverseLerp(0.08f, 0.45f, maxCross);
+        float scale = Mathf.Lerp(0.35f, 1f, featureStrength);
+        return baseBlend * scale;
     }
 }

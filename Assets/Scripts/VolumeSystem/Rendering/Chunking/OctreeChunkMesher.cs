@@ -27,8 +27,16 @@ public class OctreeChunkMesher : IChunkMesher
             return;
 
         _mesher.isoLevel = model.isoLevel;
+        _mesher.useQefVertices = model.useQefVertices;
+        _mesher.qefVertexMode = model.qefVertexMode;
+        _mesher.qefBlendFactor = model.qefBlendFactor;
+        _mesher.qefSnapEpsilon = model.qefSnapEpsilon;
+        _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+        _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
         _mesher.ownedBounds = coreBounds;
         _mesher.BuildMesh(volume, targetMesh);
         _mesher.ownedBounds = null;
     }
 }
+
+
