@@ -167,8 +167,23 @@ public class VolumeModel : MonoBehaviour
                 break;
 
             case VolumeDataStructure.Octree:
+                if (hasDirtyBounds)
+                {
+                    bool didIncrementalOctreeUpdate =
+                        octreeSampler.RebuildVolumeRegion(source, dirtyBounds);
+
+                    if (didIncrementalOctreeUpdate)
+                        break;
+
+#if UNITY_EDITOR
+                    if (logChunkRebuildStats)
+                        Debug.LogWarning("Octree incremental rebuild failed; falling back to full rebuild.");
+#endif
+                }
+
                 octreeSampler.MarkDirty();
                 octreeSampler.RebuildVolume(source);
+                ClearDirtyBounds();
                 break;
         }
 
