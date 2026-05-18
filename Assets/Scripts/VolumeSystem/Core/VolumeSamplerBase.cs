@@ -1,29 +1,13 @@
 using System;
-using UnityEngine;
 
-public abstract class VolumeSamplerBase<TVolume> : MonoBehaviour
+public abstract class VolumeSamplerBase<TVolume> : IVolumeSampler
     where TVolume : class, IVolumeData
 {
     public event Action Changed;
 
     public TVolume Volume { get; protected set; }
+    IVolumeData IVolumeSampler.Volume => Volume;
     public bool IsDirty { get; protected set; } = true;
-
-    protected IScalarFieldSource runtimeSource;
-
-    /// <summary>Sets the runtime source and marks the sampler dirty.</summary>
-    public virtual void SetRuntimeSource(IScalarFieldSource source)
-    {
-        runtimeSource = source;
-        MarkDirty();
-    }
-
-    /// <summary>Clears the runtime source and marks the sampler dirty.</summary>
-    public virtual void ClearRuntimeSource()
-    {
-        runtimeSource = null;
-        MarkDirty();
-    }
 
     /// <summary>Marks the sampled volume as stale and notifies listeners.</summary>
     public virtual void MarkDirty()

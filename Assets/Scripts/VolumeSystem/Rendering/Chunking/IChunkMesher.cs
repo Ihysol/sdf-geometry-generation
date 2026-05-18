@@ -1,12 +1,12 @@
 using UnityEngine;
 
-public interface IChunkMesher
+public interface IChunkMesher<TVolume>
+    where TVolume : class, IVolumeData
 {
-    bool CanHandle(VolumeModel model, IVolumeData activeVolume);
-
     void BuildChunk(
         VolumeModel model,
         IScalarFieldSource source,
+        TVolume volume,
         Bounds coreBounds,
         Mesh targetMesh
     );

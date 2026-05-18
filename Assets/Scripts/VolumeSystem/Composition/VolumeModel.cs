@@ -217,6 +217,9 @@ public class VolumeModel : MonoBehaviour
                 break;
         }
 
+        if (!enableChunking)
+            ClearDirtyBounds();
+
         RenderOutput.Rebuild(this);
     }
 

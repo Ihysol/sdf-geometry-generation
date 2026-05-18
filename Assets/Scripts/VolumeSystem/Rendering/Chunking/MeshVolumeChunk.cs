@@ -9,11 +9,8 @@ public class MeshVolumeChunk : VolumeChunkBase
     private MeshRenderer _meshRenderer;
     private Mesh _mesh;
 
-    private readonly IChunkMesher[] _chunkMeshers =
-    {
-        new OctreeChunkMesher(),
-        new VoxelGridChunkMesher()
-    };
+    private readonly OctreeChunkMesher _octreeChunkMesher = new();
+    private readonly VoxelGridChunkMesher _voxelGridChunkMesher = new();
 
     /// <summary>Rebuilds this chunk by meshing only the grid edges owned by its bounds.</summary>
     public override void Rebuild(VolumeModel model, IScalarFieldSource source)
@@ -23,17 +20,51 @@ public class MeshVolumeChunk : VolumeChunkBase
         _mesh.Clear();
         _mesh.indexFormat = IndexFormat.UInt32;
 
-        IVolumeData activeVolume = model.GetActiveVolume();
-        IChunkMesher mesher = ResolveMesher(model, activeVolume);
-
-        if (mesher != null)
+        switch (model.dataStructure)
         {
-            mesher.BuildChunk(
-                model,
-                source,
-                coreBounds,
-                _mesh
-            );
+            case VolumeDataStructure.VoxelGrid:
+                {
+                    VoxelGrid volume = model.voxelGridSampler.Volume;
+                    if (volume == null)
+                    {
+                        model.voxelGridSampler.RebuildVolume(source);
+                        volume = model.voxelGridSampler.Volume;
+                    }
+
+                    if (volume != null)
+                    {
+                        _voxelGridChunkMesher.BuildChunk(
+                            model,
+                            source,
+                            volume,
+                            coreBounds,
+                            _mesh
+                        );
+                    }
+                    break;
+                }
+
+            case VolumeDataStructure.Octree:
+                {
+                    OctreeVolume volume = model.octreeSampler.Volume;
+                    if (volume == null)
+                    {
+                        model.octreeSampler.RebuildVolume(source);
+                        volume = model.octreeSampler.Volume;
+                    }
+
+                    if (volume != null)
+                    {
+                        _octreeChunkMesher.BuildChunk(
+                            model,
+                            source,
+                            volume,
+                            coreBounds,
+                            _mesh
+                        );
+                    }
+                    break;
+                }
         }
 
         if (model.recalculateNormals)
@@ -47,19 +78,6 @@ public class MeshVolumeChunk : VolumeChunkBase
     {
         EnsureSetup();
         ApplyMaterial(material);
-    }
-
-    private IChunkMesher ResolveMesher(VolumeModel model, IVolumeData activeVolume)
-    {
-        for (int i = 0; i < _chunkMeshers.Length; i++)
-        {
-            IChunkMesher mesher = _chunkMeshers[i];
-
-            if (mesher.CanHandle(model, activeVolume))
-                return mesher;
-        }
-
-        return null;
     }
 
     private void ApplyMaterial(Material material)

@@ -2,7 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 
 [System.Serializable]
-public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
+public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 {
     [Header("Bounds")]
     public Vector3 center = Vector3.zero;
@@ -30,7 +30,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
     private int _totalNodes;
     private int _surfaceLeaves;
 
-    public Bounds Bounds
+    public override Bounds Bounds
     {
         get
         {
@@ -130,7 +130,7 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
     }
 
     /// <summary>Builds an adaptive octree by recursively sampling the scalar field.</summary>
-    public OctreeVolume Build(IScalarFieldSource source)
+    public override OctreeVolume Build(IScalarFieldSource source)
     {
         _totalNodes = 0;
         _surfaceLeaves = 0;
@@ -150,9 +150,15 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
             cellSize
         );
 
-        Debug.Log(
-            $"Octree Build: nodes={_totalNodes}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}"
-        );
+#if UNITY_EDITOR
+        // Keep this behind editor-only logging to avoid runtime spam.
+        if (UnityEngine.Debug.isDebugBuild)
+        {
+            Debug.Log(
+                $"Octree Build: nodes={_totalNodes}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}"
+            );
+        }
+#endif
 
         return new OctreeVolume(
             root,

@@ -66,32 +66,44 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         switch (model.dataStructure)
         {
             case VolumeDataStructure.VoxelGrid:
-                {
-                    MeshData meshData = voxelMesher.BuildMeshData(
-                        model.voxelGridSampler.Volume,
-                        model.isoLevel
-                    );
-
-                    ApplyMeshData(meshData, model);
-                    break;
-                }
+                RebuildSingleVoxel(model);
+                break;
 
             case VolumeDataStructure.Octree:
-                {
-                    octreeMesher.isoLevel = model.isoLevel;
-                    octreeMesher.useQefVertices = model.useQefVertices;
-                    octreeMesher.qefVertexMode = model.qefVertexMode;
-                    octreeMesher.qefBlendFactor = model.qefBlendFactor;
-                    octreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
-                    octreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
-                    octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
-                    octreeMesher.BuildMesh(model.octreeSampler.Volume, mesh);
-
-                    break;
-                }
+                RebuildSingleOctree(model);
+                break;
         }
 
-        Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
+#if UNITY_EDITOR
+        if (model != null && model.logChunkRebuildStats)
+            Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
+#endif
+    }
+
+    private void RebuildSingleVoxel(VolumeModel model)
+    {
+        voxelMesher.BuildMesh(model.voxelGridSampler.Volume, model.isoLevel, mesh);
+
+        if (model.recalculateNormals)
+            mesh.RecalculateNormals();
+        if (model.recalculateBounds)
+            mesh.RecalculateBounds();
+    }
+
+    private void RebuildSingleOctree(VolumeModel model)
+    {
+        ConfigureOctreeMesher(model);
+        octreeMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+    }
+
+    private void ConfigureOctreeMesher(VolumeModel model)
+    {
+        octreeMesher.useQefVertices = model.useQefVertices;
+        octreeMesher.qefVertexMode = model.qefVertexMode;
+        octreeMesher.qefBlendFactor = model.qefBlendFactor;
+        octreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
+        octreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+        octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
     }
 
     public void RebuildChunked(VolumeModel model)
@@ -478,28 +490,6 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (_activeChunkModel != null && _activeChunkModel.logChunkRebuildStats)
             Debug.Log($"Chunk rebuild: rebuilt={rebuilt}, pending={_pendingChunkQueue.Count}, budget={budget}");
 #endif
-    }
-
-    /// <summary>Copies generated mesh buffers into the Unity mesh.</summary>
-    private void ApplyMeshData(MeshData meshData, VolumeModel model)
-    {
-        mesh.indexFormat = IndexFormat.UInt32;
-        mesh.Clear();
-
-        if (meshData == null)
-            return;
-
-        mesh.SetVertices(meshData.Vertices);
-        mesh.SetTriangles(meshData.Triangles, 0);
-
-        if (meshData.Bounds.size != Vector3.zero)
-            mesh.bounds = meshData.Bounds;
-
-        if (model.recalculateNormals)
-            mesh.RecalculateNormals();
-
-        if (model.recalculateBounds)
-            mesh.RecalculateBounds();
     }
 
     /// <summary>Initializes required components, mesh, and fallback material.</summary>

@@ -50,14 +50,15 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
     };
 
     /// <summary>Builds dual-contouring mesh buffers from a dense voxel grid.</summary>
-    public MeshData BuildMeshData(VoxelGrid volume, float isoLevel)
+    public void BuildMesh(VoxelGrid volume, float isoLevel, Mesh targetMesh)
     {
         _isoLevel = isoLevel;
-
-        MeshData meshData = new MeshData();
+        if (targetMesh == null)
+            return;
+        targetMesh.Clear();
 
         if (volume == null)
-            return meshData;
+            return;
 
         float[] values = volume.Values;
         Vector3Int size = volume.GridSize;
@@ -66,10 +67,8 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
 
         Vector3Int cells = size - Vector3Int.one;
 
-        meshData.Bounds = volume.Bounds;
-
         if (cells.x <= 0 || cells.y <= 0 || cells.z <= 0)
-            return meshData;
+            return;
 
         int estimatedCells = cells.x * cells.y * cells.z;
 
@@ -113,11 +112,9 @@ public class DualContouringVoxelMesher : IVolumeMesher<VoxelGrid>
 
         BuildQuads(values, size, cells);
 
-        meshData.Vertices.AddRange(_vertices);
-        meshData.Triangles.AddRange(_triangles);
-        meshData.Bounds = volume.Bounds;
-
-        return meshData;
+        targetMesh.SetVertices(_vertices);
+        targetMesh.SetTriangles(_triangles, 0);
+        targetMesh.bounds = volume.Bounds;
     }
 
     /// <summary>Converts cell coordinates into the flat cell-vertex array index.</summary>

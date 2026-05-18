@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class DualContouringOctreeMesher
+public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
 {
     public bool useQefVertices = true;
     public QefVertexMode qefVertexMode = QefVertexMode.QefAxisSnap;
@@ -196,8 +196,9 @@ public class DualContouringOctreeMesher
     };
 
     /// <summary>Builds a Unity mesh from an octree using dual contouring.</summary>
-    public void BuildMesh(OctreeVolume volume, Mesh mesh)
+    public void BuildMesh(OctreeVolume volume, float iso, Mesh mesh)
     {
+        isoLevel = iso;
         mesh.Clear();
 
         _vertices.Clear();
@@ -240,9 +241,14 @@ public class DualContouringOctreeMesher
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-        Debug.Log(
-            $"Octree DC: leaves={_leafMap.Count}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}"
-        );
+#if UNITY_EDITOR
+        if (UnityEngine.Debug.isDebugBuild)
+        {
+            Debug.Log(
+                $"Octree DC: leaves={_leafMap.Count}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}"
+            );
+        }
+#endif
     }
 
     /// <summary>Collects surface leaves and resets cached mesh vertex indices.</summary>

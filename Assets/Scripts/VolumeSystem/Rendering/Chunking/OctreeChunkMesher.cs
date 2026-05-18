@@ -1,28 +1,16 @@
 using UnityEngine;
 
-public class OctreeChunkMesher : IChunkMesher
+public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
 {
     private readonly DualContouringOctreeMesher _mesher = new();
-
-    public bool CanHandle(VolumeModel model, IVolumeData activeVolume)
-    {
-        return model != null && model.dataStructure == VolumeDataStructure.Octree;
-    }
 
     public void BuildChunk(
         VolumeModel model,
         IScalarFieldSource source,
+        OctreeVolume volume,
         Bounds coreBounds,
         Mesh targetMesh)
     {
-        OctreeVolume volume = model.octreeSampler.Volume;
-
-        if (volume == null)
-        {
-            model.octreeSampler.RebuildVolume(source);
-            volume = model.octreeSampler.Volume;
-        }
-
         if (volume == null)
             return;
 
@@ -34,7 +22,7 @@ public class OctreeChunkMesher : IChunkMesher
         _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
         _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
         _mesher.ownedBounds = coreBounds;
-        _mesher.BuildMesh(volume, targetMesh);
+        _mesher.BuildMesh(volume, model.isoLevel, targetMesh);
         _mesher.ownedBounds = null;
     }
 }
