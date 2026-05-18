@@ -26,6 +26,10 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     public float qefMaxOffsetCells = 0.75f;
     [HideInInspector]
     public float qefAxisSnapStrength = 2.5f;
+    [HideInInspector]
+    public bool qefEnableMultiHermite = false;
+    [HideInInspector]
+    public int qefHermiteSamplesPerEdge = 3;
 
     private int _totalNodes;
     private int _surfaceLeaves;
@@ -549,13 +553,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             Vector3Int ca = cornerCoords[edge.A];
             Vector3Int cb = cornerCoords[edge.B];
 
-            HermiteSample sample = GetHermiteSample(source, pa, pb, va, vb, ca, cb, cellSize, 0f);
-
-            sum += sample.Point;
-            count++;
-            _qefPoints.Add(sample.Point);
-            _qefNormals.Add(sample.Normal);
-            _qefWeights.Add(sample.Weight);
+            AddHermiteSamplesForEdge(source, pa, pb, va, vb, ca, cb, cellSize, 0f, ref sum, ref count);
         }
 
         Vector3 avg = count == 0 ? bounds.center : (sum / count);
@@ -566,18 +564,22 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (useQef &&
             _qefPoints.Count >= 3 &&
             HasSufficientGradientDiversity(_qefNormals) &&
-            QefSolver.TrySolve(_qefPoints, _qefNormals, _qefWeights, bounds, out Vector3 qef) &&
-            IsQefSolutionAcceptable(qef, avg, bounds, cellSize))
+            QefSolver.TrySolve(_qefPoints, _qefNormals, _qefWeights, bounds, out Vector3 qef))
         {
-            float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(_qefNormals) : Mathf.Clamp01(qefBlendFactor);
-            Vector3 blended = Vector3.Lerp(avg, qef, blend);
-            Vector3 result = useAxisSnap
-                ? SnapAxisAlignedFeature(blended, _qefNormals, origin, cellSize)
-                : blended;
-            if (useAxisSnap)
-                result = SnapToGridNearBoundaryWithFactor(result, origin, cellSize, qefAxisSnapStrength);
-            return SnapToGridNearBoundary(result, origin, cellSize);
+            qef = ConstrainQefToLocalWindow(qef, avg, bounds, cellSize);
+            if (IsQefSolutionAcceptable(qef, avg, bounds, cellSize))
+            {
+                float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(_qefNormals) : Mathf.Clamp01(qefBlendFactor);
+                Vector3 blended = Vector3.Lerp(avg, qef, blend);
+                Vector3 result = useAxisSnap
+                    ? SnapAxisAlignedFeature(blended, _qefNormals, origin, cellSize)
+                    : blended;
+                if (useAxisSnap)
+                    result = SnapToGridNearBoundaryWithFactor(result, origin, cellSize, qefAxisSnapStrength);
+                return SnapToGridNearBoundary(result, origin, cellSize);
+            }
         }
+
 
         if (count == 0)
             return SnapToGridNearBoundary(bounds.center, origin, cellSize);
@@ -586,6 +588,23 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (useAxisSnap)
             avgResult = SnapToGridNearBoundaryWithFactor(avgResult, origin, cellSize, qefAxisSnapStrength);
         return SnapToGridNearBoundary(avgResult, origin, cellSize);
+    }
+
+    private Vector3 ConstrainQefToLocalWindow(Vector3 qef, Vector3 avg, Bounds bounds, Vector3 cellSize)
+    {
+        float maxCell = Mathf.Max(Mathf.Abs(cellSize.x), Mathf.Max(Mathf.Abs(cellSize.y), Mathf.Abs(cellSize.z)));
+        float window = Mathf.Max(maxCell * Mathf.Max(0f, qefMaxOffsetCells), 1e-4f);
+
+        Vector3 constrained = new Vector3(
+            Mathf.Clamp(qef.x, avg.x - window, avg.x + window),
+            Mathf.Clamp(qef.y, avg.y - window, avg.y + window),
+            Mathf.Clamp(qef.z, avg.z - window, avg.z + window)
+        );
+
+        constrained.x = Mathf.Clamp(constrained.x, bounds.min.x, bounds.max.x);
+        constrained.y = Mathf.Clamp(constrained.y, bounds.min.y, bounds.max.y);
+        constrained.z = Mathf.Clamp(constrained.z, bounds.min.z, bounds.max.z);
+        return constrained;
     }
 
     /// <summary>Checks whether two scalar samples cross the zero iso surface.</summary>
@@ -728,6 +747,60 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return sample;
     }
 
+    private void AddHermiteSamplesForEdge(
+        IScalarFieldSource source,
+        Vector3 pa,
+        Vector3 pb,
+        float va,
+        float vb,
+        Vector3Int ca,
+        Vector3Int cb,
+        Vector3 cellSize,
+        float isoLevel,
+        ref Vector3 sum,
+        ref int count)
+    {
+        HermiteSample center = GetHermiteSample(source, pa, pb, va, vb, ca, cb, cellSize, isoLevel);
+        sum += center.Point;
+        count++;
+        _qefPoints.Add(center.Point);
+        _qefNormals.Add(center.Normal);
+        _qefWeights.Add(center.Weight);
+
+        if (!qefEnableMultiHermite)
+            return;
+
+        int samples = Mathf.Max(1, qefHermiteSamplesPerEdge);
+        if (samples <= 1)
+            return;
+
+        float denom = vb - va;
+        if (Mathf.Abs(denom) < 1e-8f)
+            return;
+        float baseT = Mathf.Clamp01((0f - va) / denom);
+        float span = 0.2f;
+        float step = (samples == 2) ? 0f : (2f * span / (samples - 1));
+
+        for (int i = 0; i < samples; i++)
+        {
+            float offset = -span + step * i;
+            if (Mathf.Abs(offset) < 1e-6f)
+                continue;
+
+            float t = Mathf.Clamp01(baseT + offset);
+            Vector3 p = Vector3.Lerp(pa, pb, t);
+            Vector3 g = EstimateGradientVector(source, p, cellSize);
+            float w = Mathf.Max(0.02f, g.magnitude * 0.35f);
+            Vector3 n = SafeNormalize(g);
+
+            sum += p;
+            count++;
+            _qefPoints.Add(p);
+            _qefNormals.Add(n);
+            _qefWeights.Add(w);
+        }
+    }
+
     private Vector3 SnapAxisAlignedFeature(Vector3 p, List<Vector3> normals, Vector3 origin, Vector3 cellSize)
     {
         if (normals == null || normals.Count == 0)
@@ -815,20 +888,8 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     {
         if (normals == null || normals.Count < 3)
             return false;
-
-        // If all normals are nearly parallel, QEF becomes ill-conditioned and noisy.
-        Vector3 n0 = normals[0].normalized;
-        float maxCross = 0f;
-
-        for (int i = 1; i < normals.Count; i++)
-        {
-            Vector3 ni = normals[i].normalized;
-            float crossMag = Vector3.Cross(n0, ni).magnitude;
-            if (crossMag > maxCross)
-                maxCross = crossMag;
-        }
-
-        return maxCross >= 0.08f;
+        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
+        return l1 > 1e-4f && (l2 + l3) > 0.02f;
     }
 
     private float GetAdaptiveQefBlend(List<Vector3> normals)
@@ -836,18 +897,65 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         float baseBlend = Mathf.Clamp01(qefBlendFactor);
         if (normals == null || normals.Count < 3)
             return baseBlend * 0.35f;
-
-        Vector3 n0 = normals[0].normalized;
-        float maxCross = 0f;
-        for (int i = 1; i < normals.Count; i++)
-        {
-            float crossMag = Vector3.Cross(n0, normals[i].normalized).magnitude;
-            if (crossMag > maxCross)
-                maxCross = crossMag;
-        }
-
-        float featureStrength = Mathf.InverseLerp(0.08f, 0.45f, maxCross);
+        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
+        float featureStrength = l1 > 1e-6f ? Mathf.Clamp01((l2 + l3) / l1) : 0f;
         float scale = Mathf.Lerp(0.35f, 1f, featureStrength);
         return baseBlend * scale;
+    }
+
+    private static void GetNormalEigenvalues(List<Vector3> normals, out float l1, out float l2, out float l3)
+    {
+        float c00 = 0f, c01 = 0f, c02 = 0f, c11 = 0f, c12 = 0f, c22 = 0f;
+        int n = 0;
+        for (int i = 0; i < normals.Count; i++)
+        {
+            Vector3 v = normals[i];
+            float len = v.magnitude;
+            if (len < 1e-8f)
+                continue;
+            v /= len;
+            c00 += v.x * v.x; c01 += v.x * v.y; c02 += v.x * v.z;
+            c11 += v.y * v.y; c12 += v.y * v.z; c22 += v.z * v.z;
+            n++;
+        }
+        if (n == 0)
+        {
+            l1 = l2 = l3 = 0f;
+            return;
+        }
+        float inv = 1f / n;
+        c00 *= inv; c01 *= inv; c02 *= inv; c11 *= inv; c12 *= inv; c22 *= inv;
+
+        // Jacobi sweeps for symmetric 3x3 covariance.
+        for (int it = 0; it < 6; it++)
+        {
+            Rotate(ref c00, ref c01, ref c11);
+            Rotate(ref c00, ref c02, ref c22);
+            Rotate(ref c11, ref c12, ref c22);
+        }
+
+        l1 = c00; l2 = c11; l3 = c22;
+        if (l1 < l2) Swap(ref l1, ref l2);
+        if (l2 < l3) Swap(ref l2, ref l3);
+        if (l1 < l2) Swap(ref l1, ref l2);
+    }
+
+    private static void Rotate(ref float app, ref float apq, ref float aqq)
+    {
+        if (Mathf.Abs(apq) < 1e-6f)
+            return;
+        float phi = 0.5f * Mathf.Atan2(2f * apq, aqq - app);
+        float c = Mathf.Cos(phi);
+        float s = Mathf.Sin(phi);
+        float app2 = c * c * app - 2f * s * c * apq + s * s * aqq;
+        float aqq2 = s * s * app + 2f * s * c * apq + c * c * aqq;
+        app = app2;
+        aqq = aqq2;
+        apq = 0f;
+    }
+
+    private static void Swap(ref float a, ref float b)
+    {
+        float t = a; a = b; b = t;
     }
 }

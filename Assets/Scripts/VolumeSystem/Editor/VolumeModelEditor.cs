@@ -288,6 +288,17 @@ public class VolumeModelEditor : Editor
                 serializedObject.FindProperty("qefMaxOffsetCells"),
                 new GUIContent("QEF Max Offset Cells")
             );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefEnableMultiHermite"),
+                new GUIContent("Enable Multi-Hermite")
+            );
+            if (serializedObject.FindProperty("qefEnableMultiHermite").boolValue)
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("qefHermiteSamplesPerEdge"),
+                    new GUIContent("Hermite Samples Per Edge")
+                );
+            }
             if (modeProp != null && (QefVertexMode)modeProp.enumValueIndex == QefVertexMode.QefAxisSnap)
             {
                 EditorGUILayout.PropertyField(

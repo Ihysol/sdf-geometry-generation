@@ -21,6 +21,8 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
         _mesher.qefSnapEpsilon = model.qefSnapEpsilon;
         _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
         _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
+        _mesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+        _mesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
         _mesher.ownedBounds = coreBounds;
         _mesher.BuildMesh(volume, model.isoLevel, targetMesh);
         _mesher.ownedBounds = null;

@@ -14,7 +14,6 @@ public enum VolumeDataStructure
 public enum QefVertexMode
 {
     AverageCrossings,
-    QefFast,
     QefFeaturePreserving,
     QefAxisSnap
 }
@@ -82,6 +81,7 @@ public class VolumeModel : MonoBehaviour
         qefSnapEpsilon = Mathf.Max(0f, qefSnapEpsilon);
         qefMaxOffsetCells = Mathf.Max(0f, qefMaxOffsetCells);
         qefAxisSnapStrength = Mathf.Max(1f, qefAxisSnapStrength);
+        qefHermiteSamplesPerEdge = Mathf.Max(1, qefHermiteSamplesPerEdge);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -110,6 +110,9 @@ public class VolumeModel : MonoBehaviour
     public float qefMaxOffsetCells = 0.75f;
     [Min(1f)]
     public float qefAxisSnapStrength = 2.5f;
+    public bool qefEnableMultiHermite = false;
+    [Min(1)]
+    public int qefHermiteSamplesPerEdge = 3;
     public bool recalculateNormals = true;
     public bool recalculateBounds = true;
 
@@ -197,6 +200,8 @@ public class VolumeModel : MonoBehaviour
                 octreeSampler.builder.qefSnapEpsilon = qefSnapEpsilon;
                 octreeSampler.builder.qefMaxOffsetCells = qefMaxOffsetCells;
                 octreeSampler.builder.qefAxisSnapStrength = qefAxisSnapStrength;
+                octreeSampler.builder.qefEnableMultiHermite = qefEnableMultiHermite;
+                octreeSampler.builder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
                 if (hasDirtyBounds)
                 {
                     bool didIncrementalOctreeUpdate =

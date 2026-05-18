@@ -104,6 +104,8 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         octreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
         octreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
         octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
+        octreeMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+        octreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
     }
 
     public void RebuildChunked(VolumeModel model)
