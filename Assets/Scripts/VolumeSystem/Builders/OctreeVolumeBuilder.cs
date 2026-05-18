@@ -3,6 +3,7 @@ using UnityEngine;
 [System.Serializable]
 public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 {
+    private const float GridSnapEpsilonFactor = 0.03f;
     [Header("Bounds")]
     public Vector3 center = Vector3.zero;
     public Vector3 size = new Vector3(4f, 4f, 4f);
@@ -303,7 +304,9 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
                 node.SurfaceVertex = EstimateSurfaceVertex(
                     source,
                     bounds,
-                    corners
+                    corners,
+                    origin,
+                    cellSize
                 );
 
                 _surfaceLeaves++;
@@ -398,7 +401,9 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
     private Vector3 EstimateSurfaceVertex(
         IScalarFieldSource source,
         Bounds bounds,
-        float[] cornerValues)
+        float[] cornerValues,
+        Vector3 origin,
+        Vector3 cellSize)
     {
         Vector3[] cornerPositions = GetCornerPositions(bounds);
 
@@ -428,9 +433,9 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         }
 
         if (count == 0)
-            return bounds.center;
+            return SnapToGridNearBoundary(bounds.center, origin, cellSize);
 
-        return sum / count;
+        return SnapToGridNearBoundary(sum / count, origin, cellSize);
     }
 
     /// <summary>Checks whether two scalar samples cross the zero iso surface.</summary>
@@ -448,5 +453,31 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
             Mathf.Max(1, Mathf.RoundToInt(bounds.size.y / cellSize.y)),
             Mathf.Max(1, Mathf.RoundToInt(bounds.size.z / cellSize.z))
         );
+    }
+
+    private Vector3 SnapToGridNearBoundary(Vector3 p, Vector3 origin, Vector3 cellSize)
+    {
+        float ex = Mathf.Abs(cellSize.x) * GridSnapEpsilonFactor;
+        float ey = Mathf.Abs(cellSize.y) * GridSnapEpsilonFactor;
+        float ez = Mathf.Abs(cellSize.z) * GridSnapEpsilonFactor;
+
+        float gx = (p.x - origin.x) / cellSize.x;
+        float gy = (p.y - origin.y) / cellSize.y;
+        float gz = (p.z - origin.z) / cellSize.z;
+
+        float rx = Mathf.Round(gx);
+        float ry = Mathf.Round(gy);
+        float rz = Mathf.Round(gz);
+
+        if (Mathf.Abs(gx - rx) <= ex / Mathf.Abs(cellSize.x))
+            p.x = origin.x + rx * cellSize.x;
+
+        if (Mathf.Abs(gy - ry) <= ey / Mathf.Abs(cellSize.y))
+            p.y = origin.y + ry * cellSize.y;
+
+        if (Mathf.Abs(gz - rz) <= ez / Mathf.Abs(cellSize.z))
+            p.z = origin.z + rz * cellSize.z;
+
+        return p;
     }
 }

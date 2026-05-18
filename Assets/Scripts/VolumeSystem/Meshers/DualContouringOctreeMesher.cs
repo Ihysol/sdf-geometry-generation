@@ -3,6 +3,7 @@ using UnityEngine;
 
 public class DualContouringOctreeMesher
 {
+    private const float GridSnapEpsilonFactor = 0.03f;
     public float isoLevel = 0f;
 
     private readonly List<Vector3> _vertices = new();
@@ -693,9 +694,9 @@ public class DualContouringOctreeMesher
         }
 
         if (count == 0)
-            return bounds.center;
+            return SnapToGridNearBoundary(bounds.center);
 
-        return sum / count;
+        return SnapToGridNearBoundary(sum / count);
     }
 
     /// <summary>Checks whether two scalar samples cross the active iso level.</summary>
@@ -706,5 +707,38 @@ public class DualContouringOctreeMesher
 
         return (da <= 0f && db > 0f)
             || (da > 0f && db <= 0f);
+    }
+
+    private Vector3 SnapToGridNearBoundary(Vector3 p)
+    {
+        float sx = Mathf.Abs(_cellSize.x);
+        float sy = Mathf.Abs(_cellSize.y);
+        float sz = Mathf.Abs(_cellSize.z);
+
+        if (sx <= 0f || sy <= 0f || sz <= 0f)
+            return p;
+
+        float gx = (p.x - _origin.x) / _cellSize.x;
+        float gy = (p.y - _origin.y) / _cellSize.y;
+        float gz = (p.z - _origin.z) / _cellSize.z;
+
+        float rx = Mathf.Round(gx);
+        float ry = Mathf.Round(gy);
+        float rz = Mathf.Round(gz);
+
+        float tx = GridSnapEpsilonFactor;
+        float ty = GridSnapEpsilonFactor;
+        float tz = GridSnapEpsilonFactor;
+
+        if (Mathf.Abs(gx - rx) <= tx)
+            p.x = _origin.x + rx * _cellSize.x;
+
+        if (Mathf.Abs(gy - ry) <= ty)
+            p.y = _origin.y + ry * _cellSize.y;
+
+        if (Mathf.Abs(gz - rz) <= tz)
+            p.z = _origin.z + rz * _cellSize.z;
+
+        return p;
     }
 }

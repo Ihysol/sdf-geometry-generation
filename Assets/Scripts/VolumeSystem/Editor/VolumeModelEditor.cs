@@ -10,6 +10,7 @@ public class VolumeModelEditor : Editor
     private bool _showDebug = false;
     private bool _showRebuild = true;
     private bool _showObjects = true;
+    private bool _suppressAutoRebuildThisFrame;
 
     /// <summary>Draws the custom inspector for model pipeline and rebuild controls.</summary>
     public override void OnInspectorGUI()
@@ -17,6 +18,7 @@ public class VolumeModelEditor : Editor
         serializedObject.Update();
 
         VolumeModel model = (VolumeModel)target;
+        _suppressAutoRebuildThisFrame = false;
 
         DrawBuilder(model);
 
@@ -38,7 +40,7 @@ public class VolumeModelEditor : Editor
         {
             serializedObject.ApplyModifiedProperties();
 
-            if (model.autoRebuildOnChange)
+            if (model.autoRebuildOnChange && !_suppressAutoRebuildThisFrame)
                 model.RebuildModel();
 
             EditorUtility.SetDirty(model);
@@ -275,9 +277,13 @@ public class VolumeModelEditor : Editor
         if (!_showDebug)
             return;
 
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("drawChildGizmos")
-        );
+        SerializedProperty drawChildGizmosProp =
+            serializedObject.FindProperty("drawChildGizmos");
+
+        EditorGUI.BeginChangeCheck();
+        EditorGUILayout.PropertyField(drawChildGizmosProp);
+        if (EditorGUI.EndChangeCheck())
+            _suppressAutoRebuildThisFrame = true;
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("drawChunkGizmosAlways")
