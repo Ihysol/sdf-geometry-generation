@@ -67,6 +67,7 @@ public class VolumeModel : MonoBehaviour
         voxelGridSampler?.builder?.Validate();
         maxChunksPerRebuild = Mathf.Max(1, maxChunksPerRebuild);
         dirtyHaloMultiplier = Mathf.Max(0f, dirtyHaloMultiplier);
+        moveReleaseDelaySeconds = Mathf.Max(0f, moveReleaseDelaySeconds);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -91,6 +92,8 @@ public class VolumeModel : MonoBehaviour
     [Header("Rebuild")]
     public bool autoRebuildOnChange = true;
     public bool rebuildEveryFrame = false;
+    public bool rebuildOnMoveRelease = true;
+    public float moveReleaseDelaySeconds = 0.5f;
 
     [Header("Debug")]
     public bool drawChildGizmos = true;

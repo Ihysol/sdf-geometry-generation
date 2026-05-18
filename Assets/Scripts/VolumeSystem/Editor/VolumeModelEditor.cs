@@ -320,6 +320,17 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("rebuildEveryFrame")
         );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("rebuildOnMoveRelease")
+        );
+
+        if (serializedObject.FindProperty("rebuildOnMoveRelease").boolValue)
+        {
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("moveReleaseDelaySeconds")
+            );
+        }
     }
 
     /// <summary>Draws controls for adding, removing, and clearing volume objects.</summary>

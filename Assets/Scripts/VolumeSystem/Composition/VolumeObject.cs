@@ -34,6 +34,7 @@ public class VolumeObject : MonoBehaviour
 {
 #if UNITY_EDITOR
     private bool _rebuildQueued;
+    private double _lastTransformChangeTime;
 
     private Vector3 _lastLocalPosition;
     private Quaternion _lastLocalRotation;
@@ -152,20 +153,39 @@ public class VolumeObject : MonoBehaviour
     private void QueueComposerRebuild(Bounds dirtyBounds)
     {
         if (_rebuildQueued)
-            return;
+        {
+            _queuedDirtyBounds.Encapsulate(dirtyBounds);
+        }
+        else
+        {
+            _rebuildQueued = true;
+            _queuedDirtyBounds = dirtyBounds;
+            EditorApplication.delayCall += DelayedComposerRebuild;
+        }
 
-        _rebuildQueued = true;
-        _queuedDirtyBounds = dirtyBounds;
-        EditorApplication.delayCall += DelayedComposerRebuild;
+        _lastTransformChangeTime = EditorApplication.timeSinceStartup;
     }
 
     /// <summary>Runs the queued editor rebuild if this object still exists.</summary>
     private void DelayedComposerRebuild()
     {
-        _rebuildQueued = false;
-
         if (this == null)
             return;
+
+        VolumeModel model = GetComponentInParent<VolumeModel>();
+
+        if (model != null && model.rebuildOnMoveRelease)
+        {
+            double elapsed = EditorApplication.timeSinceStartup - _lastTransformChangeTime;
+
+            if (elapsed < model.moveReleaseDelaySeconds)
+            {
+                EditorApplication.delayCall += DelayedComposerRebuild;
+                return;
+            }
+        }
+
+        _rebuildQueued = false;
 
         VolumeSceneComposer composer = GetComponentInParent<VolumeSceneComposer>();
 
