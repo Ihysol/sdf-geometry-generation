@@ -15,6 +15,7 @@ public enum VolumeDataStructure
 [RequireComponent(typeof(VolumeSceneComposer))]
 public class VolumeModel : MonoBehaviour
 {
+    private readonly System.Collections.Generic.List<Bounds> _chunkBoundsCache = new();
 
     [Header("Rendering")]
     public bool enableChunking = true;
@@ -345,14 +346,17 @@ public class VolumeModel : MonoBehaviour
 
     public bool TryGetChunkBounds(out System.Collections.Generic.List<Bounds> bounds)
     {
-        bounds = null;
+        bounds = _chunkBoundsCache;
+        bounds.Clear();
 
         IVolumeData activeVolume = GetActiveVolume();
 
         if (activeVolume is not IChunkLayoutVolume chunkLayoutVolume)
+        {
+            bounds = null;
             return false;
+        }
 
-        bounds = new System.Collections.Generic.List<Bounds>();
         chunkLayoutVolume.BuildChunkBounds(chunking, bounds);
 
         if (bounds.Count == 0)

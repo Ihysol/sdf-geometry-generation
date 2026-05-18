@@ -9,7 +9,7 @@ public class VolumeModelEditor : Editor
     private bool _showMeshing = false;
     private bool _showDebug = false;
     private bool _showRebuild = true;
-    private bool _showObjects = false;
+    private bool _showObjects = true;
 
     /// <summary>Draws the custom inspector for model pipeline and rebuild controls.</summary>
     public override void OnInspectorGUI()

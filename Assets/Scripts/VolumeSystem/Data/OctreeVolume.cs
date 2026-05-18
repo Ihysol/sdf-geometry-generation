@@ -50,13 +50,18 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         int targetTriangles = Mathf.Max(1, settings.octreeTargetTrianglesPerChunk);
         int maxLeafNodes = Mathf.Max(1, settings.octreeMaxLeafNodesPerChunk);
         int targetLeavesPerChunk = Mathf.Max(1, Mathf.Min(maxLeafNodes, targetTriangles / estimatedTrianglesPerLeaf));
-        BuildDisjointChunkBounds(Root, targetLeavesPerChunk, output);
+        Dictionary<OctreeNode, int> leafCountCache = new Dictionary<OctreeNode, int>(128);
+        BuildDisjointChunkBounds(Root, targetLeavesPerChunk, output, leafCountCache);
 
         if (output.Count == 0)
             output.Add(Bounds);
     }
 
-    private static int BuildDisjointChunkBounds(OctreeNode node, int targetLeavesPerChunk, List<Bounds> output)
+    private static int BuildDisjointChunkBounds(
+        OctreeNode node,
+        int targetLeavesPerChunk,
+        List<Bounds> output,
+        Dictionary<OctreeNode, int> leafCountCache)
     {
         if (node == null)
             return 0;
@@ -75,7 +80,7 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         if (node.Children == null)
             return 0;
 
-        int surfaceLeafCount = CountSurfaceLeaves(node);
+        int surfaceLeafCount = CountSurfaceLeaves(node, leafCountCache);
 
         if (surfaceLeafCount <= 0)
             return 0;
@@ -89,18 +94,25 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         int accumulated = 0;
 
         for (int i = 0; i < node.Children.Length; i++)
-            accumulated += BuildDisjointChunkBounds(node.Children[i], targetLeavesPerChunk, output);
+            accumulated += BuildDisjointChunkBounds(node.Children[i], targetLeavesPerChunk, output, leafCountCache);
 
         return accumulated;
     }
 
-    private static int CountSurfaceLeaves(OctreeNode node)
+    private static int CountSurfaceLeaves(OctreeNode node, Dictionary<OctreeNode, int> leafCountCache)
     {
         if (node == null)
             return 0;
 
+        if (leafCountCache.TryGetValue(node, out int cached))
+            return cached;
+
         if (node.IsLeaf)
-            return node.ContainsSurface ? 1 : 0;
+        {
+            int leafValue = node.ContainsSurface ? 1 : 0;
+            leafCountCache[node] = leafValue;
+            return leafValue;
+        }
 
         if (node.Children == null)
             return 0;
@@ -108,8 +120,9 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         int count = 0;
 
         for (int i = 0; i < node.Children.Length; i++)
-            count += CountSurfaceLeaves(node.Children[i]);
+            count += CountSurfaceLeaves(node.Children[i], leafCountCache);
 
+        leafCountCache[node] = count;
         return count;
     }
 }
