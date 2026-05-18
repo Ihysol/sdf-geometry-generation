@@ -118,8 +118,18 @@ public class VolumeObject : MonoBehaviour
         if (!LocalTransformChanged())
             return;
 
+        Bounds previousBounds = GetEstimatedLocalBoundsForTransform(
+            _lastLocalPosition,
+            _lastLocalRotation,
+            _lastLocalScale
+        );
+
         CacheLocalTransform();
-        QueueComposerRebuild();
+
+        Bounds currentBounds = GetEstimatedLocalBounds();
+        previousBounds.Encapsulate(currentBounds);
+
+        QueueComposerRebuild(previousBounds);
     }
 
     /// <summary>Caches the current local transform values.</summary>
@@ -139,12 +149,13 @@ public class VolumeObject : MonoBehaviour
     }
 
     /// <summary>Queues a delayed composition rebuild in the editor.</summary>
-    private void QueueComposerRebuild()
+    private void QueueComposerRebuild(Bounds dirtyBounds)
     {
         if (_rebuildQueued)
             return;
 
         _rebuildQueued = true;
+        _queuedDirtyBounds = dirtyBounds;
         EditorApplication.delayCall += DelayedComposerRebuild;
     }
 
@@ -159,8 +170,10 @@ public class VolumeObject : MonoBehaviour
         VolumeSceneComposer composer = GetComponentInParent<VolumeSceneComposer>();
 
         if (composer != null)
-            composer.MarkDirtyAndRebuild();
+            composer.MarkDirtyAndRebuild(_queuedDirtyBounds);
     }
+
+    private Bounds _queuedDirtyBounds;
 
     /// <summary>Renames the GameObject from its shape, role, and grid mode.</summary>
     private void UpdateGameObjectName()
@@ -542,5 +555,68 @@ public class VolumeObject : MonoBehaviour
             return true;
 
         return model.drawChildGizmos;
+    }
+
+    private Bounds GetEstimatedLocalBounds()
+    {
+        return GetEstimatedLocalBoundsForTransform(
+            transform.localPosition,
+            transform.localRotation,
+            transform.localScale
+        );
+    }
+
+    private Bounds GetEstimatedLocalBoundsForTransform(Vector3 localPosition, Quaternion localRotation, Vector3 localScale)
+    {
+        Vector3 halfExtents = GetApproximateShapeHalfExtents();
+
+        Vector3 scaled = new Vector3(
+            Mathf.Abs(halfExtents.x * localScale.x),
+            Mathf.Abs(halfExtents.y * localScale.y),
+            Mathf.Abs(halfExtents.z * localScale.z)
+        );
+
+        Matrix4x4 r = Matrix4x4.Rotate(localRotation);
+
+        Vector3 worldHalf = new Vector3(
+            Mathf.Abs(r.m00) * scaled.x + Mathf.Abs(r.m01) * scaled.y + Mathf.Abs(r.m02) * scaled.z,
+            Mathf.Abs(r.m10) * scaled.x + Mathf.Abs(r.m11) * scaled.y + Mathf.Abs(r.m12) * scaled.z,
+            Mathf.Abs(r.m20) * scaled.x + Mathf.Abs(r.m21) * scaled.y + Mathf.Abs(r.m22) * scaled.z
+        );
+
+        return new Bounds(localPosition, worldHalf * 2f);
+    }
+
+    private Vector3 GetApproximateShapeHalfExtents()
+    {
+        switch (shapeType)
+        {
+            case VolumeShapeType.Box:
+                return new Vector3(
+                    Mathf.Abs(boxHalfExtents.x),
+                    Mathf.Abs(boxHalfExtents.y),
+                    Mathf.Abs(boxHalfExtents.z)
+                );
+
+            case VolumeShapeType.Torus:
+                float torusR = Mathf.Abs(torusMajorRadius) + Mathf.Abs(torusMinorRadius);
+                float torusY = Mathf.Abs(torusMinorRadius);
+                return new Vector3(torusR, torusY, torusR);
+
+            case VolumeShapeType.Hyperboloid:
+                return new Vector3(
+                    Mathf.Abs(hyperboloidA),
+                    Mathf.Max(Mathf.Abs(hyperboloidHeightMin), Mathf.Abs(hyperboloidHeightMax)),
+                    Mathf.Abs(hyperboloidB)
+                );
+
+            case VolumeShapeType.CustomAsset:
+                return Vector3.one * 2f;
+
+            case VolumeShapeType.Sphere:
+            default:
+                float r = Mathf.Abs(sphereRadius);
+                return new Vector3(r, r, r);
+        }
     }
 }

@@ -10,6 +10,7 @@ public class DualContouringOctreeMesher
 
     private readonly Dictionary<Vector3Int, OctreeNode> _leafMap = new();
     private readonly HashSet<EdgeKey> _processedEdges = new();
+    private readonly HashSet<Vector3Int> _missingLeafCoords = new();
 
     private int _skippedNullQuads;
     private int _skippedInvalidQuads;
@@ -21,6 +22,8 @@ public class DualContouringOctreeMesher
 
     private Vector3 _origin;
     private Vector3 _cellSize;
+    private Vector3Int _gridMin;
+    private Vector3Int _gridMax;
     public System.Collections.Generic.List<Bounds> ownedBoundsList = null;
 
     private enum Axis
@@ -137,6 +140,7 @@ public class DualContouringOctreeMesher
 
         _leafMap.Clear();
         _processedEdges.Clear();
+        _missingLeafCoords.Clear();
 
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
@@ -149,6 +153,13 @@ public class DualContouringOctreeMesher
 
         _origin = volume.GridOrigin;
         _cellSize = volume.CellSize;
+        _gridMin = Vector3Int.zero;
+        int resolution = 1 << _maxDepth;
+        _gridMax = new Vector3Int(
+            Mathf.Max(0, resolution - 1),
+            Mathf.Max(0, resolution - 1),
+            Mathf.Max(0, resolution - 1)
+        );
 
         CollectLeaves(volume.Root);
 
@@ -454,6 +465,15 @@ public class DualContouringOctreeMesher
         if (_leafMap.TryGetValue(coord, out OctreeNode node))
             return node;
 
+        if (_missingLeafCoords.Contains(coord))
+            return null;
+
+        if (!IsCoordInsideVolumeGrid(coord))
+        {
+            _missingLeafCoords.Add(coord);
+            return null;
+        }
+
         OctreeNode containingLeaf = FindLeafContainingCoord(coord);
 
         if (containingLeaf != null)
@@ -462,8 +482,22 @@ public class DualContouringOctreeMesher
             return containingLeaf;
         }
 
-        return CreateGhostLeaf(coord);
+        OctreeNode ghost = CreateGhostLeaf(coord);
+
+        if (ghost == null)
+            _missingLeafCoords.Add(coord);
+
+        return ghost;
     }
+
+    private bool IsCoordInsideVolumeGrid(Vector3Int coord)
+    {
+        return
+            coord.x >= _gridMin.x && coord.x <= _gridMax.x &&
+            coord.y >= _gridMin.y && coord.y <= _gridMax.y &&
+            coord.z >= _gridMin.z && coord.z <= _gridMax.z;
+    }
+
 
 
     /// <summary>Finds the adaptive octree leaf that contains a finest-grid coordinate.</summary>

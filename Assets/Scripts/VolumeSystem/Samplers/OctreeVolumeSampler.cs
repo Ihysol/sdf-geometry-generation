@@ -37,4 +37,34 @@ public class OctreeVolumeSampler : IVolumeSampler
 
         IsDirty = false;
     }
+
+    public bool RebuildVolumeRegion(IScalarFieldSource source, Bounds dirtyBounds)
+    {
+        if (source == null)
+        {
+            Debug.LogWarning("OctreeVolumeSampler: No source assigned.");
+            Volume = null;
+            IsDirty = false;
+            return false;
+        }
+
+        builder.center = center;
+        builder.size = extent;
+
+        if (Volume == null)
+        {
+            RebuildVolume(source);
+            return false;
+        }
+
+        if (!builder.RebuildRegion(Volume, source, dirtyBounds, out OctreeVolume rebuilt) || rebuilt == null)
+        {
+            RebuildVolume(source);
+            return false;
+        }
+
+        Volume = rebuilt;
+        IsDirty = false;
+        return true;
+    }
 }

@@ -16,13 +16,20 @@ public enum VolumeDataStructure
 public class VolumeModel : MonoBehaviour
 {
     private readonly System.Collections.Generic.List<Bounds> _chunkBoundsCache = new();
+    private bool _hasDirtyBounds;
+    private Bounds _dirtyBounds;
 
     [Header("Rendering")]
     public bool enableChunking = true;
+    public bool forceFullChunkRedraw = false;
+    public int maxChunksPerRebuild = 8;
+    public bool octreeExpandDirtyNeighbors = true;
+    public float dirtyHaloMultiplier = 3f;
     public Material surfaceMaterial;
     public ChunkingSettings chunking = new ChunkingSettings
     {
         voxelChunkCount = new Vector3Int(2, 2, 2),
+        octreeChunkCount = new Vector3Int(2, 2, 2),
         octreeTargetTrianglesPerChunk = 10000,
         octreeEstimatedTrianglesPerLeaf = 12,
         octreeMaxLeafNodesPerChunk = 1024
@@ -58,6 +65,8 @@ public class VolumeModel : MonoBehaviour
         MoveToTop();
 
         voxelGridSampler?.builder?.Validate();
+        maxChunksPerRebuild = Mathf.Max(1, maxChunksPerRebuild);
+        dirtyHaloMultiplier = Mathf.Max(0f, dirtyHaloMultiplier);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -85,7 +94,9 @@ public class VolumeModel : MonoBehaviour
 
     [Header("Debug")]
     public bool drawChildGizmos = true;
+    public bool drawChunkGizmosAlways = false;
     public bool renderOctreeDebugCubes = false;
+    public bool logChunkRebuildStats = false;
 
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
@@ -125,8 +136,6 @@ public class VolumeModel : MonoBehaviour
     /// <summary>Rebuilds composition, volume data, and render output.</summary>
     public void RebuildModel()
     {
-        RenderOutput.Clear();
-
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
 
         if (composer == null)
@@ -135,12 +144,23 @@ public class VolumeModel : MonoBehaviour
         composer.RebuildComposition();
 
         IScalarFieldSource source = composer;
+        bool didIncrementalVoxelUpdate = false;
+        bool hasDirtyBounds = TryGetPendingDirtyBounds(out Bounds dirtyBounds);
 
         switch (dataStructure)
         {
             case VolumeDataStructure.VoxelGrid:
-                voxelGridSampler.MarkDirty();
-                voxelGridSampler.RebuildVolume(source);
+                if (hasDirtyBounds)
+                {
+                    didIncrementalVoxelUpdate = voxelGridSampler.RebuildVolumeRegion(source, dirtyBounds, 3);
+                }
+
+                if (!didIncrementalVoxelUpdate)
+                {
+                    voxelGridSampler.MarkDirty();
+                    voxelGridSampler.RebuildVolume(source);
+                    ClearDirtyBounds();
+                }
                 break;
 
             case VolumeDataStructure.Octree:
@@ -363,6 +383,48 @@ public class VolumeModel : MonoBehaviour
             bounds.Add(activeVolume.Bounds);
 
         return true;
+    }
+
+    public void MarkDirtyBounds(Bounds dirtyBounds)
+    {
+        if (!_hasDirtyBounds)
+        {
+            _dirtyBounds = dirtyBounds;
+            _hasDirtyBounds = true;
+            return;
+        }
+
+        _dirtyBounds.Encapsulate(dirtyBounds);
+    }
+
+    public bool TryConsumeDirtyBounds(out Bounds dirtyBounds)
+    {
+        if (_hasDirtyBounds)
+        {
+            dirtyBounds = _dirtyBounds;
+            _hasDirtyBounds = false;
+            return true;
+        }
+
+        dirtyBounds = default;
+        return false;
+    }
+
+    public bool TryGetPendingDirtyBounds(out Bounds dirtyBounds)
+    {
+        if (_hasDirtyBounds)
+        {
+            dirtyBounds = _dirtyBounds;
+            return true;
+        }
+
+        dirtyBounds = default;
+        return false;
+    }
+
+    private void ClearDirtyBounds()
+    {
+        _hasDirtyBounds = false;
     }
 
 }

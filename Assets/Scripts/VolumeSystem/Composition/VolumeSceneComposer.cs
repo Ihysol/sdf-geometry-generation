@@ -56,4 +56,17 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         if (model != null)
             model.RebuildModel();
     }
+
+    public void MarkDirtyAndRebuild(Bounds dirtyBounds)
+    {
+        VolumeModel model = GetComponent<VolumeModel>();
+
+        if (model != null)
+            model.MarkDirtyBounds(dirtyBounds);
+
+        RebuildComposition();
+
+        if (model != null)
+            model.RebuildModel();
+    }
 }

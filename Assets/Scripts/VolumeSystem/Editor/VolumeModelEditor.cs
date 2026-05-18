@@ -116,6 +116,30 @@ public class VolumeModelEditor : Editor
         if (enableChunkingProp != null)
             EditorGUILayout.PropertyField(enableChunkingProp, new GUIContent("Enable Chunking"));
 
+        if (enableChunkingProp != null)
+        {
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("forceFullChunkRedraw"),
+                new GUIContent("Always Redraw All Chunks")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("maxChunksPerRebuild"),
+                new GUIContent("Max Chunks Per Rebuild")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("dirtyHaloMultiplier"),
+                new GUIContent("Dirty Halo Multiplier")
+            );
+        }
+
+        if (model.dataStructure == VolumeDataStructure.Octree)
+        {
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("octreeExpandDirtyNeighbors"),
+                new GUIContent("Expand Dirty To Neighbor Chunks")
+            );
+        }
+
         if (enableChunkingProp != null && enableChunkingProp.boolValue && chunkingProp != null)
         {
             switch (model.dataStructure)
@@ -129,16 +153,8 @@ public class VolumeModelEditor : Editor
 
                 case VolumeDataStructure.Octree:
                     EditorGUILayout.PropertyField(
-                        chunkingProp.FindPropertyRelative("octreeTargetTrianglesPerChunk"),
-                        new GUIContent("Target Triangles/Chunk")
-                    );
-                    EditorGUILayout.PropertyField(
-                        chunkingProp.FindPropertyRelative("octreeEstimatedTrianglesPerLeaf"),
-                        new GUIContent("Estimated Triangles/Leaf")
-                    );
-                    EditorGUILayout.PropertyField(
-                        chunkingProp.FindPropertyRelative("octreeMaxLeafNodesPerChunk"),
-                        new GUIContent("Max Leafs/Chunk")
+                        chunkingProp.FindPropertyRelative("octreeChunkCount"),
+                        new GUIContent("Chunk Count")
                     );
                     break;
             }
@@ -261,6 +277,14 @@ public class VolumeModelEditor : Editor
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("drawChildGizmos")
+        );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("drawChunkGizmosAlways")
+        );
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("logChunkRebuildStats")
         );
 
         if (model.dataStructure == VolumeDataStructure.Octree)

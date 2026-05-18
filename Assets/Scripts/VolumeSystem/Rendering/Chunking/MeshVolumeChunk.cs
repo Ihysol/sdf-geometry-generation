@@ -109,8 +109,41 @@ public class MeshVolumeChunk : VolumeChunkBase
             _meshFilter.sharedMesh = _mesh;
     }
 
-    /// <summary>Draws the chunk ownership bounds when the chunk is selected.</summary>
+    /// <summary>Draws chunk ownership bounds when enabled in the parent model.</summary>
+    private void OnDrawGizmos()
+    {
+        if (!ShouldDrawChunkGizmos(alwaysOnly: true))
+            return;
+
+        DrawChunkGizmos();
+    }
+
+    /// <summary>Draws chunk ownership bounds when selected.</summary>
     private void OnDrawGizmosSelected()
+    {
+        if (!ShouldDrawChunkGizmos(alwaysOnly: false))
+            return;
+
+        DrawChunkGizmos();
+    }
+
+    private bool ShouldDrawChunkGizmos(bool alwaysOnly)
+    {
+        VolumeModel model = GetComponentInParent<VolumeModel>();
+
+        if (model == null)
+            return !alwaysOnly;
+
+        if (!model.drawChildGizmos)
+            return false;
+
+        if (alwaysOnly)
+            return model.drawChunkGizmosAlways;
+
+        return true;
+    }
+
+    private void DrawChunkGizmos()
     {
         Matrix4x4 oldMatrix = Gizmos.matrix;
         Color oldColor = Gizmos.color;

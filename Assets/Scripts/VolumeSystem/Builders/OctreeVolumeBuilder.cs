@@ -91,6 +91,148 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
         );
     }
 
+    public bool RebuildRegion(OctreeVolume existing, IScalarFieldSource source, Bounds dirtyBounds, out OctreeVolume rebuilt)
+    {
+        rebuilt = null;
+
+        if (source == null || existing == null || existing.Root == null)
+            return false;
+
+        Bounds buildBounds = Bounds;
+        Vector3 origin = buildBounds.min;
+        Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+
+        if (existing.Bounds.center != buildBounds.center ||
+            existing.Bounds.size != buildBounds.size ||
+            existing.MaxDepth != maxDepth ||
+            existing.GridOrigin != origin ||
+            existing.CellSize != cellSize)
+        {
+            return false;
+        }
+
+        Vector3 eps = cellSize;
+        Bounds expandedDirty = dirtyBounds;
+        expandedDirty.Expand(eps * 2f);
+
+        OctreeNode root = RebuildNodeRegion(
+            existing.Root,
+            source,
+            expandedDirty,
+            0,
+            origin,
+            cellSize
+        );
+
+        int totalNodes = 0;
+        int surfaceLeaves = 0;
+        CountStats(root, ref totalNodes, ref surfaceLeaves);
+
+        rebuilt = new OctreeVolume(
+            root,
+            buildBounds,
+            maxDepth,
+            totalNodes,
+            surfaceLeaves,
+            source,
+            origin,
+            cellSize
+        );
+
+        return true;
+    }
+
+    private OctreeNode RebuildNodeRegion(
+        OctreeNode existingNode,
+        IScalarFieldSource source,
+        Bounds dirtyBounds,
+        int depth,
+        Vector3 origin,
+        Vector3 cellSize)
+    {
+        if (existingNode == null)
+            return null;
+
+        if (!existingNode.Bounds.Intersects(dirtyBounds))
+            return existingNode;
+
+        if (existingNode.IsLeaf || existingNode.Children == null || existingNode.Children.Length == 0)
+            return BuildNode(source, existingNode.Bounds, depth, origin, cellSize);
+
+        OctreeNode node = new OctreeNode(existingNode.Bounds)
+        {
+            IsLeaf = false,
+            Depth = depth,
+            Children = new OctreeNode[8],
+            Coord = existingNode.Coord,
+            SizeInCells = existingNode.SizeInCells
+        };
+
+        for (int i = 0; i < 8; i++)
+        {
+            OctreeNode child = i < existingNode.Children.Length ? existingNode.Children[i] : null;
+            node.Children[i] = RebuildNodeRegion(
+                child,
+                source,
+                dirtyBounds,
+                depth + 1,
+                origin,
+                cellSize
+            );
+        }
+
+        node.ContainsSurface = AnyChildContainsSurface(node.Children);
+        return node;
+    }
+
+    private static bool AnyChildContainsSurface(OctreeNode[] children)
+    {
+        if (children == null)
+            return false;
+
+        for (int i = 0; i < children.Length; i++)
+        {
+            OctreeNode c = children[i];
+
+            if (c == null)
+                continue;
+
+            if (c.IsLeaf)
+            {
+                if (c.ContainsSurface)
+                    return true;
+            }
+            else if (AnyChildContainsSurface(c.Children))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void CountStats(OctreeNode node, ref int totalNodes, ref int surfaceLeaves)
+    {
+        if (node == null)
+            return;
+
+        totalNodes++;
+
+        if (node.IsLeaf)
+        {
+            if (node.ContainsSurface)
+                surfaceLeaves++;
+
+            return;
+        }
+
+        if (node.Children == null)
+            return;
+
+        for (int i = 0; i < node.Children.Length; i++)
+            CountStats(node.Children[i], ref totalNodes, ref surfaceLeaves);
+    }
+
     /// <summary>Builds one octree node and subdivides it when it may contain surface detail.</summary>
     private OctreeNode BuildNode(
      IScalarFieldSource source,

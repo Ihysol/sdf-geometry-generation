@@ -40,89 +40,29 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
     {
         output.Clear();
 
-        if (Root == null)
-        {
-            output.Add(Bounds);
-            return;
-        }
+        Vector3Int chunkCount = settings.octreeChunkCount;
+        chunkCount.x = Mathf.Max(1, chunkCount.x);
+        chunkCount.y = Mathf.Max(1, chunkCount.y);
+        chunkCount.z = Mathf.Max(1, chunkCount.z);
 
-        int estimatedTrianglesPerLeaf = Mathf.Max(1, settings.octreeEstimatedTrianglesPerLeaf);
-        int targetTriangles = Mathf.Max(1, settings.octreeTargetTrianglesPerChunk);
-        int maxLeafNodes = Mathf.Max(1, settings.octreeMaxLeafNodesPerChunk);
-        int targetLeavesPerChunk = Mathf.Max(1, Mathf.Min(maxLeafNodes, targetTriangles / estimatedTrianglesPerLeaf));
-        Dictionary<OctreeNode, int> leafCountCache = new Dictionary<OctreeNode, int>(128);
-        BuildDisjointChunkBounds(Root, targetLeavesPerChunk, output, leafCountCache);
+        Bounds bounds = Bounds;
+        Vector3 chunkSize = new Vector3(
+            bounds.size.x / chunkCount.x,
+            bounds.size.y / chunkCount.y,
+            bounds.size.z / chunkCount.z
+        );
 
-        if (output.Count == 0)
-            output.Add(Bounds);
-    }
+        for (int x = 0; x < chunkCount.x; x++)
+            for (int y = 0; y < chunkCount.y; y++)
+                for (int z = 0; z < chunkCount.z; z++)
+                {
+                    Vector3 center = bounds.min + new Vector3(
+                        (x + 0.5f) * chunkSize.x,
+                        (y + 0.5f) * chunkSize.y,
+                        (z + 0.5f) * chunkSize.z
+                    );
 
-    private static int BuildDisjointChunkBounds(
-        OctreeNode node,
-        int targetLeavesPerChunk,
-        List<Bounds> output,
-        Dictionary<OctreeNode, int> leafCountCache)
-    {
-        if (node == null)
-            return 0;
-
-        if (node.IsLeaf)
-        {
-            if (node.ContainsSurface)
-            {
-                output.Add(node.Bounds);
-                return 1;
-            }
-
-            return 0;
-        }
-
-        if (node.Children == null)
-            return 0;
-
-        int surfaceLeafCount = CountSurfaceLeaves(node, leafCountCache);
-
-        if (surfaceLeafCount <= 0)
-            return 0;
-
-        if (surfaceLeafCount <= targetLeavesPerChunk)
-        {
-            output.Add(node.Bounds);
-            return surfaceLeafCount;
-        }
-
-        int accumulated = 0;
-
-        for (int i = 0; i < node.Children.Length; i++)
-            accumulated += BuildDisjointChunkBounds(node.Children[i], targetLeavesPerChunk, output, leafCountCache);
-
-        return accumulated;
-    }
-
-    private static int CountSurfaceLeaves(OctreeNode node, Dictionary<OctreeNode, int> leafCountCache)
-    {
-        if (node == null)
-            return 0;
-
-        if (leafCountCache.TryGetValue(node, out int cached))
-            return cached;
-
-        if (node.IsLeaf)
-        {
-            int leafValue = node.ContainsSurface ? 1 : 0;
-            leafCountCache[node] = leafValue;
-            return leafValue;
-        }
-
-        if (node.Children == null)
-            return 0;
-
-        int count = 0;
-
-        for (int i = 0; i < node.Children.Length; i++)
-            count += CountSurfaceLeaves(node.Children[i], leafCountCache);
-
-        leafCountCache[node] = count;
-        return count;
+                    output.Add(new Bounds(center, chunkSize));
+                }
     }
 }
