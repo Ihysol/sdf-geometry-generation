@@ -5,12 +5,6 @@ using UnityEditorInternal;
 
 using UnityEngine;
 
-public enum VolumeRenderMode
-{
-    SingleMesh,
-    Chunked
-}
-
 public enum VolumeDataStructure
 {
     VoxelGrid,
@@ -23,8 +17,15 @@ public class VolumeModel : MonoBehaviour
 {
 
     [Header("Rendering")]
-    public VolumeRenderMode renderMode = VolumeRenderMode.Chunked;
+    public bool enableChunking = true;
     public Material surfaceMaterial;
+    public ChunkingSettings chunking = new ChunkingSettings
+    {
+        voxelChunkCount = new Vector3Int(2, 2, 2),
+        octreeTargetTrianglesPerChunk = 10000,
+        octreeEstimatedTrianglesPerLeaf = 12,
+        octreeMaxLeafNodesPerChunk = 1024
+    };
 
     private Transform ObjectsRoot
     {
@@ -340,6 +341,24 @@ public class VolumeModel : MonoBehaviour
 
         if (output != null)
             output.Clear();
+    }
+
+    public bool TryGetChunkBounds(out System.Collections.Generic.List<Bounds> bounds)
+    {
+        bounds = null;
+
+        IVolumeData activeVolume = GetActiveVolume();
+
+        if (activeVolume is not IChunkLayoutVolume chunkLayoutVolume)
+            return false;
+
+        bounds = new System.Collections.Generic.List<Bounds>();
+        chunkLayoutVolume.BuildChunkBounds(chunking, bounds);
+
+        if (bounds.Count == 0)
+            bounds.Add(activeVolume.Bounds);
+
+        return true;
     }
 
 }

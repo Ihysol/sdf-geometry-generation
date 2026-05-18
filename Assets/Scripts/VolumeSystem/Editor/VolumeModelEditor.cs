@@ -4,9 +4,12 @@ using UnityEngine;
 [CustomEditor(typeof(VolumeModel))]
 public class VolumeModelEditor : Editor
 {
-    private bool _showMeshing = true;
-    private bool _showDebug = true;
+    private bool _showBuilder = true;
+    private bool _showRendering = true;
+    private bool _showMeshing = false;
+    private bool _showDebug = false;
     private bool _showRebuild = true;
+    private bool _showObjects = false;
 
     /// <summary>Draws the custom inspector for model pipeline and rebuild controls.</summary>
     public override void OnInspectorGUI()
@@ -15,13 +18,13 @@ public class VolumeModelEditor : Editor
 
         VolumeModel model = (VolumeModel)target;
 
-        DrawPipeline(model);
+        DrawBuilder(model);
 
         GUILayout.Space(10);
 
         EditorGUI.BeginChangeCheck();
 
-        DrawActiveSamplerSettings(model);
+        DrawRendering(model);
 
         GUILayout.Space(10);
 
@@ -45,7 +48,10 @@ public class VolumeModelEditor : Editor
 
         GUILayout.Space(10);
 
-        DrawObjectCreation(model);
+        _showObjects = EditorGUILayout.Foldout(_showObjects, "Objects", true);
+
+        if (_showObjects)
+            DrawObjectCreation(model);
 
         GUILayout.Space(10);
 
@@ -54,16 +60,16 @@ public class VolumeModelEditor : Editor
         serializedObject.ApplyModifiedProperties();
     }
 
-    /// <summary>Draws data-structure and render-mode controls.</summary>
-    private void DrawPipeline(VolumeModel model)
+    /// <summary>Draws data structure and active builder settings.</summary>
+    private void DrawBuilder(VolumeModel model)
     {
-        EditorGUILayout.LabelField("Pipeline", EditorStyles.boldLabel);
+        _showBuilder = EditorGUILayout.Foldout(_showBuilder, "Builder", true);
+
+        if (!_showBuilder)
+            return;
 
         SerializedProperty dataStructureProp =
             serializedObject.FindProperty("dataStructure");
-
-        SerializedProperty renderModeProp =
-            serializedObject.FindProperty("renderMode");
 
         EditorGUI.BeginChangeCheck();
 
@@ -72,24 +78,13 @@ public class VolumeModelEditor : Editor
             new GUIContent("Data Structure")
         );
 
-        if (renderModeProp != null)
-        {
-            EditorGUILayout.PropertyField(
-                renderModeProp,
-                new GUIContent("Render Mode")
-            );
-        }
-
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("surfaceMaterial"),
-            new GUIContent("Surface Material")
-        );
+        DrawActiveSamplerSettings(model);
 
         if (EditorGUI.EndChangeCheck())
         {
             serializedObject.ApplyModifiedProperties();
 
-            Undo.RecordObject(model, "Change Volume Pipeline");
+            Undo.RecordObject(model, "Change Volume Builder");
 
             if (model.autoRebuildOnChange)
                 model.RebuildModel();
@@ -97,6 +92,56 @@ public class VolumeModelEditor : Editor
             EditorUtility.SetDirty(model);
 
             serializedObject.Update();
+        }
+    }
+
+    /// <summary>Draws rendering and chunking controls.</summary>
+    private void DrawRendering(VolumeModel model)
+    {
+        _showRendering = EditorGUILayout.Foldout(_showRendering, "Rendering", true);
+
+        if (!_showRendering)
+            return;
+
+        SerializedProperty enableChunkingProp =
+            serializedObject.FindProperty("enableChunking");
+        SerializedProperty chunkingProp =
+            serializedObject.FindProperty("chunking");
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("surfaceMaterial"),
+            new GUIContent("Surface Material")
+        );
+
+        if (enableChunkingProp != null)
+            EditorGUILayout.PropertyField(enableChunkingProp, new GUIContent("Enable Chunking"));
+
+        if (enableChunkingProp != null && enableChunkingProp.boolValue && chunkingProp != null)
+        {
+            switch (model.dataStructure)
+            {
+                case VolumeDataStructure.VoxelGrid:
+                    EditorGUILayout.PropertyField(
+                        chunkingProp.FindPropertyRelative("voxelChunkCount"),
+                        new GUIContent("Chunk Count")
+                    );
+                    break;
+
+                case VolumeDataStructure.Octree:
+                    EditorGUILayout.PropertyField(
+                        chunkingProp.FindPropertyRelative("octreeTargetTrianglesPerChunk"),
+                        new GUIContent("Target Triangles/Chunk")
+                    );
+                    EditorGUILayout.PropertyField(
+                        chunkingProp.FindPropertyRelative("octreeEstimatedTrianglesPerLeaf"),
+                        new GUIContent("Estimated Triangles/Leaf")
+                    );
+                    EditorGUILayout.PropertyField(
+                        chunkingProp.FindPropertyRelative("octreeMaxLeafNodesPerChunk"),
+                        new GUIContent("Max Leafs/Chunk")
+                    );
+                    break;
+            }
         }
     }
 

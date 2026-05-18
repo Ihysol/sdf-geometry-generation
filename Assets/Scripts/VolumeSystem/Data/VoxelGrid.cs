@@ -1,6 +1,8 @@
 using UnityEngine;
 
-public class VoxelGrid : IVolumeData
+using System.Collections.Generic;
+
+public class VoxelGrid : IVolumeData, IChunkLayoutVolume
 {
     public Vector3Int GridSize { get; }
     public Vector3 Origin { get; }
@@ -56,5 +58,35 @@ public class VoxelGrid : IVolumeData
             Origin.y + y * CellSize.y,
             Origin.z + z * CellSize.z
         );
+    }
+
+    public void BuildChunkBounds(ChunkingSettings settings, List<Bounds> output)
+    {
+        output.Clear();
+
+        Vector3Int chunkCount = settings.voxelChunkCount;
+        chunkCount.x = Mathf.Max(1, chunkCount.x);
+        chunkCount.y = Mathf.Max(1, chunkCount.y);
+        chunkCount.z = Mathf.Max(1, chunkCount.z);
+
+        Bounds bounds = Bounds;
+        Vector3 chunkSize = new Vector3(
+            bounds.size.x / chunkCount.x,
+            bounds.size.y / chunkCount.y,
+            bounds.size.z / chunkCount.z
+        );
+
+        for (int x = 0; x < chunkCount.x; x++)
+            for (int y = 0; y < chunkCount.y; y++)
+                for (int z = 0; z < chunkCount.z; z++)
+                {
+                    Vector3 center = bounds.min + new Vector3(
+                        (x + 0.5f) * chunkSize.x,
+                        (y + 0.5f) * chunkSize.y,
+                        (z + 0.5f) * chunkSize.z
+                    );
+
+                    output.Add(new Bounds(center, chunkSize));
+                }
     }
 }

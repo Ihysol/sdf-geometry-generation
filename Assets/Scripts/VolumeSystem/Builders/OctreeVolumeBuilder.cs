@@ -3,12 +3,6 @@ using UnityEngine;
 [System.Serializable]
 public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 {
-
-    [Header("Global Grid")]
-    public bool useGlobalGrid = false;
-    public Vector3 globalOrigin;
-    public Vector3 globalCellSize;
-
     [Header("Bounds")]
     public Vector3 center = Vector3.zero;
     public Vector3 size = new Vector3(4f, 4f, 4f);
@@ -70,19 +64,8 @@ public class OctreeVolumeBuilder : IVolumeBuilder<OctreeVolume>
 
         Bounds buildBounds = Bounds;
 
-        Vector3 origin;
-        Vector3 cellSize;
-
-        if (useGlobalGrid)
-        {
-            origin = globalOrigin;
-            cellSize = globalCellSize;
-        }
-        else
-        {
-            origin = buildBounds.min;
-            cellSize = buildBounds.size / (1 << maxDepth);
-        }
+        Vector3 origin = buildBounds.min;
+        Vector3 cellSize = buildBounds.size / (1 << maxDepth);
 
         OctreeNode root = BuildNode(
             source,

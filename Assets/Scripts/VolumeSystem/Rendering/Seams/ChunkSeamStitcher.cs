@@ -45,11 +45,7 @@ public class ChunkSeamStitcher
             boundsPadding = 0f,
 
             minDepth = template.minDepth,
-            maxDepth = template.maxDepth,
-
-            useGlobalGrid = true,
-            globalOrigin = globalBounds.min,
-            globalCellSize = globalCellSize
+            maxDepth = template.maxDepth
         };
 
         OctreeVolume volume = builder.Build(source);
