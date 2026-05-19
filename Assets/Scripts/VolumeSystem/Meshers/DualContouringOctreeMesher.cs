@@ -11,7 +11,17 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     public float qefAxisSnapStrength = 2.5f;
     public bool qefEnableMultiHermite = false;
     public int qefHermiteSamplesPerEdge = 3;
+    public QefSolver.RobustKernel qefRobustKernel = QefSolver.RobustKernel.Cauchy;
+    public float qefRobustScale = 2.5f;
+    public int qefIrlsIterations = 3;
+    public bool qefUseAnisotropicRegularization = false;
+    public float qefAnisotropicStrength = 0.2f;
+    public QefFeatureClassWeightMode qefFeatureWeightMode = QefFeatureClassWeightMode.Off;
+    public float qefSurfaceWeight = 1f;
+    public float qefEdgeWeight = 1.2f;
+    public float qefCornerWeight = 1.4f;
     public float isoLevel = 0f;
+    public bool enableDebugLog = true;
 
     private readonly List<Vector3> _vertices = new();
     private readonly List<int> _triangles = new();
@@ -244,7 +254,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         mesh.RecalculateBounds();
 
 #if UNITY_EDITOR
-        if (UnityEngine.Debug.isDebugBuild)
+        if (enableDebugLog && UnityEngine.Debug.isDebugBuild)
         {
             Debug.Log(
                 $"Octree DC: leaves={_leafMap.Count}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}"
@@ -795,7 +805,13 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         if (useQef &&
             _qefPoints.Count >= 3 &&
             HasSufficientGradientDiversity(_qefNormals) &&
-            QefSolver.TrySolve(_qefPoints, _qefNormals, _qefWeights, bounds, out Vector3 qef))
+            QefSolver.TrySolve(
+                _qefPoints,
+                _qefNormals,
+                BuildWeightedQefWeights(_qefWeights, _qefNormals),
+                bounds,
+                BuildQefSettings(),
+                out Vector3 qef))
         {
             qef = ConstrainQefToLocalWindow(qef, avg, bounds);
             if (IsQefSolutionAcceptable(qef, avg, bounds))
@@ -817,6 +833,112 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         if (useAxisSnap)
             avgResult = SnapToGridNearBoundaryWithFactor(avgResult, qefAxisSnapStrength);
         return SnapToGridNearBoundary(avgResult);
+    }
+
+    private QefSolver.Settings BuildQefSettings()
+    {
+        return new QefSolver.Settings
+        {
+            irlsIterations = Mathf.Max(1, qefIrlsIterations),
+            robustKernel = qefRobustKernel,
+            robustScale = Mathf.Max(0.1f, qefRobustScale),
+            useAnisotropicRegularization = qefUseAnisotropicRegularization,
+            anisotropicStrength = Mathf.Max(0f, qefAnisotropicStrength)
+        };
+    }
+
+    private List<float> BuildWeightedQefWeights(List<float> baseWeights, List<Vector3> normals)
+    {
+        if (baseWeights == null || qefFeatureWeightMode == QefFeatureClassWeightMode.Off)
+            return baseWeights;
+
+        float featureScale = GetFeatureClassWeightMultiplier(normals);
+        if (Mathf.Abs(featureScale - 1f) < 1e-5f)
+            return baseWeights;
+
+        List<float> weighted = new List<float>(baseWeights.Count);
+        for (int i = 0; i < baseWeights.Count; i++)
+            weighted.Add(baseWeights[i] * featureScale);
+        return weighted;
+    }
+
+    private float GetFeatureClassWeightMultiplier(List<Vector3> normals)
+    {
+        if (normals == null || normals.Count < 3)
+            return 1f;
+
+        float xx = 0f, xy = 0f, xz = 0f, yy = 0f, yz = 0f, zz = 0f;
+        int count = 0;
+        for (int i = 0; i < normals.Count; i++)
+        {
+            Vector3 n = normals[i];
+            float len = n.magnitude;
+            if (len < 1e-8f)
+                continue;
+            n /= len;
+            xx += n.x * n.x; xy += n.x * n.y; xz += n.x * n.z;
+            yy += n.y * n.y; yz += n.y * n.z; zz += n.z * n.z;
+            count++;
+        }
+
+        if (count < 3)
+            return 1f;
+
+        float inv = 1f / count;
+        Matrix4x4 c = Matrix4x4.zero;
+        c.m00 = xx * inv; c.m01 = xy * inv; c.m02 = xz * inv;
+        c.m10 = xy * inv; c.m11 = yy * inv; c.m12 = yz * inv;
+        c.m20 = xz * inv; c.m21 = yz * inv; c.m22 = zz * inv;
+
+        Vector3 eval = EstimateEigenvaluesSymmetric(c);
+        float l0 = eval.x;
+        float l1 = eval.y;
+        float l2 = eval.z;
+        float eps = 1e-4f;
+        if (l2 < eps)
+            return qefSurfaceWeight;
+        if (l1 < 0.12f * l2)
+            return qefEdgeWeight;
+        return qefCornerWeight;
+    }
+
+    private static Vector3 EstimateEigenvaluesSymmetric(Matrix4x4 m)
+    {
+        float p1 = m.m01 * m.m01 + m.m02 * m.m02 + m.m12 * m.m12;
+        if (p1 <= 1e-12f)
+            return new Vector3(m.m00, m.m11, m.m22);
+
+        float q = (m.m00 + m.m11 + m.m22) / 3f;
+        float p2 =
+            (m.m00 - q) * (m.m00 - q) +
+            (m.m11 - q) * (m.m11 - q) +
+            (m.m22 - q) * (m.m22 - q) +
+            2f * p1;
+        float p = Mathf.Sqrt(Mathf.Max(p2 / 6f, 1e-12f));
+
+        Matrix4x4 b = Matrix4x4.zero;
+        b.m00 = (m.m00 - q) / p; b.m01 = m.m01 / p; b.m02 = m.m02 / p;
+        b.m10 = m.m10 / p; b.m11 = (m.m11 - q) / p; b.m12 = m.m12 / p;
+        b.m20 = m.m20 / p; b.m21 = m.m21 / p; b.m22 = (m.m22 - q) / p;
+
+        float r = Determinant3x3(b) * 0.5f;
+        float phi = r <= -1f ? Mathf.PI / 3f : r >= 1f ? 0f : Mathf.Acos(r) / 3f;
+        float e1 = q + 2f * p * Mathf.Cos(phi);
+        float e3 = q + 2f * p * Mathf.Cos(phi + (2f * Mathf.PI / 3f));
+        float e2 = 3f * q - e1 - e3;
+
+        float a = Mathf.Max(e1, Mathf.Max(e2, e3));
+        float cmin = Mathf.Min(e1, Mathf.Min(e2, e3));
+        float bmid = e1 + e2 + e3 - a - cmin;
+        return new Vector3(cmin, bmid, a);
+    }
+
+    private static float Determinant3x3(Matrix4x4 m)
+    {
+        return
+            m.m00 * (m.m11 * m.m22 - m.m12 * m.m21) -
+            m.m01 * (m.m10 * m.m22 - m.m12 * m.m20) +
+            m.m02 * (m.m10 * m.m21 - m.m11 * m.m20);
     }
 
     private Vector3 ConstrainQefToLocalWindow(Vector3 qef, Vector3 avg, Bounds bounds)

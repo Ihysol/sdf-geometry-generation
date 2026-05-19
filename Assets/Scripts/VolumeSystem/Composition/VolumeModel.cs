@@ -18,6 +18,19 @@ public enum QefVertexMode
     QefAxisSnap
 }
 
+public enum OctreeMesherType
+{
+    DualContouring,
+    DualMarchingCubes,
+    DualMarchingTetrahedra
+}
+
+public enum QefFeatureClassWeightMode
+{
+    Off,
+    SurfaceEdgeCorner
+}
+
 [DisallowMultipleComponent]
 [RequireComponent(typeof(VolumeSceneComposer))]
 public class VolumeModel : MonoBehaviour
@@ -82,6 +95,12 @@ public class VolumeModel : MonoBehaviour
         qefMaxOffsetCells = Mathf.Max(0f, qefMaxOffsetCells);
         qefAxisSnapStrength = Mathf.Max(1f, qefAxisSnapStrength);
         qefHermiteSamplesPerEdge = Mathf.Max(1, qefHermiteSamplesPerEdge);
+        qefRobustScale = Mathf.Max(0.1f, qefRobustScale);
+        qefIrlsIterations = Mathf.Max(1, qefIrlsIterations);
+        qefAnisotropicStrength = Mathf.Max(0f, qefAnisotropicStrength);
+        qefSurfaceWeight = Mathf.Max(0f, qefSurfaceWeight);
+        qefEdgeWeight = Mathf.Max(0f, qefEdgeWeight);
+        qefCornerWeight = Mathf.Max(0f, qefCornerWeight);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -93,6 +112,7 @@ public class VolumeModel : MonoBehaviour
 
     [Header("Pipeline")]
     public VolumeDataStructure dataStructure = VolumeDataStructure.Octree;
+    public OctreeMesherType octreeMesherType = OctreeMesherType.DualContouring;
 
     [Header("Samplers")]
     public VoxelGridSampler voxelGridSampler = new();
@@ -101,7 +121,7 @@ public class VolumeModel : MonoBehaviour
     [Header("Meshing")]
     public float isoLevel = 0f;
     public bool useQefVertices = true;
-    public QefVertexMode qefVertexMode = QefVertexMode.QefAxisSnap;
+    public QefVertexMode qefVertexMode = QefVertexMode.AverageCrossings;
     [Range(0f, 1f)]
     public float qefBlendFactor = 0.5f;
     [Min(0f)]
@@ -113,6 +133,21 @@ public class VolumeModel : MonoBehaviour
     public bool qefEnableMultiHermite = false;
     [Min(1)]
     public int qefHermiteSamplesPerEdge = 3;
+    public QefSolver.RobustKernel qefRobustKernel = QefSolver.RobustKernel.Cauchy;
+    [Min(0.1f)]
+    public float qefRobustScale = 2.5f;
+    [Min(1)]
+    public int qefIrlsIterations = 3;
+    public bool qefUseAnisotropicRegularization = false;
+    [Min(0f)]
+    public float qefAnisotropicStrength = 0.2f;
+    public QefFeatureClassWeightMode qefFeatureWeightMode = QefFeatureClassWeightMode.Off;
+    [Min(0f)]
+    public float qefSurfaceWeight = 1f;
+    [Min(0f)]
+    public float qefEdgeWeight = 1.2f;
+    [Min(0f)]
+    public float qefCornerWeight = 1.4f;
     public bool recalculateNormals = true;
     public bool recalculateBounds = true;
 
@@ -202,6 +237,15 @@ public class VolumeModel : MonoBehaviour
                 octreeSampler.builder.qefAxisSnapStrength = qefAxisSnapStrength;
                 octreeSampler.builder.qefEnableMultiHermite = qefEnableMultiHermite;
                 octreeSampler.builder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
+                octreeSampler.builder.qefRobustKernel = qefRobustKernel;
+                octreeSampler.builder.qefRobustScale = qefRobustScale;
+                octreeSampler.builder.qefIrlsIterations = qefIrlsIterations;
+                octreeSampler.builder.qefUseAnisotropicRegularization = qefUseAnisotropicRegularization;
+                octreeSampler.builder.qefAnisotropicStrength = qefAnisotropicStrength;
+                octreeSampler.builder.qefFeatureWeightMode = qefFeatureWeightMode;
+                octreeSampler.builder.qefSurfaceWeight = qefSurfaceWeight;
+                octreeSampler.builder.qefEdgeWeight = qefEdgeWeight;
+                octreeSampler.builder.qefCornerWeight = qefCornerWeight;
                 if (hasDirtyBounds)
                 {
                     bool didIncrementalOctreeUpdate =

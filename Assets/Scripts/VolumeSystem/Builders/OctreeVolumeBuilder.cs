@@ -30,6 +30,24 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     public bool qefEnableMultiHermite = false;
     [HideInInspector]
     public int qefHermiteSamplesPerEdge = 3;
+    [HideInInspector]
+    public QefSolver.RobustKernel qefRobustKernel = QefSolver.RobustKernel.Cauchy;
+    [HideInInspector]
+    public float qefRobustScale = 2.5f;
+    [HideInInspector]
+    public int qefIrlsIterations = 3;
+    [HideInInspector]
+    public bool qefUseAnisotropicRegularization = false;
+    [HideInInspector]
+    public float qefAnisotropicStrength = 0.2f;
+    [HideInInspector]
+    public QefFeatureClassWeightMode qefFeatureWeightMode = QefFeatureClassWeightMode.Off;
+    [HideInInspector]
+    public float qefSurfaceWeight = 1f;
+    [HideInInspector]
+    public float qefEdgeWeight = 1.2f;
+    [HideInInspector]
+    public float qefCornerWeight = 1.4f;
 
     private int _totalNodes;
     private int _surfaceLeaves;
@@ -564,7 +582,13 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (useQef &&
             _qefPoints.Count >= 3 &&
             HasSufficientGradientDiversity(_qefNormals) &&
-            QefSolver.TrySolve(_qefPoints, _qefNormals, _qefWeights, bounds, out Vector3 qef))
+            QefSolver.TrySolve(
+                _qefPoints,
+                _qefNormals,
+                BuildWeightedQefWeights(_qefWeights, _qefNormals),
+                bounds,
+                BuildQefSettings(),
+                out Vector3 qef))
         {
             qef = ConstrainQefToLocalWindow(qef, avg, bounds, cellSize);
             if (IsQefSolutionAcceptable(qef, avg, bounds, cellSize))
@@ -605,6 +629,47 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         constrained.y = Mathf.Clamp(constrained.y, bounds.min.y, bounds.max.y);
         constrained.z = Mathf.Clamp(constrained.z, bounds.min.z, bounds.max.z);
         return constrained;
+    }
+
+    private QefSolver.Settings BuildQefSettings()
+    {
+        return new QefSolver.Settings
+        {
+            irlsIterations = Mathf.Max(1, qefIrlsIterations),
+            robustKernel = qefRobustKernel,
+            robustScale = Mathf.Max(0.1f, qefRobustScale),
+            useAnisotropicRegularization = qefUseAnisotropicRegularization,
+            anisotropicStrength = Mathf.Max(0f, qefAnisotropicStrength)
+        };
+    }
+
+    private List<float> BuildWeightedQefWeights(List<float> baseWeights, List<Vector3> normals)
+    {
+        if (baseWeights == null || qefFeatureWeightMode == QefFeatureClassWeightMode.Off)
+            return baseWeights;
+
+        float featureScale = GetFeatureClassWeightMultiplier(normals);
+        if (Mathf.Abs(featureScale - 1f) < 1e-5f)
+            return baseWeights;
+
+        List<float> weighted = new List<float>(baseWeights.Count);
+        for (int i = 0; i < baseWeights.Count; i++)
+            weighted.Add(baseWeights[i] * featureScale);
+        return weighted;
+    }
+
+    private float GetFeatureClassWeightMultiplier(List<Vector3> normals)
+    {
+        if (normals == null || normals.Count < 3)
+            return 1f;
+
+        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
+        float eps = 1e-4f;
+        if (l1 < eps)
+            return qefSurfaceWeight;
+        if (l2 < 0.12f * l1)
+            return qefEdgeWeight;
+        return qefCornerWeight;
     }
 
     /// <summary>Checks whether two scalar samples cross the zero iso surface.</summary>

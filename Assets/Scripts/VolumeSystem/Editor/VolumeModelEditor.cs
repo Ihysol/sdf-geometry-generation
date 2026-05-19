@@ -80,6 +80,22 @@ public class VolumeModelEditor : Editor
             new GUIContent("Data Structure")
         );
 
+        SerializedProperty octreeMesherProp = serializedObject.FindProperty("octreeMesherType");
+        EditorGUILayout.PropertyField(
+            octreeMesherProp,
+            new GUIContent("Mesher")
+        );
+
+        if ((VolumeDataStructure)dataStructureProp.enumValueIndex == VolumeDataStructure.VoxelGrid
+            && octreeMesherProp != null
+            && (OctreeMesherType)octreeMesherProp.enumValueIndex == OctreeMesherType.DualMarchingCubes)
+        {
+            EditorGUILayout.HelpBox(
+                "DualMarchingCubes wird aktuell nur fuer Octree verwendet. Bei VoxelGrid wird auf DualContouringVoxel fallbacked.",
+                MessageType.Info
+            );
+        }
+
         DrawActiveSamplerSettings(model);
 
         if (EditorGUI.EndChangeCheck())
@@ -304,6 +320,50 @@ public class VolumeModelEditor : Editor
                 EditorGUILayout.PropertyField(
                     serializedObject.FindProperty("qefAxisSnapStrength"),
                     new GUIContent("Axis Snap Strength")
+                );
+            }
+            EditorGUILayout.Space(4);
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefRobustKernel"),
+                new GUIContent("QEF Robust Kernel")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefRobustScale"),
+                new GUIContent("QEF Robust Scale")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefIrlsIterations"),
+                new GUIContent("QEF IRLS Iterations")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefUseAnisotropicRegularization"),
+                new GUIContent("QEF Anisotropic Regularization")
+            );
+            if (serializedObject.FindProperty("qefUseAnisotropicRegularization").boolValue)
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("qefAnisotropicStrength"),
+                    new GUIContent("QEF Anisotropic Strength")
+                );
+            }
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("qefFeatureWeightMode"),
+                new GUIContent("QEF Feature Weights")
+            );
+            if ((QefFeatureClassWeightMode)serializedObject.FindProperty("qefFeatureWeightMode").enumValueIndex
+                != QefFeatureClassWeightMode.Off)
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("qefSurfaceWeight"),
+                    new GUIContent("Surface Weight")
+                );
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("qefEdgeWeight"),
+                    new GUIContent("Edge Weight")
+                );
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("qefCornerWeight"),
+                    new GUIContent("Corner Weight")
                 );
             }
         }

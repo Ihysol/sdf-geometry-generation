@@ -22,6 +22,8 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
     private readonly DualContouringVoxelMesher voxelMesher = new();
     private readonly DualContouringOctreeMesher octreeMesher = new();
+    private readonly DualMarchingCubesOctreeMesher dualMarchingCubesMesher = new();
+    private readonly DualMarchingTetrahedraOctreeMesher dualMarchingTetrahedraMesher = new();
 
     /// <summary>Regenerates the single-mesh output for the model.</summary>
     public void Rebuild(VolumeModel model)
@@ -92,8 +94,21 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
     private void RebuildSingleOctree(VolumeModel model)
     {
-        ConfigureOctreeMesher(model);
-        octreeMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+        switch (model.octreeMesherType)
+        {
+            case OctreeMesherType.DualMarchingCubes:
+                dualMarchingCubesMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+                break;
+            case OctreeMesherType.DualMarchingTetrahedra:
+                dualMarchingTetrahedraMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+                break;
+
+            case OctreeMesherType.DualContouring:
+            default:
+                ConfigureOctreeMesher(model);
+                octreeMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+                break;
+        }
     }
 
     private void ConfigureOctreeMesher(VolumeModel model)
