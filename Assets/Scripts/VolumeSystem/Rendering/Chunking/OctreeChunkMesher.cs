@@ -5,6 +5,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
     private readonly DualContouringOctreeMesher _mesher = new();
     private readonly DualMarchingCubesOctreeMesher _dualMarchingCubesMesher = new();
     private readonly DualMarchingTetrahedraOctreeMesher _dualMarchingTetrahedraMesher = new();
+    private readonly SurfaceNetsOctreeMesher _surfaceNetsMesher = new();
 
     public void BuildChunk(
         VolumeModel model,
@@ -32,9 +33,17 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
                 _dualMarchingTetrahedraMesher.ownedBounds = null;
                 _dualMarchingTetrahedraMesher.ownedBoundsList = null;
                 break;
+            case OctreeMesherType.SurfaceNets:
+                _surfaceNetsMesher.ownedBounds = coreBounds;
+                _surfaceNetsMesher.ownedBoundsList = null;
+                _surfaceNetsMesher.BuildMesh(volume, model.isoLevel, targetMesh);
+                _surfaceNetsMesher.ownedBounds = null;
+                _surfaceNetsMesher.ownedBoundsList = null;
+                break;
 
             case OctreeMesherType.DualContouring:
             default:
+                _mesher.enableDebugLog = false;
                 _mesher.isoLevel = model.isoLevel;
                 _mesher.useQefVertices = model.useQefVertices;
                 _mesher.qefVertexMode = model.qefVertexMode;

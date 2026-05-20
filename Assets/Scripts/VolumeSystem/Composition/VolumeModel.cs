@@ -8,7 +8,8 @@ using UnityEngine;
 public enum VolumeDataStructure
 {
     VoxelGrid,
-    Octree
+    Octree,
+    SparseVoxelOctree
 }
 
 public enum QefVertexMode
@@ -22,13 +23,20 @@ public enum OctreeMesherType
 {
     DualContouring,
     DualMarchingCubes,
-    DualMarchingTetrahedra
+    DualMarchingTetrahedra,
+    SurfaceNets
 }
 
 public enum QefFeatureClassWeightMode
 {
     Off,
     SurfaceEdgeCorner
+}
+
+public enum VolumeStorageMode
+{
+    Tree,
+    Flat
 }
 
 [DisallowMultipleComponent]
@@ -49,8 +57,8 @@ public class VolumeModel : MonoBehaviour
     public Material surfaceMaterial;
     public ChunkingSettings chunking = new ChunkingSettings
     {
-        voxelChunkCount = new Vector3Int(2, 2, 2),
-        octreeChunkCount = new Vector3Int(2, 2, 2),
+        voxelChunkCount = new Vector3Int(4, 4, 4),
+        octreeChunkCount = new Vector3Int(4, 4, 4),
         octreeTargetTrianglesPerChunk = 10000,
         octreeEstimatedTrianglesPerLeaf = 12,
         octreeMaxLeafNodesPerChunk = 1024
@@ -112,11 +120,13 @@ public class VolumeModel : MonoBehaviour
 
     [Header("Pipeline")]
     public VolumeDataStructure dataStructure = VolumeDataStructure.Octree;
+    public VolumeStorageMode storageMode = VolumeStorageMode.Tree;
     public OctreeMesherType octreeMesherType = OctreeMesherType.DualContouring;
 
     [Header("Samplers")]
     public VoxelGridSampler voxelGridSampler = new();
     public OctreeVolumeSampler octreeSampler = new();
+    public SparseVoxelOctreeSampler sparseVoxelOctreeSampler = new();
 
     [Header("Meshing")]
     public float isoLevel = 0f;
@@ -162,6 +172,7 @@ public class VolumeModel : MonoBehaviour
     public bool drawChunkGizmosAlways = false;
     public bool renderOctreeDebugCubes = false;
     public bool logChunkRebuildStats = false;
+    public bool logRebuildDuration = false;
 
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
@@ -201,6 +212,11 @@ public class VolumeModel : MonoBehaviour
     /// <summary>Rebuilds composition, volume data, and render output.</summary>
     public void RebuildModel()
     {
+#if UNITY_EDITOR
+        System.Diagnostics.Stopwatch rebuildStopwatch = null;
+        if (logRebuildDuration)
+            rebuildStopwatch = System.Diagnostics.Stopwatch.StartNew();
+#endif
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
 
         if (composer == null)
@@ -229,27 +245,32 @@ public class VolumeModel : MonoBehaviour
                 break;
 
             case VolumeDataStructure.Octree:
-                octreeSampler.builder.useQefVertices = useQefVertices;
-                octreeSampler.builder.qefVertexMode = qefVertexMode;
-                octreeSampler.builder.qefBlendFactor = qefBlendFactor;
-                octreeSampler.builder.qefSnapEpsilon = qefSnapEpsilon;
-                octreeSampler.builder.qefMaxOffsetCells = qefMaxOffsetCells;
-                octreeSampler.builder.qefAxisSnapStrength = qefAxisSnapStrength;
-                octreeSampler.builder.qefEnableMultiHermite = qefEnableMultiHermite;
-                octreeSampler.builder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
-                octreeSampler.builder.qefRobustKernel = qefRobustKernel;
-                octreeSampler.builder.qefRobustScale = qefRobustScale;
-                octreeSampler.builder.qefIrlsIterations = qefIrlsIterations;
-                octreeSampler.builder.qefUseAnisotropicRegularization = qefUseAnisotropicRegularization;
-                octreeSampler.builder.qefAnisotropicStrength = qefAnisotropicStrength;
-                octreeSampler.builder.qefFeatureWeightMode = qefFeatureWeightMode;
-                octreeSampler.builder.qefSurfaceWeight = qefSurfaceWeight;
-                octreeSampler.builder.qefEdgeWeight = qefEdgeWeight;
-                octreeSampler.builder.qefCornerWeight = qefCornerWeight;
+            case VolumeDataStructure.SparseVoxelOctree:
+                OctreeVolumeBuilder activeBuilder = dataStructure == VolumeDataStructure.Octree
+                    ? octreeSampler.builder
+                    : sparseVoxelOctreeSampler.builder.backend;
+                activeBuilder.useQefVertices = useQefVertices;
+                activeBuilder.qefVertexMode = qefVertexMode;
+                activeBuilder.qefBlendFactor = qefBlendFactor;
+                activeBuilder.qefSnapEpsilon = qefSnapEpsilon;
+                activeBuilder.qefMaxOffsetCells = qefMaxOffsetCells;
+                activeBuilder.qefAxisSnapStrength = qefAxisSnapStrength;
+                activeBuilder.qefEnableMultiHermite = qefEnableMultiHermite;
+                activeBuilder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
+                activeBuilder.qefRobustKernel = qefRobustKernel;
+                activeBuilder.qefRobustScale = qefRobustScale;
+                activeBuilder.qefIrlsIterations = qefIrlsIterations;
+                activeBuilder.qefUseAnisotropicRegularization = qefUseAnisotropicRegularization;
+                activeBuilder.qefAnisotropicStrength = qefAnisotropicStrength;
+                activeBuilder.qefFeatureWeightMode = qefFeatureWeightMode;
+                activeBuilder.qefSurfaceWeight = qefSurfaceWeight;
+                activeBuilder.qefEdgeWeight = qefEdgeWeight;
+                activeBuilder.qefCornerWeight = qefCornerWeight;
                 if (hasDirtyBounds)
                 {
-                    bool didIncrementalOctreeUpdate =
-                        octreeSampler.RebuildVolumeRegion(source, dirtyBounds);
+                    bool didIncrementalOctreeUpdate = dataStructure == VolumeDataStructure.Octree
+                        ? octreeSampler.RebuildVolumeRegion(source, dirtyBounds)
+                        : sparseVoxelOctreeSampler.RebuildVolumeRegion(source, dirtyBounds);
 
                     if (didIncrementalOctreeUpdate)
                         break;
@@ -260,8 +281,16 @@ public class VolumeModel : MonoBehaviour
 #endif
                 }
 
-                octreeSampler.MarkDirty();
-                octreeSampler.RebuildVolume(source);
+                if (dataStructure == VolumeDataStructure.Octree)
+                {
+                    octreeSampler.MarkDirty();
+                    octreeSampler.RebuildVolume(source);
+                }
+                else
+                {
+                    sparseVoxelOctreeSampler.MarkDirty();
+                    sparseVoxelOctreeSampler.RebuildVolume(source);
+                }
                 ClearDirtyBounds();
                 break;
         }
@@ -270,6 +299,14 @@ public class VolumeModel : MonoBehaviour
             ClearDirtyBounds();
 
         RenderOutput.Rebuild(this);
+
+#if UNITY_EDITOR
+        if (rebuildStopwatch != null)
+        {
+            rebuildStopwatch.Stop();
+            Debug.Log($"VolumeModel Rebuild: {rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms");
+        }
+#endif
     }
 
     /// <summary>Returns the currently active sampled volume data.</summary>
@@ -282,6 +319,8 @@ public class VolumeModel : MonoBehaviour
 
             case VolumeDataStructure.Octree:
                 return octreeSampler.Volume;
+            case VolumeDataStructure.SparseVoxelOctree:
+                return sparseVoxelOctreeSampler.Volume;
 
             default:
                 return null;
@@ -381,6 +420,9 @@ public class VolumeModel : MonoBehaviour
             case VolumeDataStructure.Octree:
                 bounds = octreeSampler.builder.Bounds;
                 break;
+            case VolumeDataStructure.SparseVoxelOctree:
+                bounds = sparseVoxelOctreeSampler.builder.Bounds;
+                break;
 
             default:
                 return;
@@ -399,6 +441,12 @@ public class VolumeModel : MonoBehaviour
             octreeSampler.Volume != null)
         {
             DrawOctreeNode(octreeSampler.Volume.Root);
+        }
+        else if (dataStructure == VolumeDataStructure.SparseVoxelOctree &&
+                 renderOctreeDebugCubes &&
+                 sparseVoxelOctreeSampler.Volume != null)
+        {
+            DrawOctreeNode(sparseVoxelOctreeSampler.Volume.Root);
         }
 
         Gizmos.matrix = Matrix4x4.identity;
@@ -525,6 +573,29 @@ public class VolumeModel : MonoBehaviour
     private void ClearDirtyBounds()
     {
         _hasDirtyBounds = false;
+    }
+
+    public OctreeVolume GetActiveOctreeVolume()
+    {
+        OctreeVolume active;
+        switch (dataStructure)
+        {
+            case VolumeDataStructure.Octree:
+                active = octreeSampler.Volume;
+                break;
+            case VolumeDataStructure.SparseVoxelOctree:
+                active = sparseVoxelOctreeSampler.Volume?.AsOctreeVolume();
+                break;
+            default:
+                return null;
+        }
+
+        if (active != null && storageMode == VolumeStorageMode.Flat)
+        {
+            // Force-build flat cache so downstream processors can use it immediately.
+            active.GetFlatLayout();
+        }
+        return active;
     }
 
 }

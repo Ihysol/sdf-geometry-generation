@@ -21,9 +21,13 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private IVolumeData _lastActiveVolumeData;
 
     private readonly DualContouringVoxelMesher voxelMesher = new();
+    private readonly DualMarchingCubesVoxelMesher dualMarchingCubesVoxelMesher = new();
+    private readonly DualMarchingTetrahedraVoxelMesher dualMarchingTetrahedraVoxelMesher = new();
+    private readonly SurfaceNetsVoxelMesher surfaceNetsVoxelMesher = new();
     private readonly DualContouringOctreeMesher octreeMesher = new();
     private readonly DualMarchingCubesOctreeMesher dualMarchingCubesMesher = new();
     private readonly DualMarchingTetrahedraOctreeMesher dualMarchingTetrahedraMesher = new();
+    private readonly SurfaceNetsOctreeMesher surfaceNetsOctreeMesher = new();
 
     /// <summary>Regenerates the single-mesh output for the model.</summary>
     public void Rebuild(VolumeModel model)
@@ -72,6 +76,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 break;
 
             case VolumeDataStructure.Octree:
+            case VolumeDataStructure.SparseVoxelOctree:
                 RebuildSingleOctree(model);
                 break;
         }
@@ -84,7 +89,22 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
     private void RebuildSingleVoxel(VolumeModel model)
     {
-        voxelMesher.BuildMesh(model.voxelGridSampler.Volume, model.isoLevel, mesh);
+        switch (model.octreeMesherType)
+        {
+            case OctreeMesherType.DualMarchingCubes:
+                dualMarchingCubesVoxelMesher.BuildMesh(model.voxelGridSampler.Volume, model.isoLevel, mesh);
+                break;
+            case OctreeMesherType.DualMarchingTetrahedra:
+                dualMarchingTetrahedraVoxelMesher.BuildMesh(model.voxelGridSampler.Volume, model.isoLevel, mesh);
+                break;
+            case OctreeMesherType.SurfaceNets:
+                surfaceNetsVoxelMesher.BuildMesh(model.voxelGridSampler.Volume, model.isoLevel, mesh);
+                break;
+            case OctreeMesherType.DualContouring:
+            default:
+                voxelMesher.BuildMesh(model.voxelGridSampler.Volume, model.isoLevel, mesh);
+                break;
+        }
 
         if (model.recalculateNormals)
             mesh.RecalculateNormals();
@@ -97,16 +117,19 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         switch (model.octreeMesherType)
         {
             case OctreeMesherType.DualMarchingCubes:
-                dualMarchingCubesMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+                dualMarchingCubesMesher.BuildMesh(model.GetActiveOctreeVolume(), model.isoLevel, mesh);
                 break;
             case OctreeMesherType.DualMarchingTetrahedra:
-                dualMarchingTetrahedraMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+                dualMarchingTetrahedraMesher.BuildMesh(model.GetActiveOctreeVolume(), model.isoLevel, mesh);
+                break;
+            case OctreeMesherType.SurfaceNets:
+                surfaceNetsOctreeMesher.BuildMesh(model.GetActiveOctreeVolume(), model.isoLevel, mesh);
                 break;
 
             case OctreeMesherType.DualContouring:
             default:
                 ConfigureOctreeMesher(model);
-                octreeMesher.BuildMesh(model.octreeSampler.Volume, model.isoLevel, mesh);
+                octreeMesher.BuildMesh(model.GetActiveOctreeVolume(), model.isoLevel, mesh);
                 break;
         }
     }
@@ -174,7 +197,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         else if (canDoDirtyRebuild)
         {
             QueueDirtyChunks(bounds, expandedDirtyBounds);
-            if (model.dataStructure == VolumeDataStructure.Octree && model.octreeExpandDirtyNeighbors)
+            if ((model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree) && model.octreeExpandDirtyNeighbors)
                 ExpandQueuedChunks(bounds, Mathf.Max(1, model.octreeDirtyNeighborRings));
         }
 
@@ -456,8 +479,11 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 }
 
             case VolumeDataStructure.Octree:
+            case VolumeDataStructure.SparseVoxelOctree:
                 {
                     OctreeVolume octree = model.octreeSampler.Volume;
+                    if (model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
+                        octree = model.GetActiveOctreeVolume();
                     if (octree != null)
                         return Mathf.Max(octree.CellSize.x, Mathf.Max(octree.CellSize.y, octree.CellSize.z)) * model.dirtyHaloMultiplier;
                     break;

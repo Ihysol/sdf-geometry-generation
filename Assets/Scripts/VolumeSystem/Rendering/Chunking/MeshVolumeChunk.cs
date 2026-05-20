@@ -45,12 +45,16 @@ public class MeshVolumeChunk : VolumeChunkBase
                 }
 
             case VolumeDataStructure.Octree:
+            case VolumeDataStructure.SparseVoxelOctree:
                 {
-                    OctreeVolume volume = model.octreeSampler.Volume;
+                    OctreeVolume volume = model.GetActiveOctreeVolume();
                     if (volume == null)
                     {
-                        model.octreeSampler.RebuildVolume(source);
-                        volume = model.octreeSampler.Volume;
+                        if (model.dataStructure == VolumeDataStructure.Octree)
+                            model.octreeSampler.RebuildVolume(source);
+                        else
+                            model.sparseVoxelOctreeSampler.RebuildVolume(source);
+                        volume = model.GetActiveOctreeVolume();
                     }
 
                     if (volume != null)

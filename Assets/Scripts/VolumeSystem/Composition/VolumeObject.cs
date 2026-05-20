@@ -347,8 +347,11 @@ public class VolumeObject : MonoBehaviour
                 }
 
             case VolumeDataStructure.Octree:
+            case VolumeDataStructure.SparseVoxelOctree:
                 {
-                    OctreeVolumeBuilder builder = model.octreeSampler.builder;
+                    OctreeVolumeBuilder builder = model.dataStructure == VolumeDataStructure.Octree
+                        ? model.octreeSampler.builder
+                        : model.sparseVoxelOctreeSampler.builder.backend;
                     int resolution = 1 << Mathf.Max(0, builder.maxDepth);
                     Vector3 cell = builder.size / Mathf.Max(1, resolution);
 

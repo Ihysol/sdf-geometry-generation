@@ -79,22 +79,16 @@ public class VolumeModelEditor : Editor
             dataStructureProp,
             new GUIContent("Data Structure")
         );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("storageMode"),
+            new GUIContent("Storage Mode")
+        );
 
         SerializedProperty octreeMesherProp = serializedObject.FindProperty("octreeMesherType");
         EditorGUILayout.PropertyField(
             octreeMesherProp,
             new GUIContent("Mesher")
         );
-
-        if ((VolumeDataStructure)dataStructureProp.enumValueIndex == VolumeDataStructure.VoxelGrid
-            && octreeMesherProp != null
-            && (OctreeMesherType)octreeMesherProp.enumValueIndex == OctreeMesherType.DualMarchingCubes)
-        {
-            EditorGUILayout.HelpBox(
-                "DualMarchingCubes wird aktuell nur fuer Octree verwendet. Bei VoxelGrid wird auf DualContouringVoxel fallbacked.",
-                MessageType.Info
-            );
-        }
 
         DrawActiveSamplerSettings(model);
 
@@ -140,17 +134,20 @@ public class VolumeModelEditor : Editor
                 serializedObject.FindProperty("forceFullChunkRedraw"),
                 new GUIContent("Always Redraw All Chunks")
             );
+            EditorGUI.BeginChangeCheck();
             EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("maxChunksPerRebuild"),
                 new GUIContent("Max Chunks Per Rebuild")
             );
+            if (EditorGUI.EndChangeCheck())
+                _suppressAutoRebuildThisFrame = true;
             EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("dirtyHaloMultiplier"),
                 new GUIContent("Dirty Halo Multiplier")
             );
         }
 
-        if (model.dataStructure == VolumeDataStructure.Octree)
+        if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
             EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("octreeExpandDirtyNeighbors"),
@@ -177,6 +174,7 @@ public class VolumeModelEditor : Editor
                     break;
 
                 case VolumeDataStructure.Octree:
+                case VolumeDataStructure.SparseVoxelOctree:
                     EditorGUILayout.PropertyField(
                         chunkingProp.FindPropertyRelative("octreeChunkCount"),
                         new GUIContent("Chunk Count")
@@ -196,6 +194,7 @@ public class VolumeModelEditor : Editor
                 break;
 
             case VolumeDataStructure.Octree:
+            case VolumeDataStructure.SparseVoxelOctree:
                 DrawOctreeSettings();
                 break;
         }
@@ -238,22 +237,21 @@ public class VolumeModelEditor : Editor
     /// <summary>Draws octree sampler and builder settings.</summary>
     private void DrawOctreeSettings()
     {
-        EditorGUILayout.LabelField("Octree", EditorStyles.boldLabel);
+        bool isSparse = ((VolumeModel)target).dataStructure == VolumeDataStructure.SparseVoxelOctree;
+        EditorGUILayout.LabelField(isSparse ? "Sparse Voxel Octree" : "Octree", EditorStyles.boldLabel);
 
         SerializedProperty samplerProp =
-            serializedObject.FindProperty("octreeSampler");
+            serializedObject.FindProperty(isSparse ? "sparseVoxelOctreeSampler" : "octreeSampler");
 
         if (samplerProp == null)
             return;
 
-        SerializedProperty centerProp =
-            samplerProp.FindPropertyRelative("center");
+        SerializedProperty centerProp = samplerProp.FindPropertyRelative("center");
+        SerializedProperty extentProp = samplerProp.FindPropertyRelative("extent");
+        SerializedProperty builderProp = samplerProp.FindPropertyRelative("builder");
 
-        SerializedProperty extentProp =
-            samplerProp.FindPropertyRelative("extent");
-
-        SerializedProperty builderProp =
-            samplerProp.FindPropertyRelative("builder");
+        if (isSparse)
+            builderProp = builderProp?.FindPropertyRelative("backend");
 
         if (centerProp != null)
             EditorGUILayout.PropertyField(centerProp);
@@ -262,17 +260,30 @@ public class VolumeModelEditor : Editor
             EditorGUILayout.PropertyField(extentProp);
 
         if (builderProp != null)
+        {
+            SerializedProperty maxDepthProp = builderProp.FindPropertyRelative("maxDepth");
+            SerializedProperty minDepthProp = builderProp.FindPropertyRelative("minDepth");
+
+            if (maxDepthProp != null)
+                EditorGUILayout.PropertyField(maxDepthProp);
+            if (minDepthProp != null)
+                EditorGUILayout.PropertyField(minDepthProp);
+
             EditorGUILayout.PropertyField(builderProp, true);
+        }
     }
 
     /// <summary>Draws meshing settings.</summary>
     private void DrawMeshingSettings(VolumeModel model)
     {
+        bool prevShowMeshing = _showMeshing;
         _showMeshing = EditorGUILayout.Foldout(
             _showMeshing,
             "Meshing",
             true
         );
+        if (prevShowMeshing != _showMeshing)
+            _suppressAutoRebuildThisFrame = true;
 
         if (!_showMeshing)
             return;
@@ -378,11 +389,14 @@ public class VolumeModelEditor : Editor
 
         EditorGUILayout.Space(8);
 
+        bool prevShowDebug = _showDebug;
         _showDebug = EditorGUILayout.Foldout(
             _showDebug,
             "Debug",
             true
         );
+        if (prevShowDebug != _showDebug)
+            _suppressAutoRebuildThisFrame = true;
 
         if (!_showDebug)
             return;
@@ -402,8 +416,11 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("logChunkRebuildStats")
         );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("logRebuildDuration")
+        );
 
-        if (model.dataStructure == VolumeDataStructure.Octree)
+        if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
             EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("renderOctreeDebugCubes")

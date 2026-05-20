@@ -6,7 +6,7 @@ public class VoxelGridBuilder : VolumeBuilderBase<VoxelGrid>
     [Header("Grid")]
     public Vector3 gridExtent = new Vector3(4f, 4f, 4f);
 
-    public Vector3Int gridSize = new Vector3Int(32, 32, 32);
+    public Vector3Int gridSize = new Vector3Int(64, 64, 64);
 
     [Header("Options")]
     public bool uniformExtent = true;
