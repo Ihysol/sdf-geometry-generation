@@ -28,6 +28,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
 
     private readonly Dictionary<Vector3Int, OctreeNode> _leafMap = new();
     private readonly HashSet<EdgeKey> _processedEdges = new();
+    private readonly List<GridBounds> _ownedGridBounds = new();
     private readonly HashSet<Vector3Int> _missingLeafCoords = new();
     private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
     private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
@@ -168,6 +169,18 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         }
     }
 
+    private readonly struct GridBounds
+    {
+        public readonly Vector3Int Min;
+        public readonly Vector3Int Max;
+
+        public GridBounds(Vector3Int min, Vector3Int max)
+        {
+            Min = min;
+            Max = max;
+        }
+    }
+
     private static readonly Edge[] SurfaceEdges =
     {
         new Edge(0, 1),
@@ -218,6 +231,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
 
         _leafMap.Clear();
         _processedEdges.Clear();
+        _ownedGridBounds.Clear();
         _missingLeafCoords.Clear();
         _cornerSampleCache.Clear();
         _hermiteSampleCache.Clear();
@@ -240,6 +254,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             Mathf.Max(0, resolution - 1),
             Mathf.Max(0, resolution - 1)
         );
+        CacheOwnedGridBounds();
 
         CollectLeaves(volume.Root);
 
@@ -309,11 +324,14 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     {
         List<KeyValuePair<Vector3Int, OctreeNode>> entries =
             new List<KeyValuePair<Vector3Int, OctreeNode>>(_leafMap);
+        bool hasOwnedBounds = _ownedGridBounds.Count > 0;
 
         foreach (KeyValuePair<Vector3Int, OctreeNode> pair in entries)
         {
             Vector3Int cellCoord = pair.Key;
             OctreeNode node = pair.Value;
+            if (hasOwnedBounds && !IsCellNearOwnedGridBounds(cellCoord))
+                continue;
 
             if (!node.ContainsSurface)
                 continue;
@@ -341,7 +359,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
                 if (_processedEdges.Contains(key))
                     continue;
 
-                if (ownedBounds.HasValue || ownedBoundsList != null)
+                if (hasOwnedBounds)
                 {
                     if (!IsOwnedGridEdgeAny(gridEdgeStart, edge.Axis))
                         continue;
@@ -362,38 +380,32 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     /// <summary>Checks whether a grid edge belongs to any active ownership bound.</summary>
     private bool IsOwnedGridEdgeAny(Vector3Int g, Axis axis)
     {
-        if (ownedBounds.HasValue && IsOwnedGridEdge(g, axis, ownedBounds.Value))
+        if (_ownedGridBounds.Count == 0)
             return true;
 
-        if (ownedBoundsList != null)
+        for (int i = 0; i < _ownedGridBounds.Count; i++)
         {
-            for (int i = 0; i < ownedBoundsList.Count; i++)
-            {
-                if (IsOwnedGridEdge(g, axis, ownedBoundsList[i]))
-                    return true;
-            }
+            if (IsOwnedGridEdge(g, axis, _ownedGridBounds[i]))
+                return true;
         }
 
         return false;
     }
 
-    /// <summary>Tests grid-edge ownership against one half-open world-space bound.</summary>
-    private bool IsOwnedGridEdge(Vector3Int g, Axis axis, Bounds bounds)
+    /// <summary>Tests grid-edge ownership against one half-open grid bound.</summary>
+    private bool IsOwnedGridEdge(Vector3Int g, Axis axis, GridBounds bounds)
     {
-        Vector3Int min = WorldToGridCoord(bounds.min);
-        Vector3Int max = WorldToGridCoord(bounds.max);
-
         int gx2 = g.x * 2 + (axis == Axis.X ? 1 : 0);
         int gy2 = g.y * 2 + (axis == Axis.Y ? 1 : 0);
         int gz2 = g.z * 2 + (axis == Axis.Z ? 1 : 0);
 
-        int minX2 = min.x * 2;
-        int minY2 = min.y * 2;
-        int minZ2 = min.z * 2;
+        int minX2 = bounds.Min.x * 2;
+        int minY2 = bounds.Min.y * 2;
+        int minZ2 = bounds.Min.z * 2;
 
-        int maxX2 = max.x * 2;
-        int maxY2 = max.y * 2;
-        int maxZ2 = max.z * 2;
+        int maxX2 = bounds.Max.x * 2;
+        int maxY2 = bounds.Max.y * 2;
+        int maxZ2 = bounds.Max.z * 2;
 
         return
             gx2 >= minX2 &&
@@ -402,6 +414,36 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             gx2 < maxX2 &&
             gy2 < maxY2 &&
             gz2 < maxZ2;
+    }
+
+    private bool IsCellNearOwnedGridBounds(Vector3Int coord)
+    {
+        for (int i = 0; i < _ownedGridBounds.Count; i++)
+        {
+            GridBounds b = _ownedGridBounds[i];
+            if (coord.x >= b.Min.x - 1 && coord.x < b.Max.x &&
+                coord.y >= b.Min.y - 1 && coord.y < b.Max.y &&
+                coord.z >= b.Min.z - 1 && coord.z < b.Max.z)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void CacheOwnedGridBounds()
+    {
+        if (ownedBounds.HasValue)
+            _ownedGridBounds.Add(new GridBounds(WorldToGridCoord(ownedBounds.Value.min), WorldToGridCoord(ownedBounds.Value.max)));
+
+        if (ownedBoundsList == null)
+            return;
+
+        for (int i = 0; i < ownedBoundsList.Count; i++)
+        {
+            Bounds b = ownedBoundsList[i];
+            _ownedGridBounds.Add(new GridBounds(WorldToGridCoord(b.min), WorldToGridCoord(b.max)));
+        }
     }
 
     /// <summary>Converts a world position to the nearest finest-grid coordinate.</summary>

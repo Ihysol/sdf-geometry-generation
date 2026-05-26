@@ -172,7 +172,7 @@ public class VolumeModel : MonoBehaviour
     public bool drawChunkGizmosAlways = false;
     public bool renderOctreeDebugCubes = false;
     public bool logChunkRebuildStats = false;
-    public bool logRebuildDuration = false;
+    public bool logRebuildDuration = true;
 
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
@@ -214,8 +214,15 @@ public class VolumeModel : MonoBehaviour
     {
 #if UNITY_EDITOR
         System.Diagnostics.Stopwatch rebuildStopwatch = null;
+        System.Diagnostics.Stopwatch phaseStopwatch = null;
+        double compositionMs = 0d;
+        double volumeBuildMs = 0d;
+        double renderMs = 0d;
         if (logRebuildDuration)
+        {
             rebuildStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            phaseStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        }
 #endif
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
 
@@ -223,10 +230,19 @@ public class VolumeModel : MonoBehaviour
             return;
 
         composer.RebuildComposition();
+#if UNITY_EDITOR
+        if (phaseStopwatch != null)
+        {
+            compositionMs = phaseStopwatch.Elapsed.TotalMilliseconds;
+            phaseStopwatch.Restart();
+        }
+#endif
 
         IScalarFieldSource source = composer;
         bool didIncrementalVoxelUpdate = false;
         bool hasDirtyBounds = TryGetPendingDirtyBounds(out Bounds dirtyBounds);
+        string rebuildCause = "unknown";
+        bool usedIncrementalUpdate = false;
 
         switch (dataStructure)
         {
@@ -234,10 +250,16 @@ public class VolumeModel : MonoBehaviour
                 if (hasDirtyBounds)
                 {
                     didIncrementalVoxelUpdate = voxelGridSampler.RebuildVolumeRegion(source, dirtyBounds, 3);
+                    if (didIncrementalVoxelUpdate)
+                    {
+                        usedIncrementalUpdate = true;
+                        rebuildCause = "voxel-incremental";
+                    }
                 }
 
                 if (!didIncrementalVoxelUpdate)
                 {
+                    rebuildCause = hasDirtyBounds ? "voxel-incremental-failed" : "voxel-full-no-dirty";
                     voxelGridSampler.MarkDirty();
                     voxelGridSampler.RebuildVolume(source);
                     ClearDirtyBounds();
@@ -273,38 +295,70 @@ public class VolumeModel : MonoBehaviour
                         : sparseVoxelOctreeSampler.RebuildVolumeRegion(source, dirtyBounds);
 
                     if (didIncrementalOctreeUpdate)
+                    {
+                        usedIncrementalUpdate = true;
+                        rebuildCause = dataStructure == VolumeDataStructure.Octree
+                            ? "octree-incremental"
+                            : "svo-incremental";
                         break;
+                    }
 
 #if UNITY_EDITOR
                     if (logChunkRebuildStats)
-                        Debug.LogWarning("Octree incremental rebuild failed; falling back to full rebuild.");
+                    {
+                        string reason = dataStructure == VolumeDataStructure.Octree
+                            ? octreeSampler.LastIncrementalFallbackReason
+                            : sparseVoxelOctreeSampler.LastIncrementalFallbackReason;
+                        if (string.IsNullOrEmpty(reason))
+                            reason = "unspecified";
+                        Debug.LogWarning($"Octree incremental rebuild failed ({reason}); falling back to full rebuild.");
+                        rebuildCause = dataStructure == VolumeDataStructure.Octree
+                            ? $"octree-full-fallback:{reason}"
+                            : $"svo-full-fallback:{reason}";
+                    }
 #endif
                 }
 
                 if (dataStructure == VolumeDataStructure.Octree)
                 {
+                    if (!hasDirtyBounds)
+                        rebuildCause = "octree-full-no-dirty";
                     octreeSampler.MarkDirty();
                     octreeSampler.RebuildVolume(source);
                 }
                 else
                 {
+                    if (!hasDirtyBounds)
+                        rebuildCause = "svo-full-no-dirty";
                     sparseVoxelOctreeSampler.MarkDirty();
                     sparseVoxelOctreeSampler.RebuildVolume(source);
                 }
                 ClearDirtyBounds();
                 break;
         }
+#if UNITY_EDITOR
+        if (phaseStopwatch != null)
+        {
+            volumeBuildMs = phaseStopwatch.Elapsed.TotalMilliseconds;
+            phaseStopwatch.Restart();
+        }
+#endif
 
         if (!enableChunking)
             ClearDirtyBounds();
 
         RenderOutput.Rebuild(this);
+#if UNITY_EDITOR
+        if (phaseStopwatch != null)
+            renderMs = phaseStopwatch.Elapsed.TotalMilliseconds;
+#endif
 
 #if UNITY_EDITOR
         if (rebuildStopwatch != null)
         {
             rebuildStopwatch.Stop();
-            Debug.Log($"VolumeModel Rebuild: {rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms");
+            Debug.Log(
+                $"VolumeModel Rebuild: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
         }
 #endif
     }

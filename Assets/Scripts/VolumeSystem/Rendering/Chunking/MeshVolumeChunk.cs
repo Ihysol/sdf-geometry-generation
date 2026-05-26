@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using System.Diagnostics;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
@@ -19,6 +20,15 @@ public class MeshVolumeChunk : VolumeChunkBase
 
         _mesh.Clear();
         _mesh.indexFormat = IndexFormat.UInt32;
+
+#if UNITY_EDITOR
+        Stopwatch timer = null;
+        double buildChunkMs = 0d;
+        double normalsMs = 0d;
+        double boundsMs = 0d;
+        if (model != null && model.logChunkRebuildStats)
+            timer = Stopwatch.StartNew();
+#endif
 
         switch (model.dataStructure)
         {
@@ -70,12 +80,43 @@ public class MeshVolumeChunk : VolumeChunkBase
                     break;
                 }
         }
+#if UNITY_EDITOR
+        if (timer != null)
+        {
+            buildChunkMs = timer.Elapsed.TotalMilliseconds;
+            timer.Restart();
+        }
+#endif
 
         if (model.recalculateNormals)
+        {
             _mesh.RecalculateNormals();
+#if UNITY_EDITOR
+            if (timer != null)
+            {
+                normalsMs = timer.Elapsed.TotalMilliseconds;
+                timer.Restart();
+            }
+#endif
+        }
 
         if (model.recalculateBounds)
+        {
             _mesh.RecalculateBounds();
+#if UNITY_EDITOR
+            if (timer != null)
+                boundsMs = timer.Elapsed.TotalMilliseconds;
+#endif
+        }
+
+#if UNITY_EDITOR
+        if (timer != null)
+        {
+            timer.Stop();
+            UnityEngine.Debug.Log(
+                $"MeshVolumeChunk Rebuild [{name}]: buildChunk={buildChunkMs:F2} ms, normals={normalsMs:F2} ms, bounds={boundsMs:F2} ms, vertices={_mesh.vertexCount}");
+        }
+#endif
     }
 
     public void SetSurfaceMaterial(Material material)

@@ -6,6 +6,7 @@ public class SparseVoxelOctreeSampler : VolumeSamplerBase<SparseVoxelOctreeVolum
     public Vector3 center = Vector3.zero;
     public Vector3 extent = new Vector3(4, 4, 4);
     public SparseVoxelOctreeBuilder builder = new SparseVoxelOctreeBuilder();
+    public string LastIncrementalFallbackReason { get; private set; } = string.Empty;
 
     public override void RebuildVolume(IScalarFieldSource source)
     {
@@ -24,10 +25,13 @@ public class SparseVoxelOctreeSampler : VolumeSamplerBase<SparseVoxelOctreeVolum
 
     public bool RebuildVolumeRegion(IScalarFieldSource source, Bounds dirtyBounds)
     {
+        LastIncrementalFallbackReason = string.Empty;
+
         if (source == null)
         {
             Volume = null;
             IsDirty = false;
+            LastIncrementalFallbackReason = "source-null";
             return false;
         }
 
@@ -36,12 +40,14 @@ public class SparseVoxelOctreeSampler : VolumeSamplerBase<SparseVoxelOctreeVolum
 
         if (Volume == null)
         {
+            LastIncrementalFallbackReason = "volume-null";
             RebuildVolume(source);
             return false;
         }
 
         if (!builder.RebuildRegion(Volume, source, dirtyBounds, out SparseVoxelOctreeVolume rebuilt) || rebuilt == null)
         {
+            LastIncrementalFallbackReason = rebuilt == null ? "builder-returned-null" : "builder-rejected-region";
             RebuildVolume(source);
             return false;
         }

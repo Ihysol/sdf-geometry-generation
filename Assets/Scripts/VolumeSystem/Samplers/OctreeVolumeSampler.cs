@@ -7,6 +7,7 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
     public Vector3 extent = new Vector3(4, 4, 4);
 
     public OctreeVolumeBuilder builder = new OctreeVolumeBuilder();
+    public string LastIncrementalFallbackReason { get; private set; } = string.Empty;
 
     /// <summary>Rebuilds the octree volume from the given scalar field.</summary>
     public override void RebuildVolume(IScalarFieldSource source)
@@ -28,11 +29,14 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
 
     public bool RebuildVolumeRegion(IScalarFieldSource source, Bounds dirtyBounds)
     {
+        LastIncrementalFallbackReason = string.Empty;
+
         if (source == null)
         {
             Debug.LogWarning("OctreeVolumeSampler: No source assigned.");
             Volume = null;
             IsDirty = false;
+            LastIncrementalFallbackReason = "source-null";
             return false;
         }
 
@@ -41,12 +45,14 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
 
         if (Volume == null)
         {
+            LastIncrementalFallbackReason = "volume-null";
             RebuildVolume(source);
             return false;
         }
 
         if (!builder.RebuildRegion(Volume, source, dirtyBounds, out OctreeVolume rebuilt) || rebuilt == null)
         {
+            LastIncrementalFallbackReason = rebuilt == null ? "builder-returned-null" : "builder-rejected-region";
             RebuildVolume(source);
             return false;
         }

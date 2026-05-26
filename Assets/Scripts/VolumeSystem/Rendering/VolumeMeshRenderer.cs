@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
@@ -25,6 +26,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private readonly DualMarchingTetrahedraVoxelMesher dualMarchingTetrahedraVoxelMesher = new();
     private readonly SurfaceNetsVoxelMesher surfaceNetsVoxelMesher = new();
     private readonly DualContouringOctreeMesher octreeMesher = new();
+    private readonly DualContouringFlatOctreeMesher flatOctreeMesher = new();
     private readonly DualMarchingCubesOctreeMesher dualMarchingCubesMesher = new();
     private readonly DualMarchingTetrahedraOctreeMesher dualMarchingTetrahedraMesher = new();
     private readonly SurfaceNetsOctreeMesher surfaceNetsOctreeMesher = new();
@@ -83,7 +85,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
 #if UNITY_EDITOR
         if (model != null && model.logChunkRebuildStats)
-            Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
+            UnityEngine.Debug.Log($"VolumeMeshRenderer: vertex count = {mesh.vertexCount}, indexFormat = {mesh.indexFormat}");
 #endif
     }
 
@@ -128,8 +130,20 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
             case OctreeMesherType.DualContouring:
             default:
-                ConfigureOctreeMesher(model);
-                octreeMesher.BuildMesh(model.GetActiveOctreeVolume(), model.isoLevel, mesh);
+                OctreeVolume active = model.GetActiveOctreeVolume();
+                if (active == null)
+                    break;
+
+                if (model.storageMode == VolumeStorageMode.Flat)
+                {
+                    ConfigureFlatOctreeMesher(model);
+                    flatOctreeMesher.BuildMesh(active, model.isoLevel, mesh);
+                }
+                else
+                {
+                    ConfigureOctreeMesher(model);
+                    octreeMesher.BuildMesh(active, model.isoLevel, mesh);
+                }
                 break;
         }
     }
@@ -146,8 +160,32 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         octreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
     }
 
+    private void ConfigureFlatOctreeMesher(VolumeModel model)
+    {
+        flatOctreeMesher.useQefVertices = model.useQefVertices;
+        flatOctreeMesher.qefVertexMode = model.qefVertexMode;
+        flatOctreeMesher.qefBlendFactor = model.qefBlendFactor;
+        flatOctreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
+        flatOctreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+        flatOctreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
+        flatOctreeMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+        flatOctreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
+    }
+
     public void RebuildChunked(VolumeModel model)
     {
+#if UNITY_EDITOR
+        Stopwatch phaseTimer = null;
+        Stopwatch totalTimer = null;
+        double queueSetupMs = 0d;
+        double chunkRebuildMs = 0d;
+        int rebuiltNow = 0;
+        if (model != null && model.logRebuildDuration)
+        {
+            phaseTimer = Stopwatch.StartNew();
+            totalTimer = Stopwatch.StartNew();
+        }
+#endif
         EnsureSetup();
 
         mesh.Clear();
@@ -188,12 +226,23 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             expandedDirtyBounds.Expand(Vector3.one * halo * 2f);
         }
 
+        bool fullRebuildRequested = false;
+
         if (model.forceFullChunkRedraw)
+        {
             QueueAllChunks(bounds.Count);
-        else if (volumeDataChanged)
+            fullRebuildRequested = true;
+        }
+        else if (volumeDataChanged && !canDoDirtyRebuild)
+        {
             QueueAllChunks(bounds.Count);
+            fullRebuildRequested = true;
+        }
         else if (!hasSameLayout)
+        {
             QueueAllChunks(bounds.Count);
+            fullRebuildRequested = true;
+        }
         else if (canDoDirtyRebuild)
         {
             QueueDirtyChunks(bounds, expandedDirtyBounds);
@@ -212,10 +261,42 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
         }
 
-        RebuildQueuedChunks(Mathf.Max(1, model.maxChunksPerRebuild));
+#if UNITY_EDITOR
+        if (phaseTimer != null)
+        {
+            queueSetupMs = phaseTimer.Elapsed.TotalMilliseconds;
+            phaseTimer.Restart();
+        }
+#endif
+        int rebuildBudget;
+        if (!Application.isPlaying)
+        {
+            // In edit mode prioritize visual immediacy over frame budget.
+            rebuildBudget = Mathf.Max(1, _pendingChunkQueue.Count);
+        }
+        else
+        {
+            rebuildBudget = fullRebuildRequested
+                ? Mathf.Max(1, _pendingChunkQueue.Count)
+                : Mathf.Max(1, model.maxChunksPerRebuild);
+        }
+        rebuiltNow = RebuildQueuedChunks(rebuildBudget);
+#if UNITY_EDITOR
+        if (phaseTimer != null)
+            chunkRebuildMs = phaseTimer.Elapsed.TotalMilliseconds;
+#endif
 
         _lastActiveVolumeData = activeVolume;
         StoreChunkLayout(bounds);
+
+#if UNITY_EDITOR
+        if (totalTimer != null)
+        {
+            totalTimer.Stop();
+            UnityEngine.Debug.Log(
+                $"VolumeMeshRenderer Chunked: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}");
+        }
+#endif
     }
 
     public void SetSurfaceMaterial(Material material)
@@ -504,10 +585,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         RebuildQueuedChunks(Mathf.Max(1, _activeChunkModel.maxChunksPerRebuild));
     }
 
-    private void RebuildQueuedChunks(int budget)
+    private int RebuildQueuedChunks(int budget)
     {
         if (_activeChunkModel == null || _activeChunkComposer == null)
-            return;
+            return 0;
 
         int rebuilt = 0;
 
@@ -531,8 +612,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
 #if UNITY_EDITOR
         if (_activeChunkModel != null && _activeChunkModel.logChunkRebuildStats)
-            Debug.Log($"Chunk rebuild: rebuilt={rebuilt}, pending={_pendingChunkQueue.Count}, budget={budget}");
+            UnityEngine.Debug.Log($"Chunk rebuild: rebuilt={rebuilt}, pending={_pendingChunkQueue.Count}, budget={budget}");
 #endif
+        return rebuilt;
     }
 
     /// <summary>Initializes required components, mesh, and fallback material.</summary>

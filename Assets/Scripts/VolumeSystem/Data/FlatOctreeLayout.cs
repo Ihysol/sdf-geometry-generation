@@ -4,6 +4,9 @@ public sealed class FlatOctreeLayout
 {
     public Vector3[] Centers;
     public Vector3[] Sizes;
+    public Vector3[] SurfaceVertices;
+    public Vector3Int[] Coords;
+    public float[] CornerValues8;
     public int[] FirstChildIndex;
     public byte[] ChildMask;
     public byte[] Flags;

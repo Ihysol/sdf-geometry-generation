@@ -3,6 +3,7 @@ using UnityEngine;
 public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
 {
     private readonly DualContouringOctreeMesher _mesher = new();
+    private readonly DualContouringFlatOctreeMesher _flatMesher = new();
     private readonly DualMarchingCubesOctreeMesher _dualMarchingCubesMesher = new();
     private readonly DualMarchingTetrahedraOctreeMesher _dualMarchingTetrahedraMesher = new();
     private readonly SurfaceNetsOctreeMesher _surfaceNetsMesher = new();
@@ -43,19 +44,40 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
 
             case OctreeMesherType.DualContouring:
             default:
-                _mesher.enableDebugLog = false;
-                _mesher.isoLevel = model.isoLevel;
-                _mesher.useQefVertices = model.useQefVertices;
-                _mesher.qefVertexMode = model.qefVertexMode;
-                _mesher.qefBlendFactor = model.qefBlendFactor;
-                _mesher.qefSnapEpsilon = model.qefSnapEpsilon;
-                _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
-                _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
-                _mesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
-                _mesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
-                _mesher.ownedBounds = coreBounds;
-                _mesher.BuildMesh(volume, model.isoLevel, targetMesh);
-                _mesher.ownedBounds = null;
+                if (model.storageMode == VolumeStorageMode.Flat)
+                {
+                    _flatMesher.enableDebugLog = model != null && model.logChunkRebuildStats;
+                    _flatMesher.isoLevel = model.isoLevel;
+                    _flatMesher.useQefVertices = model.useQefVertices;
+                    _flatMesher.qefVertexMode = model.qefVertexMode;
+                    _flatMesher.qefBlendFactor = model.qefBlendFactor;
+                    _flatMesher.qefSnapEpsilon = model.qefSnapEpsilon;
+                    _flatMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+                    _flatMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
+                    _flatMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+                    _flatMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
+                    _flatMesher.ownedBounds = coreBounds;
+                    _flatMesher.ownedBoundsList = null;
+                    _flatMesher.BuildMesh(volume, model.isoLevel, targetMesh);
+                    _flatMesher.ownedBounds = null;
+                    _flatMesher.ownedBoundsList = null;
+                }
+                else
+                {
+                    _mesher.enableDebugLog = false;
+                    _mesher.isoLevel = model.isoLevel;
+                    _mesher.useQefVertices = model.useQefVertices;
+                    _mesher.qefVertexMode = model.qefVertexMode;
+                    _mesher.qefBlendFactor = model.qefBlendFactor;
+                    _mesher.qefSnapEpsilon = model.qefSnapEpsilon;
+                    _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
+                    _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
+                    _mesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+                    _mesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
+                    _mesher.ownedBounds = coreBounds;
+                    _mesher.BuildMesh(volume, model.isoLevel, targetMesh);
+                    _mesher.ownedBounds = null;
+                }
                 break;
         }
     }

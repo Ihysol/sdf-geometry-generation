@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class OctreeVolume : IVolumeData, IChunkLayoutVolume
+public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolumeData
 {
     public OctreeNode Root { get; }
     public Bounds Bounds { get; }
@@ -67,7 +67,7 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
                 }
     }
 
-    public FlatOctreeLayout GetFlatLayout()
+    public FlatOctreeLayout GetFlatLayout(bool includeCornerValues = false)
     {
         if (_flatLayout != null)
             return _flatLayout;
@@ -78,6 +78,9 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         int count = Mathf.Max(1, TotalNodes);
         Vector3[] centers = new Vector3[count];
         Vector3[] sizes = new Vector3[count];
+        Vector3[] surfaceVertices = new Vector3[count];
+        Vector3Int[] coords = new Vector3Int[count];
+        float[] cornerValues8 = new float[count * 8];
         int[] firstChildIndex = new int[count];
         byte[] childMask = new byte[count];
         byte[] flags = new byte[count];
@@ -86,12 +89,15 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
             firstChildIndex[i] = -1;
 
         int write = 0;
-        FlattenNode(Root, centers, sizes, firstChildIndex, childMask, flags, ref write);
+        FlattenNode(Root, centers, sizes, surfaceVertices, coords, cornerValues8, firstChildIndex, childMask, flags, ref write);
 
         if (write != count)
         {
             System.Array.Resize(ref centers, write);
             System.Array.Resize(ref sizes, write);
+            System.Array.Resize(ref surfaceVertices, write);
+            System.Array.Resize(ref coords, write);
+            System.Array.Resize(ref cornerValues8, write * 8);
             System.Array.Resize(ref firstChildIndex, write);
             System.Array.Resize(ref childMask, write);
             System.Array.Resize(ref flags, write);
@@ -101,6 +107,9 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         {
             Centers = centers,
             Sizes = sizes,
+            SurfaceVertices = surfaceVertices,
+            Coords = coords,
+            CornerValues8 = cornerValues8,
             FirstChildIndex = firstChildIndex,
             ChildMask = childMask,
             Flags = flags
@@ -113,6 +122,9 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         OctreeNode node,
         Vector3[] centers,
         Vector3[] sizes,
+        Vector3[] surfaceVertices,
+        Vector3Int[] coords,
+        float[] cornerValues8,
         int[] firstChildIndex,
         byte[] childMask,
         byte[] flags,
@@ -121,6 +133,16 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
         int my = write++;
         centers[my] = node.Bounds.center;
         sizes[my] = node.Bounds.size;
+        surfaceVertices[my] = node.SurfaceVertex;
+        coords[my] = node.Coord;
+
+        int cornerBase = my * 8;
+        if (node.CornerValues != null)
+        {
+            int copyCount = Mathf.Min(8, node.CornerValues.Length);
+            for (int i = 0; i < copyCount; i++)
+                cornerValues8[cornerBase + i] = node.CornerValues[i];
+        }
 
         byte f = 0;
         if (node.IsLeaf) f |= FlatOctreeLayout.FlagLeaf;
@@ -140,7 +162,7 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume
             if (first < 0)
                 first = write;
             mask |= (byte)(1 << i);
-            FlattenNode(child, centers, sizes, firstChildIndex, childMask, flags, ref write);
+            FlattenNode(child, centers, sizes, surfaceVertices, coords, cornerValues8, firstChildIndex, childMask, flags, ref write);
         }
 
         firstChildIndex[my] = first;
