@@ -164,24 +164,76 @@ public class VolumeModelEditor : Editor
 
         if (enableChunkingProp != null && enableChunkingProp.boolValue && chunkingProp != null)
         {
+            bool uniformChunkResolution =
+                serializedObject.FindProperty("uniformChunkResolution")?.boolValue ?? false;
+
             switch (model.dataStructure)
             {
                 case VolumeDataStructure.VoxelGrid:
-                    EditorGUILayout.PropertyField(
+                    DrawChunkCountField(
+                        "Chunk Count",
                         chunkingProp.FindPropertyRelative("voxelChunkCount"),
-                        new GUIContent("Chunk Count")
+                        uniformChunkResolution
                     );
                     break;
 
                 case VolumeDataStructure.Octree:
                 case VolumeDataStructure.SparseVoxelOctree:
-                    EditorGUILayout.PropertyField(
+                    DrawChunkCountField(
+                        "Chunk Count",
                         chunkingProp.FindPropertyRelative("octreeChunkCount"),
-                        new GUIContent("Chunk Count")
+                        uniformChunkResolution
                     );
                     break;
             }
+
+            SerializedProperty uniformChunkResolutionProp =
+                serializedObject.FindProperty("uniformChunkResolution");
+            if (uniformChunkResolutionProp != null)
+            {
+                EditorGUILayout.PropertyField(
+                    uniformChunkResolutionProp,
+                    new GUIContent("Uniform Chunk Resolution")
+                );
+            }
+            else
+            {
+                model.uniformChunkResolution = EditorGUILayout.Toggle(
+                    new GUIContent("Uniform Chunk Resolution"),
+                    model.uniformChunkResolution
+                );
+            }
         }
+    }
+
+    private static void DrawChunkCountField(string label, SerializedProperty chunkCountProp, bool uniform)
+    {
+        if (chunkCountProp == null)
+            return;
+
+        Vector3Int current = chunkCountProp.vector3IntValue;
+        current.x = Mathf.Max(1, current.x);
+        current.y = Mathf.Max(1, current.y);
+        current.z = Mathf.Max(1, current.z);
+
+        if (!uniform)
+        {
+            EditorGUILayout.PropertyField(chunkCountProp, new GUIContent(label));
+            return;
+        }
+
+        EditorGUI.BeginChangeCheck();
+        Vector3Int edited = EditorGUILayout.Vector3IntField(label, current);
+        if (!EditorGUI.EndChangeCheck())
+            return;
+
+        int uniformValue = current.x;
+        if (edited.x != current.x) uniformValue = edited.x;
+        else if (edited.y != current.y) uniformValue = edited.y;
+        else if (edited.z != current.z) uniformValue = edited.z;
+
+        uniformValue = Mathf.Max(1, uniformValue);
+        chunkCountProp.vector3IntValue = new Vector3Int(uniformValue, uniformValue, uniformValue);
     }
 
     /// <summary>Draws the sampler settings for the active data structure.</summary>

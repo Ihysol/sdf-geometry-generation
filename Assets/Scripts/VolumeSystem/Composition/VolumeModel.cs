@@ -50,6 +50,7 @@ public class VolumeModel : MonoBehaviour
     [Header("Rendering")]
     public bool enableChunking = true;
     public bool forceFullChunkRedraw = false;
+    public bool uniformChunkResolution = true;
     public int maxChunksPerRebuild = 8;
     public bool octreeExpandDirtyNeighbors = true;
     public int octreeDirtyNeighborRings = 2;
@@ -97,6 +98,17 @@ public class VolumeModel : MonoBehaviour
         maxChunksPerRebuild = Mathf.Max(1, maxChunksPerRebuild);
         octreeDirtyNeighborRings = Mathf.Max(0, octreeDirtyNeighborRings);
         dirtyHaloMultiplier = Mathf.Max(0f, dirtyHaloMultiplier);
+        if (uniformChunkResolution)
+        {
+            int voxelUniform = Mathf.Max(1, voxelGridSampler.builder.gridSize.x);
+            voxelGridSampler.builder.gridSize = new Vector3Int(voxelUniform, voxelUniform, voxelUniform);
+
+            int octreeUniform = Mathf.Max(1, chunking.octreeChunkCount.x);
+            chunking.octreeChunkCount = new Vector3Int(octreeUniform, octreeUniform, octreeUniform);
+
+            int voxelChunkUniform = Mathf.Max(1, chunking.voxelChunkCount.x);
+            chunking.voxelChunkCount = new Vector3Int(voxelChunkUniform, voxelChunkUniform, voxelChunkUniform);
+        }
         moveReleaseDelaySeconds = Mathf.Max(0f, moveReleaseDelaySeconds);
         qefBlendFactor = Mathf.Clamp01(qefBlendFactor);
         qefSnapEpsilon = Mathf.Max(0f, qefSnapEpsilon);
