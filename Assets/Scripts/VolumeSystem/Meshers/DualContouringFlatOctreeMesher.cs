@@ -173,8 +173,6 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
 
         mesh.SetVertices(_vertices);
         mesh.SetTriangles(_triangles, 0);
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
 
 #if UNITY_EDITOR
         if (enableDebugLog && UnityEngine.Debug.isDebugBuild)

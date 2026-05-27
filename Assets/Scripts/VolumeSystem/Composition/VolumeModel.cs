@@ -288,11 +288,23 @@ public class VolumeModel : MonoBehaviour
                 activeBuilder.qefSurfaceWeight = qefSurfaceWeight;
                 activeBuilder.qefEdgeWeight = qefEdgeWeight;
                 activeBuilder.qefCornerWeight = qefCornerWeight;
+
+                bool hasInitializedVolume = dataStructure == VolumeDataStructure.Octree
+                    ? octreeSampler.Volume != null
+                    : sparseVoxelOctreeSampler.Volume != null;
+
+                if (!hasInitializedVolume)
+                {
+                    rebuildCause = dataStructure == VolumeDataStructure.Octree
+                        ? "octree-full-init"
+                        : "svo-full-init";
+                }
+
                 if (hasDirtyBounds)
                 {
-                    bool didIncrementalOctreeUpdate = dataStructure == VolumeDataStructure.Octree
+                    bool didIncrementalOctreeUpdate = hasInitializedVolume && (dataStructure == VolumeDataStructure.Octree
                         ? octreeSampler.RebuildVolumeRegion(source, dirtyBounds)
-                        : sparseVoxelOctreeSampler.RebuildVolumeRegion(source, dirtyBounds);
+                        : sparseVoxelOctreeSampler.RebuildVolumeRegion(source, dirtyBounds));
 
                     if (didIncrementalOctreeUpdate)
                     {
@@ -303,20 +315,21 @@ public class VolumeModel : MonoBehaviour
                         break;
                     }
 
-#if UNITY_EDITOR
-                    if (logChunkRebuildStats)
+                    if (hasInitializedVolume)
                     {
                         string reason = dataStructure == VolumeDataStructure.Octree
                             ? octreeSampler.LastIncrementalFallbackReason
                             : sparseVoxelOctreeSampler.LastIncrementalFallbackReason;
                         if (string.IsNullOrEmpty(reason))
                             reason = "unspecified";
-                        Debug.LogWarning($"Octree incremental rebuild failed ({reason}); falling back to full rebuild.");
                         rebuildCause = dataStructure == VolumeDataStructure.Octree
                             ? $"octree-full-fallback:{reason}"
                             : $"svo-full-fallback:{reason}";
-                    }
+#if UNITY_EDITOR
+                        if (logChunkRebuildStats || logRebuildDuration)
+                            Debug.LogWarning($"Octree incremental rebuild failed ({reason}); falling back to full rebuild.");
 #endif
+                    }
                 }
 
                 if (dataStructure == VolumeDataStructure.Octree)
@@ -358,7 +371,7 @@ public class VolumeModel : MonoBehaviour
         {
             rebuildStopwatch.Stop();
             Debug.Log(
-                $"VolumeModel Rebuild: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
+                $"VolumeModel Rebuild [{dataStructure}/{storageMode}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
         }
 #endif
     }

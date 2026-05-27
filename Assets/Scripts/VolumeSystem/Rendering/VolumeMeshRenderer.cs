@@ -245,9 +245,22 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
         else if (canDoDirtyRebuild)
         {
+            bool isFlatOctreeDc = IsFlatOctreeDualContouring(model);
+            if (!Application.isPlaying && isFlatOctreeDc)
+            {
+                // Keep editor interaction responsive for flat mode:
+                // drop stale pending work and prioritize the latest dirty region.
+                _pendingChunkQueue.Clear();
+                _pendingChunkSet.Clear();
+            }
+
             QueueDirtyChunks(bounds, expandedDirtyBounds);
-            if ((model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree) && model.octreeExpandDirtyNeighbors)
+            if (!isFlatOctreeDc &&
+                (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree) &&
+                model.octreeExpandDirtyNeighbors)
+            {
                 ExpandQueuedChunks(bounds, Mathf.Max(1, model.octreeDirtyNeighborRings));
+            }
         }
 
         for (int i = 0; i < _chunks.Count && i < bounds.Count; i++)
@@ -268,19 +281,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             phaseTimer.Restart();
         }
 #endif
-        int rebuildBudget;
-        if (!Application.isPlaying)
-        {
-            // In edit mode prioritize visual immediacy over frame budget.
-            rebuildBudget = Mathf.Max(1, _pendingChunkQueue.Count);
-        }
-        else
-        {
-            rebuildBudget = fullRebuildRequested
-                ? Mathf.Max(1, _pendingChunkQueue.Count)
-                : Mathf.Max(1, model.maxChunksPerRebuild);
-        }
-        rebuiltNow = RebuildQueuedChunks(rebuildBudget);
+        int rebuildBudget = GetChunkRebuildBudget(model, fullRebuildRequested);
+        float rebuildTimeBudgetMs = GetChunkRebuildTimeBudgetMs(model);
+        rebuiltNow = RebuildQueuedChunks(rebuildBudget, rebuildTimeBudgetMs);
 #if UNITY_EDITOR
         if (phaseTimer != null)
             chunkRebuildMs = phaseTimer.Elapsed.TotalMilliseconds;
@@ -294,7 +297,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         {
             totalTimer.Stop();
             UnityEngine.Debug.Log(
-                $"VolumeMeshRenderer Chunked: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}");
+                $"VolumeMeshRenderer Chunked [{model.dataStructure}/{model.storageMode}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}");
         }
 #endif
     }
@@ -460,30 +463,47 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
     private void QueueDirtyChunks(List<Bounds> bounds, Bounds dirtyBounds)
     {
+        List<int> dirtyIndices = new();
+
         if (_pendingChunkQueue.Count == 0 && _pendingChunkSet.Count == 0)
         {
             for (int i = 0; i < bounds.Count; i++)
             {
                 if (!bounds[i].Intersects(dirtyBounds))
                     continue;
-
-                _pendingChunkQueue.Enqueue(i);
-                _pendingChunkSet.Add(i);
+                dirtyIndices.Add(i);
             }
+        }
+        else
+        {
+            for (int i = 0; i < bounds.Count; i++)
+            {
+                if (!bounds[i].Intersects(dirtyBounds))
+                    continue;
 
-            return;
+                if (_pendingChunkSet.Contains(i))
+                    continue;
+
+                dirtyIndices.Add(i);
+            }
         }
 
-        for (int i = 0; i < bounds.Count; i++)
+        if (dirtyIndices.Count == 0)
+            return;
+
+        Vector3 dirtyCenter = dirtyBounds.center;
+        dirtyIndices.Sort((a, b) =>
         {
-            if (!bounds[i].Intersects(dirtyBounds))
-                continue;
+            float da = (bounds[a].center - dirtyCenter).sqrMagnitude;
+            float db = (bounds[b].center - dirtyCenter).sqrMagnitude;
+            return da.CompareTo(db);
+        });
 
-            if (_pendingChunkSet.Contains(i))
-                continue;
-
-            _pendingChunkQueue.Enqueue(i);
-            _pendingChunkSet.Add(i);
+        for (int i = 0; i < dirtyIndices.Count; i++)
+        {
+            int idx = dirtyIndices[i];
+            _pendingChunkQueue.Enqueue(idx);
+            _pendingChunkSet.Add(idx);
         }
     }
 
@@ -566,7 +586,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                     if (model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
                         octree = model.GetActiveOctreeVolume();
                     if (octree != null)
-                        return Mathf.Max(octree.CellSize.x, Mathf.Max(octree.CellSize.y, octree.CellSize.z)) * model.dirtyHaloMultiplier;
+                    {
+                        float haloMultiplier = model.dirtyHaloMultiplier;
+                        if (IsFlatOctreeDualContouring(model))
+                            haloMultiplier *= 0.5f;
+                        return Mathf.Max(octree.CellSize.x, Mathf.Max(octree.CellSize.y, octree.CellSize.z)) * haloMultiplier;
+                    }
                     break;
                 }
         }
@@ -582,15 +607,63 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (_activeChunkModel == null || _activeChunkComposer == null)
             return;
 
-        RebuildQueuedChunks(Mathf.Max(1, _activeChunkModel.maxChunksPerRebuild));
+        RebuildQueuedChunks(
+            GetChunkRebuildBudget(_activeChunkModel, fullRebuildRequested: false),
+            GetChunkRebuildTimeBudgetMs(_activeChunkModel));
     }
 
-    private int RebuildQueuedChunks(int budget)
+    private int GetChunkRebuildBudget(VolumeModel model, bool fullRebuildRequested)
+    {
+        if (model == null)
+            return 1;
+
+        int pending = Mathf.Max(1, _pendingChunkQueue.Count);
+
+        if (Application.isPlaying)
+            return fullRebuildRequested ? pending : Mathf.Max(1, model.maxChunksPerRebuild);
+
+        bool isFlatOctree = IsFlatOctreeDualContouring(model);
+
+        if (isFlatOctree)
+        {
+            if (pending <= 32)
+                return pending;
+            return Mathf.Min(pending, Mathf.Max(12, model.maxChunksPerRebuild * 3));
+        }
+
+        return pending;
+    }
+
+    private float GetChunkRebuildTimeBudgetMs(VolumeModel model)
+    {
+        if (model == null || Application.isPlaying)
+            return -1f;
+
+        if (IsFlatOctreeDualContouring(model))
+            return 28f;
+
+        return 24f;
+    }
+
+    private static bool IsFlatOctreeDualContouring(VolumeModel model)
+    {
+        if (model == null)
+            return false;
+
+        return (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree) &&
+               model.storageMode == VolumeStorageMode.Flat &&
+               model.octreeMesherType == OctreeMesherType.DualContouring;
+    }
+
+    private int RebuildQueuedChunks(int budget, float timeBudgetMs = -1f)
     {
         if (_activeChunkModel == null || _activeChunkComposer == null)
             return 0;
 
         int rebuilt = 0;
+        Stopwatch timeBudgetWatch = null;
+        if (timeBudgetMs > 0f)
+            timeBudgetWatch = Stopwatch.StartNew();
 
         while (rebuilt < budget && _pendingChunkQueue.Count > 0)
         {
@@ -608,6 +681,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             chunk.buildBounds = chunkBounds;
             chunk.Rebuild(_activeChunkModel, _activeChunkComposer);
             rebuilt++;
+
+            if (timeBudgetWatch != null && timeBudgetWatch.Elapsed.TotalMilliseconds >= timeBudgetMs)
+                break;
         }
 
 #if UNITY_EDITOR
