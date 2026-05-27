@@ -111,6 +111,14 @@ public class VolumeModel : MonoBehaviour
         }
         moveReleaseDelaySeconds = Mathf.Max(0f, moveReleaseDelaySeconds);
         previewInteractionMaxDepth = Mathf.Max(1, previewInteractionMaxDepth);
+        previewVoxelGridSize.x = Mathf.Max(2, previewVoxelGridSize.x);
+        previewVoxelGridSize.y = Mathf.Max(2, previewVoxelGridSize.y);
+        previewVoxelGridSize.z = Mathf.Max(2, previewVoxelGridSize.z);
+        if (previewVoxelUniformResolution)
+        {
+            int previewUniform = Mathf.Max(2, previewVoxelGridSize.x);
+            previewVoxelGridSize = new Vector3Int(previewUniform, previewUniform, previewUniform);
+        }
         previewInteractionHoldSeconds = Mathf.Max(0f, previewInteractionHoldSeconds);
         qefBlendFactor = Mathf.Clamp01(qefBlendFactor);
         qefSnapEpsilon = Mathf.Max(0f, qefSnapEpsilon);
@@ -182,7 +190,10 @@ public class VolumeModel : MonoBehaviour
     public float moveReleaseDelaySeconds = 0.5f;
     public bool usePreviewDepthWhileInteracting = true;
     [Min(1)]
-    public int previewInteractionMaxDepth = 7;
+    public int previewInteractionMaxDepth = 5;
+    public bool usePreviewResolutionWhileInteracting = true;
+    public bool previewVoxelUniformResolution = true;
+    public Vector3Int previewVoxelGridSize = new Vector3Int(24, 24, 24);
     [Min(0f)]
     public float previewInteractionHoldSeconds = 0.2f;
 
@@ -271,22 +282,38 @@ public class VolumeModel : MonoBehaviour
         switch (dataStructure)
         {
             case VolumeDataStructure.VoxelGrid:
+                Vector3Int configuredVoxelGridSize = voxelGridSampler.builder.gridSize;
+                bool usingPreviewVoxelResolution = ShouldUsePreviewVoxelResolution(configuredVoxelGridSize, out Vector3Int effectiveVoxelGridSize);
+                if (usingPreviewVoxelResolution)
+                {
+                    voxelGridSampler.builder.gridSize = effectiveVoxelGridSize;
+                    rebuildCause = $"voxel-preview({effectiveVoxelGridSize.x}x{effectiveVoxelGridSize.y}x{effectiveVoxelGridSize.z}/{configuredVoxelGridSize.x}x{configuredVoxelGridSize.y}x{configuredVoxelGridSize.z})";
+                }
+
                 if (hasDirtyBounds)
                 {
                     didIncrementalVoxelUpdate = voxelGridSampler.RebuildVolumeRegion(source, dirtyBounds, 3);
                     if (didIncrementalVoxelUpdate)
                     {
                         usedIncrementalUpdate = true;
-                        rebuildCause = "voxel-incremental";
+                        if (!usingPreviewVoxelResolution)
+                            rebuildCause = "voxel-incremental";
                     }
                 }
 
                 if (!didIncrementalVoxelUpdate)
                 {
-                    rebuildCause = hasDirtyBounds ? "voxel-incremental-failed" : "voxel-full-no-dirty";
+                    if (!usingPreviewVoxelResolution)
+                        rebuildCause = hasDirtyBounds ? "voxel-incremental-failed" : "voxel-full-no-dirty";
                     voxelGridSampler.MarkDirty();
                     voxelGridSampler.RebuildVolume(source);
                     ClearDirtyBounds();
+                }
+
+                if (usingPreviewVoxelResolution)
+                {
+                    QueueFinalizePreviewRebuild();
+                    voxelGridSampler.builder.gridSize = configuredVoxelGridSize;
                 }
                 break;
 
@@ -715,6 +742,11 @@ public class VolumeModel : MonoBehaviour
                dataStructure == VolumeDataStructure.SparseVoxelOctree;
     }
 
+    public bool SupportsPreviewResolution()
+    {
+        return dataStructure == VolumeDataStructure.VoxelGrid;
+    }
+
     public void NotifyInteractiveEdit()
     {
         _lastInteractiveEditTime = EditorApplication.timeSinceStartup;
@@ -722,7 +754,14 @@ public class VolumeModel : MonoBehaviour
 
     public bool IsPreviewInteractionActive()
     {
-        if (!SupportsPreviewDepth() || !usePreviewDepthWhileInteracting || Application.isPlaying)
+        if (Application.isPlaying)
+            return false;
+
+        bool previewEnabled =
+            (SupportsPreviewDepth() && usePreviewDepthWhileInteracting) ||
+            (SupportsPreviewResolution() && usePreviewResolutionWhileInteracting);
+
+        if (!previewEnabled)
             return false;
 
         double elapsed = EditorApplication.timeSinceStartup - _lastInteractiveEditTime;
@@ -749,7 +788,10 @@ public class VolumeModel : MonoBehaviour
             return;
         }
 
-        if (ShouldUsePreviewDepth(GetConfiguredMaxDepth(), out _))
+        bool previewStillActive =
+            ShouldUsePreviewDepth(GetConfiguredMaxDepth(), out _) ||
+            ShouldUsePreviewVoxelResolution(voxelGridSampler.builder.gridSize, out _);
+        if (previewStillActive)
         {
             EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
             return;
@@ -795,10 +837,36 @@ public class VolumeModel : MonoBehaviour
         effectiveMaxDepth = Mathf.Clamp(previewInteractionMaxDepth, 1, configuredMaxDepth);
         return effectiveMaxDepth < configuredMaxDepth;
     }
+
+    private bool ShouldUsePreviewVoxelResolution(Vector3Int configuredGridSize, out Vector3Int effectiveGridSize)
+    {
+        effectiveGridSize = configuredGridSize;
+
+        if (Application.isPlaying || dataStructure != VolumeDataStructure.VoxelGrid || !usePreviewResolutionWhileInteracting)
+            return false;
+
+        double elapsed = EditorApplication.timeSinceStartup - _lastInteractiveEditTime;
+        if (elapsed > previewInteractionHoldSeconds)
+            return false;
+
+        effectiveGridSize = new Vector3Int(
+            Mathf.Clamp(previewVoxelGridSize.x, 2, configuredGridSize.x),
+            Mathf.Clamp(previewVoxelGridSize.y, 2, configuredGridSize.y),
+            Mathf.Clamp(previewVoxelGridSize.z, 2, configuredGridSize.z)
+        );
+
+        return effectiveGridSize != configuredGridSize;
+    }
 #else
     private bool ShouldUsePreviewDepth(int configuredMaxDepth, out int effectiveMaxDepth)
     {
         effectiveMaxDepth = configuredMaxDepth;
+        return false;
+    }
+
+    private bool ShouldUsePreviewVoxelResolution(Vector3Int configuredGridSize, out Vector3Int effectiveGridSize)
+    {
+        effectiveGridSize = configuredGridSize;
         return false;
     }
 #endif

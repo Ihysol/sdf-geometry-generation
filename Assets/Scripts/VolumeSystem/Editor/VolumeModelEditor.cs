@@ -9,7 +9,7 @@ public class VolumeModelEditor : Editor
     private bool _showMeshing = false;
     private bool _showDebug = false;
     private bool _showRebuild = true;
-    private bool _showPreview = true;
+    private bool _showPreview = false;
     private bool _showObjects = true;
     private bool _suppressAutoRebuildThisFrame;
 
@@ -20,12 +20,15 @@ public class VolumeModelEditor : Editor
 
         VolumeModel model = (VolumeModel)target;
         _suppressAutoRebuildThisFrame = false;
+        EditorGUI.BeginChangeCheck();
 
         DrawBuilder(model);
 
         GUILayout.Space(10);
 
-        EditorGUI.BeginChangeCheck();
+        DrawPreviewSettings(model);
+
+        GUILayout.Space(10);
 
         DrawRendering(model);
 
@@ -36,10 +39,6 @@ public class VolumeModelEditor : Editor
         GUILayout.Space(10);
 
         DrawRebuildSettings(model);
-
-        GUILayout.Space(10);
-
-        DrawPreviewSettings();
 
         if (EditorGUI.EndChangeCheck())
         {
@@ -279,11 +278,11 @@ public class VolumeModelEditor : Editor
         );
 
         EditorGUILayout.PropertyField(
-            builderProp.FindPropertyRelative("gridExtent")
+            builderProp.FindPropertyRelative("uniformResolution")
         );
 
         EditorGUILayout.PropertyField(
-            builderProp.FindPropertyRelative("uniformResolution")
+            builderProp.FindPropertyRelative("gridExtent")
         );
 
         EditorGUILayout.PropertyField(
@@ -518,7 +517,7 @@ public class VolumeModelEditor : Editor
 
     }
 
-    private void DrawPreviewSettings()
+    private void DrawPreviewSettings(VolumeModel model)
     {
         _showPreview = EditorGUILayout.Foldout(
             _showPreview,
@@ -529,24 +528,55 @@ public class VolumeModelEditor : Editor
         if (!_showPreview)
             return;
 
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("usePreviewDepthWhileInteracting"),
-            new GUIContent("Use Preview Depth While Interacting")
-        );
-
-        if (serializedObject.FindProperty("usePreviewDepthWhileInteracting").boolValue)
+        if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
-            EditorGUI.BeginChangeCheck();
             EditorGUILayout.PropertyField(
-                serializedObject.FindProperty("previewInteractionMaxDepth"),
-                new GUIContent("Preview Max Depth")
+                serializedObject.FindProperty("usePreviewDepthWhileInteracting"),
+                new GUIContent("Use Preview Depth While Interacting")
             );
+
+            if (serializedObject.FindProperty("usePreviewDepthWhileInteracting").boolValue)
+            {
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("previewInteractionMaxDepth"),
+                    new GUIContent("Preview Max Depth")
+                );
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("previewInteractionHoldSeconds"),
+                    new GUIContent("Preview Hold Seconds")
+                );
+                if (EditorGUI.EndChangeCheck())
+                    _suppressAutoRebuildThisFrame = true;
+            }
+            return;
+        }
+
+        if (model.dataStructure == VolumeDataStructure.VoxelGrid)
+        {
             EditorGUILayout.PropertyField(
-                serializedObject.FindProperty("previewInteractionHoldSeconds"),
-                new GUIContent("Preview Hold Seconds")
+                serializedObject.FindProperty("usePreviewResolutionWhileInteracting"),
+                new GUIContent("Use Preview Resolution While Interacting")
             );
-            if (EditorGUI.EndChangeCheck())
-                _suppressAutoRebuildThisFrame = true;
+
+            if (serializedObject.FindProperty("usePreviewResolutionWhileInteracting").boolValue)
+            {
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("previewVoxelUniformResolution"),
+                    new GUIContent("Uniform Preview Resolution")
+                );
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("previewVoxelGridSize"),
+                    new GUIContent("Preview Grid Size")
+                );
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("previewInteractionHoldSeconds"),
+                    new GUIContent("Preview Hold Seconds")
+                );
+                if (EditorGUI.EndChangeCheck())
+                    _suppressAutoRebuildThisFrame = true;
+            }
         }
     }
 

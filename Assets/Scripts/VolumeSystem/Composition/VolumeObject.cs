@@ -180,8 +180,9 @@ public class VolumeObject : MonoBehaviour
 
         if (model != null)
         {
-            bool previewCapable = model.SupportsPreviewDepth();
-            bool previewEnabled = previewCapable && model.usePreviewDepthWhileInteracting;
+            bool previewEnabled =
+                (model.SupportsPreviewDepth() && model.usePreviewDepthWhileInteracting) ||
+                (model.SupportsPreviewResolution() && model.usePreviewResolutionWhileInteracting);
             bool previewActive = previewEnabled && model.IsPreviewInteractionActive();
             bool isPointerOrHandleActive = IsPrimaryPointerPressed() || IsEditorHandleActive();
 
