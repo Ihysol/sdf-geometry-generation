@@ -20,6 +20,13 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private VolumeSceneComposer _activeChunkComposer;
     private readonly List<Bounds> _activeChunkBounds = new();
     private IVolumeData _lastActiveVolumeData;
+    private bool _chunkCycleActive;
+    private readonly Stopwatch _chunkCycleTimer = new();
+    private int _chunkCyclePasses;
+    private int _chunkCycleRebuiltTotal;
+    private double _chunkCycleChunkMsTotal;
+    private double _chunkCycleChunkMsMax;
+    private int _chunkCycleExpected;
 
     private readonly DualContouringVoxelMesher voxelMesher = new();
     private readonly DualMarchingCubesVoxelMesher dualMarchingCubesVoxelMesher = new();
@@ -288,9 +295,15 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             phaseTimer.Restart();
         }
 #endif
+        if (fullRebuildRequested)
+            ResetChunkCycleState();
+
         int rebuildBudget = GetChunkRebuildBudget(model, fullRebuildRequested);
         float rebuildTimeBudgetMs = GetChunkRebuildTimeBudgetMs(model);
-        rebuiltNow = RebuildQueuedChunks(rebuildBudget, rebuildTimeBudgetMs);
+        StartChunkCycleIfNeeded(bounds.Count);
+        rebuiltNow = RebuildQueuedChunks(rebuildBudget, rebuildTimeBudgetMs, out double passChunkMs);
+        RecordChunkCyclePass(rebuiltNow, passChunkMs);
+        TryFinalizeChunkCycle(model);
 #if UNITY_EDITOR
         if (phaseTimer != null)
             chunkRebuildMs = phaseTimer.Elapsed.TotalMilliseconds;
@@ -618,9 +631,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (_activeChunkModel == null || _activeChunkComposer == null)
             return;
 
-        RebuildQueuedChunks(
+        int rebuiltNow = RebuildQueuedChunks(
             GetChunkRebuildBudget(_activeChunkModel, fullRebuildRequested: false),
-            GetChunkRebuildTimeBudgetMs(_activeChunkModel));
+            GetChunkRebuildTimeBudgetMs(_activeChunkModel),
+            out double passChunkMs);
+        RecordChunkCyclePass(rebuiltNow, passChunkMs);
+        TryFinalizeChunkCycle(_activeChunkModel);
     }
 
     private int GetChunkRebuildBudget(VolumeModel model, bool fullRebuildRequested)
@@ -634,6 +650,8 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             return fullRebuildRequested ? pending : Mathf.Max(1, model.maxChunksPerRebuild);
 
         bool isFlatOctree = IsFlatOctreeDualContouring(model);
+        bool isOctreeLike = model.dataStructure == VolumeDataStructure.Octree ||
+                            model.dataStructure == VolumeDataStructure.SparseVoxelOctree;
 
         if (isFlatOctree)
         {
@@ -641,6 +659,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 return pending;
             return Mathf.Min(pending, Mathf.Max(12, model.maxChunksPerRebuild * 3));
         }
+
+        // When backlog is high in editor (e.g. maxDepth 8), drain faster to reduce visible lag.
+        if (!Application.isPlaying && isOctreeLike && pending > 32)
+            return Mathf.Min(pending, Mathf.Max(16, model.maxChunksPerRebuild * 3));
 
         return pending;
     }
@@ -656,6 +678,11 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (IsFlatOctreeDualContouring(model))
             return 28f;
 
+        bool isOctreeLike = model.dataStructure == VolumeDataStructure.Octree ||
+                            model.dataStructure == VolumeDataStructure.SparseVoxelOctree;
+        if (!Application.isPlaying && isOctreeLike && _pendingChunkQueue.Count > 32)
+            return 36f;
+
         return 24f;
     }
 
@@ -669,10 +696,14 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                model.octreeMesherType == OctreeMesherType.DualContouring;
     }
 
-    private int RebuildQueuedChunks(int budget, float timeBudgetMs = -1f)
+    private int RebuildQueuedChunks(int budget, float timeBudgetMs, out double passChunkMs)
     {
+        Stopwatch passTimer = Stopwatch.StartNew();
         if (_activeChunkModel == null || _activeChunkComposer == null)
+        {
+            passChunkMs = passTimer.Elapsed.TotalMilliseconds;
             return 0;
+        }
 
         int rebuilt = 0;
         Stopwatch timeBudgetWatch = null;
@@ -704,7 +735,65 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (_activeChunkModel != null && _activeChunkModel.logChunkRebuildStats)
             UnityEngine.Debug.Log($"Chunk rebuild: rebuilt={rebuilt}, pending={_pendingChunkQueue.Count}, budget={budget}");
 #endif
+        passTimer.Stop();
+        passChunkMs = passTimer.Elapsed.TotalMilliseconds;
         return rebuilt;
+    }
+
+    private void StartChunkCycleIfNeeded(int expectedChunks)
+    {
+        if (_chunkCycleActive)
+            return;
+
+        _chunkCycleActive = true;
+        _chunkCycleExpected = Mathf.Max(0, expectedChunks);
+        _chunkCyclePasses = 0;
+        _chunkCycleRebuiltTotal = 0;
+        _chunkCycleChunkMsTotal = 0d;
+        _chunkCycleChunkMsMax = 0d;
+        _chunkCycleTimer.Restart();
+    }
+
+    private void ResetChunkCycleState()
+    {
+        _chunkCycleActive = false;
+        _chunkCycleExpected = 0;
+        _chunkCyclePasses = 0;
+        _chunkCycleRebuiltTotal = 0;
+        _chunkCycleChunkMsTotal = 0d;
+        _chunkCycleChunkMsMax = 0d;
+        _chunkCycleTimer.Reset();
+    }
+
+    private void RecordChunkCyclePass(int rebuilt, double passChunkMs)
+    {
+        if (!_chunkCycleActive)
+            return;
+
+        _chunkCyclePasses++;
+        _chunkCycleRebuiltTotal += Mathf.Max(0, rebuilt);
+        _chunkCycleChunkMsTotal += passChunkMs;
+        if (passChunkMs > _chunkCycleChunkMsMax)
+            _chunkCycleChunkMsMax = passChunkMs;
+    }
+
+    private void TryFinalizeChunkCycle(VolumeModel model)
+    {
+        if (!_chunkCycleActive || _pendingChunkQueue.Count > 0 || model == null || !model.logRebuildDuration)
+            return;
+
+        _chunkCycleTimer.Stop();
+        double avg = _chunkCyclePasses > 0 ? _chunkCycleChunkMsTotal / _chunkCyclePasses : 0d;
+        UnityEngine.Debug.Log(
+            $"VolumeMeshRenderer Chunked Final [{model.dataStructure}/{model.storageMode}] | work(expected={_chunkCycleExpected}, rebuilt={_chunkCycleRebuiltTotal})\n" +
+            $"timing(total={_chunkCycleTimer.Elapsed.TotalMilliseconds:F2} ms, chunk={_chunkCycleChunkMsTotal:F2} ms, passes={_chunkCyclePasses}, avg={avg:F2} ms, max={_chunkCycleChunkMsMax:F2} ms)");
+
+        _chunkCycleActive = false;
+        _chunkCycleExpected = 0;
+        _chunkCyclePasses = 0;
+        _chunkCycleRebuiltTotal = 0;
+        _chunkCycleChunkMsTotal = 0d;
+        _chunkCycleChunkMsMax = 0d;
     }
 
     /// <summary>Initializes required components, mesh, and fallback material.</summary>
