@@ -130,6 +130,10 @@ public class VolumeObject : MonoBehaviour
         Bounds currentBounds = GetEstimatedLocalBounds();
         previousBounds.Encapsulate(currentBounds);
 
+        VolumeModel model = GetComponentInParent<VolumeModel>();
+        if (model != null)
+            model.NotifyInteractiveEdit();
+
         QueueComposerRebuild(previousBounds);
     }
 
@@ -174,11 +178,28 @@ public class VolumeObject : MonoBehaviour
 
         VolumeModel model = GetComponentInParent<VolumeModel>();
 
-        if (model != null && model.rebuildOnMoveRelease)
+        if (model != null)
         {
+            bool previewCapable = model.SupportsPreviewDepth();
+            bool previewEnabled = previewCapable && model.usePreviewDepthWhileInteracting;
+            bool previewActive = previewEnabled && model.IsPreviewInteractionActive();
+            bool isPointerOrHandleActive = IsPrimaryPointerPressed() || IsEditorHandleActive();
+
+            if (model.rebuildOnMoveRelease &&
+                isPointerOrHandleActive &&
+                !(previewEnabled && previewActive))
+            {
+                EditorApplication.delayCall += DelayedComposerRebuild;
+                return;
+            }
+
+            // Without preview: always wait for release-like pause.
+            // With preview: allow live low-res updates during interaction.
+            bool shouldWaitForRelease = !previewActive && (!previewEnabled || model.rebuildOnMoveRelease);
+
             double elapsed = EditorApplication.timeSinceStartup - _lastTransformChangeTime;
 
-            if (elapsed < model.moveReleaseDelaySeconds)
+            if (shouldWaitForRelease && elapsed < model.moveReleaseDelaySeconds)
             {
                 EditorApplication.delayCall += DelayedComposerRebuild;
                 return;
@@ -642,4 +663,21 @@ public class VolumeObject : MonoBehaviour
                 return new Vector3(r, r, r);
         }
     }
+
+#if UNITY_EDITOR
+    private static bool IsPrimaryPointerPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return UnityEngine.InputSystem.Mouse.current != null &&
+               UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
+#else
+        return Input.GetMouseButton(0);
+#endif
+    }
+
+    private static bool IsEditorHandleActive()
+    {
+        return GUIUtility.hotControl != 0;
+    }
+#endif
 }

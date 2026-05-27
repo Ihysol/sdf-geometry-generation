@@ -110,6 +110,8 @@ public class VolumeModel : MonoBehaviour
             chunking.voxelChunkCount = new Vector3Int(voxelChunkUniform, voxelChunkUniform, voxelChunkUniform);
         }
         moveReleaseDelaySeconds = Mathf.Max(0f, moveReleaseDelaySeconds);
+        previewInteractionMaxDepth = Mathf.Max(1, previewInteractionMaxDepth);
+        previewInteractionHoldSeconds = Mathf.Max(0f, previewInteractionHoldSeconds);
         qefBlendFactor = Mathf.Clamp01(qefBlendFactor);
         qefSnapEpsilon = Mathf.Max(0f, qefSnapEpsilon);
         qefMaxOffsetCells = Mathf.Max(0f, qefMaxOffsetCells);
@@ -178,6 +180,11 @@ public class VolumeModel : MonoBehaviour
     public bool rebuildEveryFrame = false;
     public bool rebuildOnMoveRelease = true;
     public float moveReleaseDelaySeconds = 0.5f;
+    public bool usePreviewDepthWhileInteracting = true;
+    [Min(1)]
+    public int previewInteractionMaxDepth = 7;
+    [Min(0f)]
+    public float previewInteractionHoldSeconds = 0.2f;
 
     [Header("Debug")]
     public bool drawChildGizmos = true;
@@ -189,6 +196,11 @@ public class VolumeModel : MonoBehaviour
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
     public VolumeOperationRole roleToAdd = VolumeOperationRole.Add;
+
+#if UNITY_EDITOR
+    private double _lastInteractiveEditTime = double.NegativeInfinity;
+    private bool _finalizePreviewRebuildQueued;
+#endif
 
     /// <summary>Continuously rebuilds the model when realtime rebuild is enabled.</summary>
     private void Update()
@@ -283,6 +295,9 @@ public class VolumeModel : MonoBehaviour
                 OctreeVolumeBuilder activeBuilder = dataStructure == VolumeDataStructure.Octree
                     ? octreeSampler.builder
                     : sparseVoxelOctreeSampler.builder.backend;
+                int configuredMaxDepth = activeBuilder.maxDepth;
+                bool usingPreviewDepth = ShouldUsePreviewDepth(configuredMaxDepth, out int effectiveMaxDepth);
+                activeBuilder.maxDepth = effectiveMaxDepth;
                 activeBuilder.useQefVertices = useQefVertices;
                 activeBuilder.qefVertexMode = qefVertexMode;
                 activeBuilder.qefBlendFactor = qefBlendFactor;
@@ -324,6 +339,12 @@ public class VolumeModel : MonoBehaviour
                         rebuildCause = dataStructure == VolumeDataStructure.Octree
                             ? "octree-incremental"
                             : "svo-incremental";
+                        if (usingPreviewDepth)
+                        {
+                            rebuildCause += $"-preview(d{effectiveMaxDepth}/{configuredMaxDepth})";
+                            QueueFinalizePreviewRebuild();
+                        }
+                        activeBuilder.maxDepth = configuredMaxDepth;
                         break;
                     }
 
@@ -358,6 +379,12 @@ public class VolumeModel : MonoBehaviour
                     sparseVoxelOctreeSampler.MarkDirty();
                     sparseVoxelOctreeSampler.RebuildVolume(source);
                 }
+                if (usingPreviewDepth)
+                {
+                    rebuildCause += $"-preview(d{effectiveMaxDepth}/{configuredMaxDepth})";
+                    QueueFinalizePreviewRebuild();
+                }
+                activeBuilder.maxDepth = configuredMaxDepth;
                 ClearDirtyBounds();
                 break;
         }
@@ -382,8 +409,12 @@ public class VolumeModel : MonoBehaviour
         if (rebuildStopwatch != null)
         {
             rebuildStopwatch.Stop();
-            Debug.Log(
-                $"VolumeModel Rebuild [{dataStructure}/{storageMode}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
+            bool isPreviewRebuild = rebuildCause.Contains("-preview");
+            if (!isPreviewRebuild)
+            {
+                Debug.Log(
+                    $"VolumeModel Rebuild [{dataStructure}/{storageMode}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
+            }
         }
 #endif
     }
@@ -676,5 +707,100 @@ public class VolumeModel : MonoBehaviour
         }
         return active;
     }
+
+#if UNITY_EDITOR
+    public bool SupportsPreviewDepth()
+    {
+        return dataStructure == VolumeDataStructure.Octree ||
+               dataStructure == VolumeDataStructure.SparseVoxelOctree;
+    }
+
+    public void NotifyInteractiveEdit()
+    {
+        _lastInteractiveEditTime = EditorApplication.timeSinceStartup;
+    }
+
+    public bool IsPreviewInteractionActive()
+    {
+        if (!SupportsPreviewDepth() || !usePreviewDepthWhileInteracting || Application.isPlaying)
+            return false;
+
+        double elapsed = EditorApplication.timeSinceStartup - _lastInteractiveEditTime;
+        return elapsed <= previewInteractionHoldSeconds;
+    }
+
+    private void QueueFinalizePreviewRebuild()
+    {
+        if (_finalizePreviewRebuildQueued || Application.isPlaying)
+            return;
+
+        _finalizePreviewRebuildQueued = true;
+        EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
+    }
+
+    private void FinalizePreviewRebuildIfNeeded()
+    {
+        if (this == null)
+            return;
+
+        if (rebuildOnMoveRelease && IsPointerOrHandleActive())
+        {
+            EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
+            return;
+        }
+
+        if (ShouldUsePreviewDepth(GetConfiguredMaxDepth(), out _))
+        {
+            EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
+            return;
+        }
+
+        _finalizePreviewRebuildQueued = false;
+        RebuildModel();
+    }
+
+    private int GetConfiguredMaxDepth()
+    {
+        return dataStructure == VolumeDataStructure.Octree
+            ? octreeSampler.builder.maxDepth
+            : sparseVoxelOctreeSampler.builder.backend.maxDepth;
+    }
+
+    private static bool IsPointerOrHandleActive()
+    {
+        bool handleActive = GUIUtility.hotControl != 0;
+#if ENABLE_INPUT_SYSTEM
+        bool pointerPressed = UnityEngine.InputSystem.Mouse.current != null &&
+                              UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
+#else
+        bool pointerPressed = Input.GetMouseButton(0);
+#endif
+        return handleActive || pointerPressed;
+    }
+
+    private bool ShouldUsePreviewDepth(int configuredMaxDepth, out int effectiveMaxDepth)
+    {
+        effectiveMaxDepth = configuredMaxDepth;
+
+        if (Application.isPlaying || !usePreviewDepthWhileInteracting)
+            return false;
+
+        if (configuredMaxDepth <= 1)
+            return false;
+
+        double elapsed = EditorApplication.timeSinceStartup - _lastInteractiveEditTime;
+        if (elapsed > previewInteractionHoldSeconds)
+            return false;
+
+        effectiveMaxDepth = Mathf.Clamp(previewInteractionMaxDepth, 1, configuredMaxDepth);
+        return effectiveMaxDepth < configuredMaxDepth;
+    }
+#else
+    private bool ShouldUsePreviewDepth(int configuredMaxDepth, out int effectiveMaxDepth)
+    {
+        effectiveMaxDepth = configuredMaxDepth;
+        return false;
+    }
+#endif
 
 }

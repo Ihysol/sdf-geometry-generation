@@ -246,10 +246,17 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         else if (canDoDirtyRebuild)
         {
             bool isFlatOctreeDc = IsFlatOctreeDualContouring(model);
+            bool isVoxelGrid = model.dataStructure == VolumeDataStructure.VoxelGrid;
             if (!Application.isPlaying && isFlatOctreeDc)
             {
                 // Keep editor interaction responsive for flat mode:
                 // drop stale pending work and prioritize the latest dirty region.
+                _pendingChunkQueue.Clear();
+                _pendingChunkSet.Clear();
+            }
+            else if (!Application.isPlaying && isVoxelGrid)
+            {
+                // Voxel chunks can be expensive per chunk; avoid stale backlog in editor.
                 _pendingChunkQueue.Clear();
                 _pendingChunkSet.Clear();
             }
@@ -296,8 +303,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (totalTimer != null)
         {
             totalTimer.Stop();
-            UnityEngine.Debug.Log(
-                $"VolumeMeshRenderer Chunked [{model.dataStructure}/{model.storageMode}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}");
+            bool isPreviewPass = model != null && model.IsPreviewInteractionActive();
+            if (!isPreviewPass)
+            {
+                UnityEngine.Debug.Log(
+                    $"VolumeMeshRenderer Chunked [{model.dataStructure}/{model.storageMode}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}");
+            }
         }
 #endif
     }
@@ -637,6 +648,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private float GetChunkRebuildTimeBudgetMs(VolumeModel model)
     {
         if (model == null || Application.isPlaying)
+            return -1f;
+
+        if (model.dataStructure == VolumeDataStructure.VoxelGrid)
             return -1f;
 
         if (IsFlatOctreeDualContouring(model))

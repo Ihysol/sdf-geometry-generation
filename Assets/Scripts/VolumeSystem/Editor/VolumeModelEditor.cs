@@ -9,6 +9,7 @@ public class VolumeModelEditor : Editor
     private bool _showMeshing = false;
     private bool _showDebug = false;
     private bool _showRebuild = true;
+    private bool _showPreview = true;
     private bool _showObjects = true;
     private bool _suppressAutoRebuildThisFrame;
 
@@ -35,6 +36,10 @@ public class VolumeModelEditor : Editor
         GUILayout.Space(10);
 
         DrawRebuildSettings(model);
+
+        GUILayout.Space(10);
+
+        DrawPreviewSettings();
 
         if (EditorGUI.EndChangeCheck())
         {
@@ -509,6 +514,39 @@ public class VolumeModelEditor : Editor
             EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("moveReleaseDelaySeconds")
             );
+        }
+
+    }
+
+    private void DrawPreviewSettings()
+    {
+        _showPreview = EditorGUILayout.Foldout(
+            _showPreview,
+            "Preview",
+            true
+        );
+
+        if (!_showPreview)
+            return;
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("usePreviewDepthWhileInteracting"),
+            new GUIContent("Use Preview Depth While Interacting")
+        );
+
+        if (serializedObject.FindProperty("usePreviewDepthWhileInteracting").boolValue)
+        {
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("previewInteractionMaxDepth"),
+                new GUIContent("Preview Max Depth")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("previewInteractionHoldSeconds"),
+                new GUIContent("Preview Hold Seconds")
+            );
+            if (EditorGUI.EndChangeCheck())
+                _suppressAutoRebuildThisFrame = true;
         }
     }
 
