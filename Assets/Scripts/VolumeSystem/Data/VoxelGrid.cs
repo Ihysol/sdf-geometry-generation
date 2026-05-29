@@ -2,7 +2,7 @@ using UnityEngine;
 
 using System.Collections.Generic;
 
-public class VoxelGrid : IVolumeData, IChunkLayoutVolume
+public class VoxelGrid : IVolumeData, IChunkLayoutVolume, IFlatDenseVolumeData
 {
     public Vector3Int GridSize { get; }
     public Vector3 Origin { get; }

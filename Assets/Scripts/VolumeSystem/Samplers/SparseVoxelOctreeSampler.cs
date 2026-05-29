@@ -41,14 +41,12 @@ public class SparseVoxelOctreeSampler : VolumeSamplerBase<SparseVoxelOctreeVolum
         if (Volume == null)
         {
             LastIncrementalFallbackReason = "volume-null";
-            RebuildVolume(source);
             return false;
         }
 
         if (!builder.RebuildRegion(Volume, source, dirtyBounds, out SparseVoxelOctreeVolume rebuilt) || rebuilt == null)
         {
             LastIncrementalFallbackReason = rebuilt == null ? "builder-returned-null" : "builder-rejected-region";
-            RebuildVolume(source);
             return false;
         }
 

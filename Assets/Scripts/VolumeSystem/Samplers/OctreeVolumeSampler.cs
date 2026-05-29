@@ -46,14 +46,12 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
         if (Volume == null)
         {
             LastIncrementalFallbackReason = "volume-null";
-            RebuildVolume(source);
             return false;
         }
 
         if (!builder.RebuildRegion(Volume, source, dirtyBounds, out OctreeVolume rebuilt) || rebuilt == null)
         {
             LastIncrementalFallbackReason = rebuilt == null ? "builder-returned-null" : "builder-rejected-region";
-            RebuildVolume(source);
             return false;
         }
 

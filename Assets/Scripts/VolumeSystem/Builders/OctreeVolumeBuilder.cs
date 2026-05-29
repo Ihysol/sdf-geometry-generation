@@ -15,6 +15,8 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     public int maxDepth = 6;
     public int minDepth = 3;
     [HideInInspector]
+    public bool suppressBuildLog = false;
+    [HideInInspector]
     public bool useQefVertices = true;
     [HideInInspector]
     public QefVertexMode qefVertexMode = QefVertexMode.QefAxisSnap;
@@ -174,7 +176,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
 #if UNITY_EDITOR
         // Keep this behind editor-only logging to avoid runtime spam.
-        if (UnityEngine.Debug.isDebugBuild)
+        if (!suppressBuildLog && UnityEngine.Debug.isDebugBuild)
         {
             Debug.Log(
                 $"Octree Build: nodes={_totalNodes}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}"

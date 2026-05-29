@@ -184,7 +184,7 @@ public class VolumeObject : MonoBehaviour
                 (model.SupportsPreviewDepth() && model.usePreviewDepthWhileInteracting) ||
                 (model.SupportsPreviewResolution() && model.usePreviewResolutionWhileInteracting);
             bool previewActive = previewEnabled && model.IsPreviewInteractionActive();
-            bool isPointerOrHandleActive = IsPrimaryPointerPressed() || IsEditorHandleActive();
+            bool isPointerOrHandleActive = IsEditorHandleActive();
 
             if (model.rebuildOnMoveRelease &&
                 isPointerOrHandleActive &&
@@ -666,16 +666,6 @@ public class VolumeObject : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    private static bool IsPrimaryPointerPressed()
-    {
-#if ENABLE_INPUT_SYSTEM
-        return UnityEngine.InputSystem.Mouse.current != null &&
-               UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
-#else
-        return Input.GetMouseButton(0);
-#endif
-    }
-
     private static bool IsEditorHandleActive()
     {
         return GUIUtility.hotControl != 0;

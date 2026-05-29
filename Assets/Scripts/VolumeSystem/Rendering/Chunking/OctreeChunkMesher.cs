@@ -46,6 +46,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
             default:
                 if (model.storageMode == VolumeStorageMode.Flat)
                 {
+                    IFlatAdaptiveVolumeData flatVolume = model.GetActiveFlatAdaptiveVolume() ?? volume;
                     _flatMesher.enableDebugLog = model != null && model.logChunkRebuildStats;
                     _flatMesher.isoLevel = model.isoLevel;
                     _flatMesher.useQefVertices = model.useQefVertices;
@@ -58,7 +59,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
                     _flatMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
                     _flatMesher.ownedBounds = coreBounds;
                     _flatMesher.ownedBoundsList = null;
-                    _flatMesher.BuildMesh(volume, model.isoLevel, targetMesh);
+                    _flatMesher.BuildMesh(flatVolume, model.isoLevel, targetMesh);
                     _flatMesher.ownedBounds = null;
                     _flatMesher.ownedBoundsList = null;
                 }

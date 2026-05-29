@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class SparseVoxelOctreeVolume : IVolumeData, IChunkLayoutVolume
+public class SparseVoxelOctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolumeData
 {
     public OctreeNode Root { get; }
     public Bounds Bounds { get; }
@@ -75,11 +75,11 @@ public class SparseVoxelOctreeVolume : IVolumeData, IChunkLayoutVolume
         }
     }
 
-    public FlatOctreeLayout GetFlatLayout()
+    public FlatOctreeLayout GetFlatLayout(bool includeCornerValues = false)
     {
         if (_flatLayout != null)
             return _flatLayout;
-        _flatLayout = AsOctreeVolume()?.GetFlatLayout();
+        _flatLayout = AsOctreeVolume()?.GetFlatLayout(includeCornerValues);
         return _flatLayout;
     }
 }

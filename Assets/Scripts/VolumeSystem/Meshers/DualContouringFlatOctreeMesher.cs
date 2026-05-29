@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
 
-public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
+public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeData>
 {
     public float isoLevel = 0f;
     public bool enableDebugLog = true;
@@ -21,15 +21,8 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
     private readonly List<Vector3> _vertices = new();
     private readonly List<int> _triangles = new();
     private readonly HashSet<EdgeKey> _processedEdges = new();
-    private readonly Dictionary<Vector3Int, int> _leafExactByCoord = new();
-    private readonly Dictionary<Vector3Int, int> _resolvedLeafByCoord = new();
-    private readonly HashSet<Vector3Int> _missingLeafCoords = new();
-    private readonly List<int> _surfaceLeafIndices = new();
     private readonly List<GridBounds> _ownedGridBounds = new();
     private int[] _meshVertexIndexByNode;
-    private int[] _subtreeSize;
-    private int[] _childIndexByOctant;
-    private Vector3Int[] _nodeSizeInCells;
 
     private FlatOctreeLayout _layout;
     private Vector3 _origin;
@@ -91,16 +84,12 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
         new CellEdge(2, 6, Axis.Z, new Vector3Int(1, 1, 0)),
     };
 
-    public void BuildMesh(OctreeVolume volume, float iso, Mesh mesh)
+    public void BuildMesh(IFlatAdaptiveVolumeData volume, float iso, Mesh mesh)
     {
         mesh.Clear();
         _vertices.Clear();
         _triangles.Clear();
         _processedEdges.Clear();
-        _leafExactByCoord.Clear();
-        _resolvedLeafByCoord.Clear();
-        _missingLeafCoords.Clear();
-        _surfaceLeafIndices.Clear();
         _ownedGridBounds.Clear();
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
@@ -111,11 +100,11 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
         _findContainingLeafSteps = 0;
         isoLevel = iso;
 
-        if (volume == null || volume.Root == null || volume is not IFlatAdaptiveVolumeData flatVolume)
+        if (volume == null)
             return;
 
-        _layout = flatVolume.GetFlatLayout(includeCornerValues: true);
-        if (_layout == null || _layout.Count == 0 || _layout.Flags == null || _layout.Coords == null || _layout.Centers == null || _layout.Sizes == null || _layout.CornerValues8 == null)
+        _layout = volume.GetFlatLayout(includeCornerValues: true);
+        if (_layout == null || _layout.Count == 0 || !_layout.IsValid)
             return;
 
         int count = _layout.Count;
@@ -131,8 +120,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
         Stopwatch totalSw = null;
         Stopwatch phaseSw = null;
         double cacheOwnedMs = 0d;
-        double lookupVerticesMs = 0d;
-        double treeNavMs = 0d;
+        double runtimeCacheMs = 0d;
         double edgeQuadsMs = 0d;
         if (enableDebugLog && UnityEngine.Debug.isDebugBuild)
         {
@@ -149,19 +137,11 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
             phaseSw.Restart();
         }
 #endif
-        BuildFlatLookupAndVertices();
+        _layout.EnsureRuntimeCache();
 #if UNITY_EDITOR
         if (phaseSw != null)
         {
-            lookupVerticesMs = phaseSw.Elapsed.TotalMilliseconds;
-            phaseSw.Restart();
-        }
-#endif
-        BuildTreeNavigation();
-#if UNITY_EDITOR
-        if (phaseSw != null)
-        {
-            treeNavMs = phaseSw.Elapsed.TotalMilliseconds;
+            runtimeCacheMs = phaseSw.Elapsed.TotalMilliseconds;
             phaseSw.Restart();
         }
 #endif
@@ -181,7 +161,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
                 totalSw.Stop();
             float avgFindSteps = _resolveLeafFindCalls > 0 ? (float)_findContainingLeafSteps / _resolveLeafFindCalls : 0f;
             UnityEngine.Debug.Log(
-                $"Flat Octree DC: total={(totalSw != null ? totalSw.Elapsed.TotalMilliseconds : 0d):F2} ms, cacheOwned={cacheOwnedMs:F2} ms, lookupVertices={lookupVerticesMs:F2} ms, treeNav={treeNavMs:F2} ms, edgeQuads={edgeQuadsMs:F2} ms, leaves={_surfaceLeafIndices.Count}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}, resolveCalls={_resolveLeafCalls}, resolveCacheHits={_resolveLeafCacheHits}, resolveExactHits={_resolveLeafExactHits}, resolveFindCalls={_resolveLeafFindCalls}, avgFindSteps={avgFindSteps:F2}");
+                $"Flat Octree DC: total={(totalSw != null ? totalSw.Elapsed.TotalMilliseconds : 0d):F2} ms, cacheOwned={cacheOwnedMs:F2} ms, runtimeCache={runtimeCacheMs:F2} ms, edgeQuads={edgeQuadsMs:F2} ms, leaves={_layout.SurfaceLeafIndices.Length}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}, resolveCalls={_resolveLeafCalls}, resolveCacheHits={_resolveLeafCacheHits}, resolveExactHits={_resolveLeafExactHits}, resolveFindCalls={_resolveLeafFindCalls}, avgFindSteps={avgFindSteps:F2}");
         }
 #endif
     }
@@ -190,92 +170,27 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
     {
         if (_meshVertexIndexByNode == null || _meshVertexIndexByNode.Length != count)
             _meshVertexIndexByNode = new int[count];
-        if (_subtreeSize == null || _subtreeSize.Length != count)
-            _subtreeSize = new int[count];
-        if (_childIndexByOctant == null || _childIndexByOctant.Length != count * 8)
-            _childIndexByOctant = new int[count * 8];
-        if (_nodeSizeInCells == null || _nodeSizeInCells.Length != count)
-            _nodeSizeInCells = new Vector3Int[count];
         for (int i = 0; i < count; i++)
-        {
             _meshVertexIndexByNode[i] = -1;
-            _subtreeSize[i] = 0;
-            _nodeSizeInCells[i] = Vector3Int.zero;
-        }
-        for (int i = 0; i < _childIndexByOctant.Length; i++)
-            _childIndexByOctant[i] = -1;
-    }
-
-    private void BuildFlatLookupAndVertices()
-    {
-        for (int i = 0; i < _layout.Count; i++)
-        {
-            if ((_layout.Flags[i] & FlatOctreeLayout.FlagLeaf) == 0)
-                continue;
-
-            _leafExactByCoord[_layout.Coords[i]] = i;
-            if ((_layout.Flags[i] & FlatOctreeLayout.FlagSurface) == 0)
-                continue;
-
-            _surfaceLeafIndices.Add(i);
-            _meshVertexIndexByNode[i] = _vertices.Count;
-            _vertices.Add(_layout.SurfaceVertices != null && i < _layout.SurfaceVertices.Length ? _layout.SurfaceVertices[i] : _layout.Centers[i]);
-        }
-    }
-
-    private void BuildTreeNavigation()
-    {
-        ComputeSubtreeSize(0);
-    }
-
-    private int ComputeSubtreeSize(int nodeIndex)
-    {
-        if (nodeIndex < 0 || nodeIndex >= _layout.Count)
-            return 0;
-        if (_subtreeSize[nodeIndex] > 0)
-            return _subtreeSize[nodeIndex];
-
-        bool isLeaf = (_layout.Flags[nodeIndex] & FlatOctreeLayout.FlagLeaf) != 0;
-        if (isLeaf)
-        {
-            _subtreeSize[nodeIndex] = 1;
-            return 1;
-        }
-
-        int first = _layout.FirstChildIndex[nodeIndex];
-        int mask = _layout.ChildMask[nodeIndex];
-        int cursor = first;
-        int size = 1;
-
-        for (int oct = 0; oct < 8; oct++)
-        {
-            if ((mask & (1 << oct)) == 0)
-                continue;
-
-            _childIndexByOctant[nodeIndex * 8 + oct] = cursor;
-            int childSize = ComputeSubtreeSize(cursor);
-            size += childSize;
-            cursor += childSize;
-        }
-
-        _subtreeSize[nodeIndex] = size;
-        return size;
     }
 
     private void BuildEdgeQuads()
     {
         bool hasOwnedBounds = _ownedGridBounds.Count > 0;
-        for (int si = 0; si < _surfaceLeafIndices.Count; si++)
+        int[] surfaceLeafIndices = _layout.SurfaceLeafIndices;
+        for (int si = 0; si < surfaceLeafIndices.Length; si++)
         {
-            int nodeIndex = _surfaceLeafIndices[si];
+            int nodeIndex = surfaceLeafIndices[si];
+            if (hasOwnedBounds && !NodeMayTouchOwnedBounds(nodeIndex))
+                continue;
+
             Vector3Int cellCoord = _layout.Coords[nodeIndex];
-            int baseIdx = nodeIndex * 8;
 
             for (int i = 0; i < CellEdges.Length; i++)
             {
                 CellEdge edge = CellEdges[i];
-                float a = _layout.CornerValues8[baseIdx + edge.A];
-                float b = _layout.CornerValues8[baseIdx + edge.B];
+                float a = _layout.GetCornerValue(nodeIndex, edge.A);
+                float b = _layout.GetCornerValue(nodeIndex, edge.B);
 
                 if (!HasCrossing(a, b))
                     continue;
@@ -285,16 +200,13 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
                 if (_processedEdges.Contains(key))
                     continue;
 
-            if (hasOwnedBounds)
-            {
-                if (!IsOwnedGridEdgeAny(gridEdgeStart, edge.Axis))
+                if (hasOwnedBounds && !IsOwnedGridEdgeAny(gridEdgeStart, edge.Axis))
                     continue;
-            }
 
-            _processedEdges.Add(key);
-            BuildQuadForEdge(gridEdgeStart, edge.Axis, a);
+                _processedEdges.Add(key);
+                BuildQuadForEdge(gridEdgeStart, edge.Axis, a);
+            }
         }
-    }
     }
 
     private void BuildQuadForEdge(Vector3Int g, Axis axis, float startValue)
@@ -336,27 +248,27 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
         if (!IsCoordInsideVolumeGrid(coord))
             return -1;
 
-        if (_resolvedLeafByCoord.TryGetValue(coord, out int cached))
+        if (_layout.ResolvedLeafByCoord.TryGetValue(coord, out int cached))
         {
             _resolveLeafCacheHits++;
             return cached;
         }
-        if (_missingLeafCoords.Contains(coord))
+        if (_layout.MissingLeafCoords.Contains(coord))
             return -1;
 
-        if (_leafExactByCoord.TryGetValue(coord, out int exact))
+        if (_layout.LeafExactByCoord.TryGetValue(coord, out int exact))
         {
             _resolveLeafExactHits++;
-            _resolvedLeafByCoord[coord] = exact;
+            _layout.ResolvedLeafByCoord[coord] = exact;
             return exact;
         }
 
         _resolveLeafFindCalls++;
         int containing = FindContainingLeaf(coord);
         if (containing >= 0)
-            _resolvedLeafByCoord[coord] = containing;
+            _layout.ResolvedLeafByCoord[coord] = containing;
         else
-            _missingLeafCoords.Add(coord);
+            _layout.MissingLeafCoords.Add(coord);
         return containing;
     }
 
@@ -367,8 +279,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
         while (true)
         {
             steps++;
-            bool isLeaf = (_layout.Flags[node] & FlatOctreeLayout.FlagLeaf) != 0;
-            if (isLeaf)
+            if (_layout.IsLeaf(node))
             {
                 _findContainingLeafSteps += steps;
                 return node;
@@ -386,7 +297,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
             int oz = coord.z >= nodeCoord.z + hz ? 1 : 0;
             int oct = (ox << 2) | (oy << 1) | oz;
 
-            int child = _childIndexByOctant[node * 8 + oct];
+            int child = _layout.ChildIndexByOctant[node * 8 + oct];
             if (child < 0 || child >= _layout.Count)
             {
                 _findContainingLeafSteps += steps;
@@ -398,17 +309,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
 
     private Vector3Int GetNodeSizeInCells(int nodeIndex)
     {
-        Vector3Int cached = _nodeSizeInCells[nodeIndex];
-        if (cached.x > 0 && cached.y > 0 && cached.z > 0)
-            return cached;
-
-        Vector3 s = _layout.Sizes[nodeIndex];
-        int sx = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(s.x / _cellSize.x)));
-        int sy = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(s.y / _cellSize.y)));
-        int sz = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(s.z / _cellSize.z)));
-        Vector3Int size = new Vector3Int(sx, sy, sz);
-        _nodeSizeInCells[nodeIndex] = size;
-        return size;
+        return _layout.GetNodeSizeInCells(nodeIndex);
     }
 
     private bool TryAddQuad(int a, int b, int c, int d, bool flip)
@@ -460,10 +361,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
             return;
 
         _meshVertexIndexByNode[nodeIndex] = _vertices.Count;
-        bool hasSurface = (_layout.Flags[nodeIndex] & FlatOctreeLayout.FlagSurface) != 0;
-        _vertices.Add(hasSurface && _layout.SurfaceVertices != null && nodeIndex < _layout.SurfaceVertices.Length
-            ? _layout.SurfaceVertices[nodeIndex]
-            : _layout.Centers[nodeIndex]);
+        _vertices.Add(_layout.GetSurfaceVertexOrCenter(nodeIndex));
     }
 
     private bool IsCoordInsideVolumeGrid(Vector3Int coord)
@@ -483,6 +381,26 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<OctreeVolume>
             if (IsOwnedGridEdge(g, axis, _ownedGridBounds[i]))
                 return true;
         }
+        return false;
+    }
+
+    private bool NodeMayTouchOwnedBounds(int nodeIndex)
+    {
+        if (_ownedGridBounds.Count == 0)
+            return true;
+
+        Vector3Int min = _layout.Coords[nodeIndex] - Vector3Int.one;
+        Vector3Int max = _layout.Coords[nodeIndex] + GetNodeSizeInCells(nodeIndex) + Vector3Int.one;
+
+        for (int i = 0; i < _ownedGridBounds.Count; i++)
+        {
+            GridBounds b = _ownedGridBounds[i];
+            if (min.x <= b.Max.x && max.x >= b.Min.x &&
+                min.y <= b.Max.y && max.y >= b.Min.y &&
+                min.z <= b.Max.z && max.z >= b.Min.z)
+                return true;
+        }
+
         return false;
     }
 

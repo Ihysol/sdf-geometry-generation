@@ -325,6 +325,7 @@ public class VolumeModel : MonoBehaviour
                 int configuredMaxDepth = activeBuilder.maxDepth;
                 bool usingPreviewDepth = ShouldUsePreviewDepth(configuredMaxDepth, out int effectiveMaxDepth);
                 activeBuilder.maxDepth = effectiveMaxDepth;
+                activeBuilder.suppressBuildLog = usingPreviewDepth;
                 activeBuilder.useQefVertices = useQefVertices;
                 activeBuilder.qefVertexMode = qefVertexMode;
                 activeBuilder.qefBlendFactor = qefBlendFactor;
@@ -354,7 +355,8 @@ public class VolumeModel : MonoBehaviour
                         : "svo-full-init";
                 }
 
-                if (hasDirtyBounds)
+                bool canAttemptIncrementalOctreeUpdate = hasDirtyBounds && !usingPreviewDepth;
+                if (canAttemptIncrementalOctreeUpdate)
                 {
                     bool didIncrementalOctreeUpdate = hasInitializedVolume && (dataStructure == VolumeDataStructure.Octree
                         ? octreeSampler.RebuildVolumeRegion(source, dirtyBounds)
@@ -372,6 +374,7 @@ public class VolumeModel : MonoBehaviour
                             QueueFinalizePreviewRebuild();
                         }
                         activeBuilder.maxDepth = configuredMaxDepth;
+                        activeBuilder.suppressBuildLog = false;
                         break;
                     }
 
@@ -391,6 +394,12 @@ public class VolumeModel : MonoBehaviour
 #endif
                     }
                 }
+                else if (hasDirtyBounds && usingPreviewDepth)
+                {
+                    rebuildCause = dataStructure == VolumeDataStructure.Octree
+                        ? $"octree-preview-full(d{effectiveMaxDepth}/{configuredMaxDepth})"
+                        : $"svo-preview-full(d{effectiveMaxDepth}/{configuredMaxDepth})";
+                }
 
                 if (dataStructure == VolumeDataStructure.Octree)
                 {
@@ -408,10 +417,12 @@ public class VolumeModel : MonoBehaviour
                 }
                 if (usingPreviewDepth)
                 {
-                    rebuildCause += $"-preview(d{effectiveMaxDepth}/{configuredMaxDepth})";
+                    if (!rebuildCause.Contains("-preview"))
+                        rebuildCause += $"-preview(d{effectiveMaxDepth}/{configuredMaxDepth})";
                     QueueFinalizePreviewRebuild();
                 }
                 activeBuilder.maxDepth = configuredMaxDepth;
+                activeBuilder.suppressBuildLog = false;
                 ClearDirtyBounds();
                 break;
         }
@@ -440,10 +451,15 @@ public class VolumeModel : MonoBehaviour
             if (!isPreviewRebuild)
             {
                 Debug.Log(
-                    $"VolumeModel Rebuild [{dataStructure}/{storageMode}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
+                    $"VolumeModel Rebuild [{GetPipelineDebugLabel()}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
             }
         }
 #endif
+    }
+
+    public string GetPipelineDebugLabel()
+    {
+        return $"{dataStructure}/{storageMode}/{octreeMesherType}";
     }
 
     /// <summary>Returns the currently active sampled volume data.</summary>
@@ -735,6 +751,25 @@ public class VolumeModel : MonoBehaviour
         return active;
     }
 
+    public IFlatAdaptiveVolumeData GetActiveFlatAdaptiveVolume()
+    {
+        IFlatAdaptiveVolumeData active;
+        switch (dataStructure)
+        {
+            case VolumeDataStructure.Octree:
+                active = octreeSampler.Volume;
+                break;
+            case VolumeDataStructure.SparseVoxelOctree:
+                active = sparseVoxelOctreeSampler.Volume;
+                break;
+            default:
+                return null;
+        }
+
+        active?.GetFlatLayout(includeCornerValues: true);
+        return active;
+    }
+
 #if UNITY_EDITOR
     public bool SupportsPreviewDepth()
     {
@@ -774,17 +809,20 @@ public class VolumeModel : MonoBehaviour
             return;
 
         _finalizePreviewRebuildQueued = true;
-        EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
+        EditorApplication.update -= FinalizePreviewRebuildIfNeeded;
+        EditorApplication.update += FinalizePreviewRebuildIfNeeded;
     }
 
     private void FinalizePreviewRebuildIfNeeded()
     {
         if (this == null)
+        {
+            EditorApplication.update -= FinalizePreviewRebuildIfNeeded;
             return;
+        }
 
         if (rebuildOnMoveRelease && IsPointerOrHandleActive())
         {
-            EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
             return;
         }
 
@@ -793,11 +831,11 @@ public class VolumeModel : MonoBehaviour
             ShouldUsePreviewVoxelResolution(voxelGridSampler.builder.gridSize, out _);
         if (previewStillActive)
         {
-            EditorApplication.delayCall += FinalizePreviewRebuildIfNeeded;
             return;
         }
 
         _finalizePreviewRebuildQueued = false;
+        EditorApplication.update -= FinalizePreviewRebuildIfNeeded;
         RebuildModel();
     }
 
@@ -810,14 +848,7 @@ public class VolumeModel : MonoBehaviour
 
     private static bool IsPointerOrHandleActive()
     {
-        bool handleActive = GUIUtility.hotControl != 0;
-#if ENABLE_INPUT_SYSTEM
-        bool pointerPressed = UnityEngine.InputSystem.Mouse.current != null &&
-                              UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
-#else
-        bool pointerPressed = Input.GetMouseButton(0);
-#endif
-        return handleActive || pointerPressed;
+        return GUIUtility.hotControl != 0;
     }
 
     private bool ShouldUsePreviewDepth(int configuredMaxDepth, out int effectiveMaxDepth)
