@@ -26,7 +26,7 @@ public class MeshVolumeChunk : VolumeChunkBase
         double buildChunkMs = 0d;
         double normalsMs = 0d;
         double boundsMs = 0d;
-        if (model != null && model.logChunkRebuildStats)
+        if (model != null && model.ShouldLogChunkRebuildStats())
             timer = Stopwatch.StartNew();
 #endif
 

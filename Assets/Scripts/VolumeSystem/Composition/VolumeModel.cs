@@ -46,6 +46,7 @@ public class VolumeModel : MonoBehaviour
     private readonly System.Collections.Generic.List<Bounds> _chunkBoundsCache = new();
     private bool _hasDirtyBounds;
     private Bounds _dirtyBounds;
+    private bool _isPreviewRebuild;
 
     [Header("Rendering")]
     public bool enableChunking = true;
@@ -247,6 +248,9 @@ public class VolumeModel : MonoBehaviour
     /// <summary>Rebuilds composition, volume data, and render output.</summary>
     public void RebuildModel()
     {
+        bool previousPreviewRebuild = _isPreviewRebuild;
+        _isPreviewRebuild = false;
+
 #if UNITY_EDITOR
         System.Diagnostics.Stopwatch rebuildStopwatch = null;
         System.Diagnostics.Stopwatch phaseStopwatch = null;
@@ -262,7 +266,10 @@ public class VolumeModel : MonoBehaviour
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
 
         if (composer == null)
+        {
+            _isPreviewRebuild = previousPreviewRebuild;
             return;
+        }
 
         composer.RebuildComposition();
 #if UNITY_EDITOR
@@ -284,6 +291,7 @@ public class VolumeModel : MonoBehaviour
             case VolumeDataStructure.VoxelGrid:
                 Vector3Int configuredVoxelGridSize = voxelGridSampler.builder.gridSize;
                 bool usingPreviewVoxelResolution = ShouldUsePreviewVoxelResolution(configuredVoxelGridSize, out Vector3Int effectiveVoxelGridSize);
+                _isPreviewRebuild = usingPreviewVoxelResolution;
                 if (usingPreviewVoxelResolution)
                 {
                     voxelGridSampler.builder.gridSize = effectiveVoxelGridSize;
@@ -324,8 +332,9 @@ public class VolumeModel : MonoBehaviour
                     : sparseVoxelOctreeSampler.builder.backend;
                 int configuredMaxDepth = activeBuilder.maxDepth;
                 bool usingPreviewDepth = ShouldUsePreviewDepth(configuredMaxDepth, out int effectiveMaxDepth);
+                _isPreviewRebuild = usingPreviewDepth;
                 activeBuilder.maxDepth = effectiveMaxDepth;
-                activeBuilder.suppressBuildLog = usingPreviewDepth;
+                activeBuilder.suppressBuildLog = !ShouldLogRebuildDuration();
                 activeBuilder.useQefVertices = useQefVertices;
                 activeBuilder.qefVertexMode = qefVertexMode;
                 activeBuilder.qefBlendFactor = qefBlendFactor;
@@ -374,7 +383,8 @@ public class VolumeModel : MonoBehaviour
                             QueueFinalizePreviewRebuild();
                         }
                         activeBuilder.maxDepth = configuredMaxDepth;
-                        activeBuilder.suppressBuildLog = false;
+                        _isPreviewRebuild = false;
+                        activeBuilder.suppressBuildLog = !ShouldLogRebuildDuration();
                         break;
                     }
 
@@ -389,7 +399,7 @@ public class VolumeModel : MonoBehaviour
                             ? $"octree-full-fallback:{reason}"
                             : $"svo-full-fallback:{reason}";
 #if UNITY_EDITOR
-                        if (logChunkRebuildStats || logRebuildDuration)
+                        if (ShouldLogChunkRebuildStats() || ShouldLogRebuildDuration())
                             Debug.LogWarning($"Octree incremental rebuild failed ({reason}); falling back to full rebuild.");
 #endif
                     }
@@ -422,7 +432,7 @@ public class VolumeModel : MonoBehaviour
                     QueueFinalizePreviewRebuild();
                 }
                 activeBuilder.maxDepth = configuredMaxDepth;
-                activeBuilder.suppressBuildLog = false;
+                activeBuilder.suppressBuildLog = !logRebuildDuration;
                 ClearDirtyBounds();
                 break;
         }
@@ -447,19 +457,43 @@ public class VolumeModel : MonoBehaviour
         if (rebuildStopwatch != null)
         {
             rebuildStopwatch.Stop();
-            bool isPreviewRebuild = rebuildCause.Contains("-preview");
-            if (!isPreviewRebuild)
+            if (ShouldLogRebuildDuration())
             {
                 Debug.Log(
                     $"VolumeModel Rebuild [{GetPipelineDebugLabel()}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
             }
         }
 #endif
+        _isPreviewRebuild = previousPreviewRebuild;
     }
 
     public string GetPipelineDebugLabel()
     {
         return $"{dataStructure}/{storageMode}/{octreeMesherType}";
+    }
+
+    public bool IsPreviewRebuild => _isPreviewRebuild;
+
+    public bool SetPreviewRebuildContext(bool isPreview)
+    {
+        bool previous = _isPreviewRebuild;
+        _isPreviewRebuild = isPreview;
+        return previous;
+    }
+
+    public void RestorePreviewRebuildContext(bool previous)
+    {
+        _isPreviewRebuild = previous;
+    }
+
+    public bool ShouldLogRebuildDuration()
+    {
+        return logRebuildDuration && !_isPreviewRebuild;
+    }
+
+    public bool ShouldLogChunkRebuildStats()
+    {
+        return logChunkRebuildStats && !_isPreviewRebuild;
     }
 
     /// <summary>Returns the currently active sampled volume data.</summary>

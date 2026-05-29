@@ -47,7 +47,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
                 if (model.storageMode == VolumeStorageMode.Flat)
                 {
                     IFlatAdaptiveVolumeData flatVolume = model.GetActiveFlatAdaptiveVolume() ?? volume;
-                    _flatMesher.enableDebugLog = model != null && model.logChunkRebuildStats;
+                    _flatMesher.enableDebugLog = model != null && model.ShouldLogChunkRebuildStats();
                     _flatMesher.isoLevel = model.isoLevel;
                     _flatMesher.useQefVertices = model.useQefVertices;
                     _flatMesher.qefVertexMode = model.qefVertexMode;
