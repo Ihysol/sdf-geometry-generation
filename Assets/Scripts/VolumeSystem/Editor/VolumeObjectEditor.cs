@@ -104,7 +104,7 @@ public class VolumeObjectEditor : Editor
 
             VolumeModel model = obj.GetComponentInParent<VolumeModel>();
 
-            if (model != null && model.autoRebuildOnChange)
+            if (model != null && model.ShouldAutoRebuildOnChange())
             {
                 model.RebuildModel();
                 EditorUtility.SetDirty(model);

@@ -39,6 +39,15 @@ public enum VolumeStorageMode
     Flat
 }
 
+public enum VolumeRebuildMode
+{
+    PreviewAndOnChange,
+    OnChange,
+    EveryFrame,
+    Manual
+}
+
+[ExecuteAlways]
 [DisallowMultipleComponent]
 [RequireComponent(typeof(VolumeSceneComposer))]
 public class VolumeModel : MonoBehaviour
@@ -185,8 +194,7 @@ public class VolumeModel : MonoBehaviour
     public bool recalculateBounds = true;
 
     [Header("Rebuild")]
-    public bool autoRebuildOnChange = true;
-    public bool rebuildEveryFrame = false;
+    public VolumeRebuildMode rebuildMode = VolumeRebuildMode.PreviewAndOnChange;
     public bool rebuildOnMoveRelease = true;
     public float moveReleaseDelaySeconds = 0.5f;
     public bool usePreviewDepthWhileInteracting = true;
@@ -217,8 +225,29 @@ public class VolumeModel : MonoBehaviour
     /// <summary>Continuously rebuilds the model when realtime rebuild is enabled.</summary>
     private void Update()
     {
-        if (rebuildEveryFrame)
+        if (ShouldRebuildEveryFrame())
             RebuildModel();
+    }
+
+    public bool ShouldAutoRebuildOnChange()
+    {
+        return rebuildMode == VolumeRebuildMode.PreviewAndOnChange ||
+               rebuildMode == VolumeRebuildMode.OnChange;
+    }
+
+    public bool ShouldAutoRebuildOnTransformChange()
+    {
+        return ShouldAutoRebuildOnChange();
+    }
+
+    public bool ShouldUseInteractionPreview()
+    {
+        return rebuildMode == VolumeRebuildMode.PreviewAndOnChange;
+    }
+
+    public bool ShouldRebuildEveryFrame()
+    {
+        return rebuildMode == VolumeRebuildMode.EveryFrame;
     }
 
     /// <summary>Adds an object using the currently selected inspector defaults.</summary>
@@ -823,7 +852,7 @@ public class VolumeModel : MonoBehaviour
 
     public bool IsPreviewInteractionActive()
     {
-        if (Application.isPlaying)
+        if (Application.isPlaying || !ShouldUseInteractionPreview())
             return false;
 
         bool previewEnabled =
@@ -889,7 +918,7 @@ public class VolumeModel : MonoBehaviour
     {
         effectiveMaxDepth = configuredMaxDepth;
 
-        if (Application.isPlaying || !usePreviewDepthWhileInteracting)
+        if (Application.isPlaying || !ShouldUseInteractionPreview() || !usePreviewDepthWhileInteracting)
             return false;
 
         if (configuredMaxDepth <= 1)
@@ -907,7 +936,7 @@ public class VolumeModel : MonoBehaviour
     {
         effectiveGridSize = configuredGridSize;
 
-        if (Application.isPlaying || dataStructure != VolumeDataStructure.VoxelGrid || !usePreviewResolutionWhileInteracting)
+        if (Application.isPlaying || !ShouldUseInteractionPreview() || dataStructure != VolumeDataStructure.VoxelGrid || !usePreviewResolutionWhileInteracting)
             return false;
 
         double elapsed = EditorApplication.timeSinceStartup - _lastInteractiveEditTime;

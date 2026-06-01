@@ -131,9 +131,10 @@ public class VolumeObject : MonoBehaviour
         previousBounds.Encapsulate(currentBounds);
 
         VolumeModel model = GetComponentInParent<VolumeModel>();
-        if (model != null)
-            model.NotifyInteractiveEdit();
+        if (model == null || !model.ShouldAutoRebuildOnTransformChange())
+            return;
 
+        model.NotifyInteractiveEdit();
         QueueComposerRebuild(previousBounds);
     }
 
@@ -178,11 +179,18 @@ public class VolumeObject : MonoBehaviour
 
         VolumeModel model = GetComponentInParent<VolumeModel>();
 
+        if (model != null && !model.ShouldAutoRebuildOnTransformChange())
+        {
+            _rebuildQueued = false;
+            return;
+        }
+
         if (model != null)
         {
             bool previewEnabled =
-                (model.SupportsPreviewDepth() && model.usePreviewDepthWhileInteracting) ||
-                (model.SupportsPreviewResolution() && model.usePreviewResolutionWhileInteracting);
+                model.ShouldUseInteractionPreview() &&
+                ((model.SupportsPreviewDepth() && model.usePreviewDepthWhileInteracting) ||
+                 (model.SupportsPreviewResolution() && model.usePreviewResolutionWhileInteracting));
             bool previewActive = previewEnabled && model.IsPreviewInteractionActive();
             bool isPointerOrHandleActive = IsEditorHandleActive();
 

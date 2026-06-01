@@ -44,7 +44,7 @@ public class VolumeModelEditor : Editor
         {
             serializedObject.ApplyModifiedProperties();
 
-            if (model.autoRebuildOnChange && !_suppressAutoRebuildThisFrame)
+            if (model.ShouldAutoRebuildOnChange() && !_suppressAutoRebuildThisFrame)
                 model.RebuildModel();
 
             EditorUtility.SetDirty(model);
@@ -102,7 +102,7 @@ public class VolumeModelEditor : Editor
 
             Undo.RecordObject(model, "Change Volume Builder");
 
-            if (model.autoRebuildOnChange)
+            if (model.ShouldAutoRebuildOnChange())
                 model.RebuildModel();
 
             EditorUtility.SetDirty(model);
@@ -497,11 +497,8 @@ public class VolumeModelEditor : Editor
             return;
 
         EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("autoRebuildOnChange")
-        );
-
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("rebuildEveryFrame")
+            serializedObject.FindProperty("rebuildMode"),
+            new GUIContent("Mode")
         );
 
         EditorGUILayout.PropertyField(
