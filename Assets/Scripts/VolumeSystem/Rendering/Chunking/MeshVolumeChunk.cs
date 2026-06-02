@@ -16,6 +16,11 @@ public class MeshVolumeChunk : VolumeChunkBase
     /// <summary>Rebuilds this chunk by meshing only the grid edges owned by its bounds.</summary>
     public override void Rebuild(VolumeModel model, IScalarFieldSource source)
     {
+        Rebuild(model, source, null);
+    }
+
+    public void Rebuild(VolumeModel model, IScalarFieldSource source, OctreeChunkMesher sharedOctreeChunkMesher)
+    {
         EnsureSetup();
 
         _mesh.Clear();
@@ -69,7 +74,7 @@ public class MeshVolumeChunk : VolumeChunkBase
 
                     if (volume != null)
                     {
-                        _octreeChunkMesher.BuildChunk(
+                        (sharedOctreeChunkMesher ?? _octreeChunkMesher).BuildChunk(
                             model,
                             source,
                             volume,

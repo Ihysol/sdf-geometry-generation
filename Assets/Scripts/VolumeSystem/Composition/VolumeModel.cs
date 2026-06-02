@@ -135,6 +135,7 @@ public class VolumeModel : MonoBehaviour
         qefMaxOffsetCells = Mathf.Max(0f, qefMaxOffsetCells);
         qefAxisSnapStrength = Mathf.Max(1f, qefAxisSnapStrength);
         qefHermiteSamplesPerEdge = Mathf.Max(1, qefHermiteSamplesPerEdge);
+        edgeRefinementSteps = Mathf.Max(0, edgeRefinementSteps);
         qefRobustScale = Mathf.Max(0.1f, qefRobustScale);
         qefIrlsIterations = Mathf.Max(1, qefIrlsIterations);
         qefAnisotropicStrength = Mathf.Max(0f, qefAnisotropicStrength);
@@ -175,6 +176,8 @@ public class VolumeModel : MonoBehaviour
     public bool qefEnableMultiHermite = false;
     [Min(1)]
     public int qefHermiteSamplesPerEdge = 3;
+    [Min(0)]
+    public int edgeRefinementSteps = 3;
     public QefSolver.RobustKernel qefRobustKernel = QefSolver.RobustKernel.Cauchy;
     [Min(0.1f)]
     public float qefRobustScale = 2.5f;
@@ -372,6 +375,7 @@ public class VolumeModel : MonoBehaviour
                 activeBuilder.qefAxisSnapStrength = qefAxisSnapStrength;
                 activeBuilder.qefEnableMultiHermite = qefEnableMultiHermite;
                 activeBuilder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
+                activeBuilder.edgeRefinementSteps = edgeRefinementSteps;
                 activeBuilder.qefRobustKernel = qefRobustKernel;
                 activeBuilder.qefRobustScale = qefRobustScale;
                 activeBuilder.qefIrlsIterations = qefIrlsIterations;

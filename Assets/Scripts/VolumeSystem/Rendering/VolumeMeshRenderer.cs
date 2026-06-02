@@ -44,6 +44,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private readonly DualMarchingCubesOctreeMesher dualMarchingCubesMesher = new();
     private readonly DualMarchingTetrahedraOctreeMesher dualMarchingTetrahedraMesher = new();
     private readonly SurfaceNetsOctreeMesher surfaceNetsOctreeMesher = new();
+    private readonly OctreeChunkMesher sharedOctreeChunkMesher = new();
 
     /// <summary>Regenerates the single-mesh output for the model.</summary>
     public void Rebuild(VolumeModel model)
@@ -176,6 +177,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
         octreeMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
         octreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
+        octreeMesher.edgeRefinementSteps = model.edgeRefinementSteps;
     }
 
     private void ConfigureFlatOctreeMesher(VolumeModel model)
@@ -332,7 +334,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             if (model.ShouldLogRebuildDuration())
             {
                 UnityEngine.Debug.Log(
-                    $"VolumeMeshRenderer Chunked [{model.GetPipelineDebugLabel()}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}");
+                    $"VolumeMeshRenderer Chunked [{model.GetPipelineDebugLabel()}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}, refinementSteps={model.edgeRefinementSteps}");
             }
         }
 #endif
@@ -803,7 +805,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             chunk.name = $"MeshVolumeChunk_{idx:000}";
             chunk.coreBounds = chunkBounds;
             chunk.buildBounds = chunkBounds;
-            chunk.Rebuild(_activeChunkModel, _activeChunkComposer);
+            chunk.Rebuild(_activeChunkModel, _activeChunkComposer, sharedOctreeChunkMesher);
             rebuilt++;
 
             if (timeBudgetWatch != null && timeBudgetWatch.Elapsed.TotalMilliseconds >= timeBudgetMs)
@@ -868,7 +870,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (!_chunkCycleIsPreview && model.ShouldLogRebuildDuration())
         {
             UnityEngine.Debug.Log(
-                $"VolumeMeshRenderer Chunked Final [{model.GetPipelineDebugLabel()}] | work(expected={_chunkCycleExpected}, rebuilt={_chunkCycleRebuiltTotal})\n" +
+                $"VolumeMeshRenderer Chunked Final [{model.GetPipelineDebugLabel()}] | work(expected={_chunkCycleExpected}, rebuilt={_chunkCycleRebuiltTotal}, refinementSteps={model.edgeRefinementSteps})\n" +
                 $"timing(total={_chunkCycleTimer.Elapsed.TotalMilliseconds:F2} ms, chunk={_chunkCycleChunkMsTotal:F2} ms, passes={_chunkCyclePasses}, avg={avg:F2} ms, max={_chunkCycleChunkMsMax:F2} ms)");
         }
 

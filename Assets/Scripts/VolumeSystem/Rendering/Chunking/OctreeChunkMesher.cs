@@ -75,6 +75,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
                     _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
                     _mesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
                     _mesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
+                    _mesher.edgeRefinementSteps = model.edgeRefinementSteps;
                     _mesher.ownedBounds = coreBounds;
                     _mesher.BuildMesh(volume, model.isoLevel, targetMesh);
                     _mesher.ownedBounds = null;

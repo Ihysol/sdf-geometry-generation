@@ -1,9 +1,66 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 [System.Serializable]
 public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 {
+    public readonly struct BuildStats
+    {
+        public readonly double totalMs;
+        public readonly double recursiveBuildMs;
+        public readonly double surfaceVertexMs;
+        public readonly int totalNodes;
+        public readonly int surfaceLeaves;
+        public readonly int sourceEvaluations;
+        public readonly int cornerCacheHits;
+        public readonly int cornerCacheMisses;
+        public readonly int centerEvaluations;
+        public readonly int centerCacheHits;
+        public readonly int centerCacheMisses;
+        public readonly int centerDirectEvaluations;
+        public readonly int edgeRefinementEvaluations;
+        public readonly int gradientEvaluations;
+        public readonly int hermiteCacheHits;
+        public readonly int hermiteCacheMisses;
+
+        public BuildStats(
+            double totalMs,
+            double recursiveBuildMs,
+            double surfaceVertexMs,
+            int totalNodes,
+            int surfaceLeaves,
+            int sourceEvaluations,
+            int cornerCacheHits,
+            int cornerCacheMisses,
+            int centerEvaluations,
+            int centerCacheHits,
+            int centerCacheMisses,
+            int centerDirectEvaluations,
+            int edgeRefinementEvaluations,
+            int gradientEvaluations,
+            int hermiteCacheHits,
+            int hermiteCacheMisses)
+        {
+            this.totalMs = totalMs;
+            this.recursiveBuildMs = recursiveBuildMs;
+            this.surfaceVertexMs = surfaceVertexMs;
+            this.totalNodes = totalNodes;
+            this.surfaceLeaves = surfaceLeaves;
+            this.sourceEvaluations = sourceEvaluations;
+            this.cornerCacheHits = cornerCacheHits;
+            this.cornerCacheMisses = cornerCacheMisses;
+            this.centerEvaluations = centerEvaluations;
+            this.centerCacheHits = centerCacheHits;
+            this.centerCacheMisses = centerCacheMisses;
+            this.centerDirectEvaluations = centerDirectEvaluations;
+            this.edgeRefinementEvaluations = edgeRefinementEvaluations;
+            this.gradientEvaluations = gradientEvaluations;
+            this.hermiteCacheHits = hermiteCacheHits;
+            this.hermiteCacheMisses = hermiteCacheMisses;
+        }
+    }
+
     [Header("Bounds")]
     public Vector3 center = Vector3.zero;
     public Vector3 size = new Vector3(4f, 4f, 4f);
@@ -33,6 +90,8 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     [HideInInspector]
     public int qefHermiteSamplesPerEdge = 3;
     [HideInInspector]
+    public int edgeRefinementSteps = 3;
+    [HideInInspector]
     public QefSolver.RobustKernel qefRobustKernel = QefSolver.RobustKernel.Cauchy;
     [HideInInspector]
     public float qefRobustScale = 2.5f;
@@ -53,6 +112,20 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
     private int _totalNodes;
     private int _surfaceLeaves;
+    private int _sourceEvaluations;
+    private int _cornerCacheHits;
+    private int _cornerCacheMisses;
+    private int _centerEvaluations;
+    private int _centerCacheHits;
+    private int _centerCacheMisses;
+    private int _centerDirectEvaluations;
+    private int _edgeRefinementEvaluations;
+    private int _gradientEvaluations;
+    private int _hermiteCacheHits;
+    private int _hermiteCacheMisses;
+    private long _surfaceVertexTicks;
+
+    public BuildStats LastBuildStats { get; private set; }
 
     public override Bounds Bounds
     {
@@ -156,8 +229,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     /// <summary>Builds an adaptive octree by recursively sampling the scalar field.</summary>
     public override OctreeVolume Build(IScalarFieldSource source)
     {
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        Stopwatch recursiveStopwatch = Stopwatch.StartNew();
         _totalNodes = 0;
         _surfaceLeaves = 0;
+        ResetProfilingCounters();
         _cornerSampleCache.Clear();
         _hermiteSampleCache.Clear();
 
@@ -173,13 +249,21 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             origin,
             cellSize
         );
+        recursiveStopwatch.Stop();
+        totalStopwatch.Stop();
+        CaptureBuildStats(totalStopwatch.Elapsed.TotalMilliseconds, recursiveStopwatch.Elapsed.TotalMilliseconds);
 
 #if UNITY_EDITOR
         // Keep this behind editor-only logging to avoid runtime spam.
         if (!suppressBuildLog && UnityEngine.Debug.isDebugBuild)
         {
-            Debug.Log(
-                $"Octree Build: nodes={_totalNodes}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}"
+            UnityEngine.Debug.Log(
+                $"Octree Build: nodes={_totalNodes}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
+                $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms), " +
+                $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}, gradient={LastBuildStats.gradientEvaluations}), " +
+                $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}), " +
+                $"centerCache(hit={LastBuildStats.centerCacheHits}, miss={LastBuildStats.centerCacheMisses}, direct={LastBuildStats.centerDirectEvaluations}), " +
+                $"hermiteCache(hit={LastBuildStats.hermiteCacheHits}, miss={LastBuildStats.hermiteCacheMisses})"
             );
         }
 #endif
@@ -230,7 +314,6 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             origin,
             cellSize
         );
-
         int totalNodes = 0;
         int surfaceLeaves = 0;
         CountStats(root, ref totalNodes, ref surfaceLeaves);
@@ -354,7 +437,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         node.Depth = depth;
 
         float[] corners = SampleCorners(source, bounds, origin, cellSize);
-        float centerValue = source.Evaluate(bounds.center);
+        float centerValue = EvaluateCenter(source, bounds.center, origin, cellSize);
 
         node.CornerValues = corners;
         node.Coord = GetCoord(bounds, origin, cellSize);
@@ -407,6 +490,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
             if (cornerContainsSurface)
             {
+                long surfaceVertexStart = Stopwatch.GetTimestamp();
                 node.SurfaceVertex = EstimateSurfaceVertex(
                     source,
                     bounds,
@@ -414,6 +498,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                     origin,
                     cellSize
                 );
+                _surfaceVertexTicks += Stopwatch.GetTimestamp() - surfaceVertexStart;
 
                 _surfaceLeaves++;
             }
@@ -468,37 +553,51 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     /// <summary>Samples all eight corners of a node bound.</summary>
     private float[] SampleCorners(IScalarFieldSource source, Bounds bounds, Vector3 origin, Vector3 cellSize)
     {
-        Vector3[] positions = GetCornerPositions(bounds);
-        Vector3Int[] coords = GetCornerGridCoords(bounds, origin, cellSize);
+        Vector3 min = bounds.min;
+        Vector3 max = bounds.max;
+        Vector3Int minCoord = WorldToGridVertex(min.x, min.y, min.z, origin, cellSize);
+        Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
 
         return new float[]
         {
-            EvaluateCornerCached(source, coords[0], positions[0]),
-            EvaluateCornerCached(source, coords[1], positions[1]),
-            EvaluateCornerCached(source, coords[2], positions[2]),
-            EvaluateCornerCached(source, coords[3], positions[3]),
-            EvaluateCornerCached(source, coords[4], positions[4]),
-            EvaluateCornerCached(source, coords[5], positions[5]),
-            EvaluateCornerCached(source, coords[6], positions[6]),
-            EvaluateCornerCached(source, coords[7], positions[7])
+            EvaluateCornerCached(source, GetCornerGridCoord(0, minCoord, maxCoord), GetCornerPosition(0, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(1, minCoord, maxCoord), GetCornerPosition(1, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(2, minCoord, maxCoord), GetCornerPosition(2, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(3, minCoord, maxCoord), GetCornerPosition(3, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(4, minCoord, maxCoord), GetCornerPosition(4, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(5, minCoord, maxCoord), GetCornerPosition(5, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(6, minCoord, maxCoord), GetCornerPosition(6, min, max)),
+            EvaluateCornerCached(source, GetCornerGridCoord(7, minCoord, maxCoord), GetCornerPosition(7, min, max))
         };
     }
 
-    private static Vector3Int[] GetCornerGridCoords(Bounds bounds, Vector3 origin, Vector3 cellSize)
+    private static Vector3 GetCornerPosition(int index, Vector3 min, Vector3 max)
     {
-        Vector3 min = bounds.min;
-        Vector3 max = bounds.max;
-
-        return new Vector3Int[]
+        return index switch
         {
-            WorldToGridVertex(min.x, min.y, min.z, origin, cellSize),
-            WorldToGridVertex(max.x, min.y, min.z, origin, cellSize),
-            WorldToGridVertex(max.x, max.y, min.z, origin, cellSize),
-            WorldToGridVertex(min.x, max.y, min.z, origin, cellSize),
-            WorldToGridVertex(min.x, min.y, max.z, origin, cellSize),
-            WorldToGridVertex(max.x, min.y, max.z, origin, cellSize),
-            WorldToGridVertex(max.x, max.y, max.z, origin, cellSize),
-            WorldToGridVertex(min.x, max.y, max.z, origin, cellSize)
+            0 => new Vector3(min.x, min.y, min.z),
+            1 => new Vector3(max.x, min.y, min.z),
+            2 => new Vector3(max.x, max.y, min.z),
+            3 => new Vector3(min.x, max.y, min.z),
+            4 => new Vector3(min.x, min.y, max.z),
+            5 => new Vector3(max.x, min.y, max.z),
+            6 => new Vector3(max.x, max.y, max.z),
+            _ => new Vector3(min.x, max.y, max.z)
+        };
+    }
+
+    private static Vector3Int GetCornerGridCoord(int index, Vector3Int min, Vector3Int max)
+    {
+        return index switch
+        {
+            0 => new Vector3Int(min.x, min.y, min.z),
+            1 => new Vector3Int(max.x, min.y, min.z),
+            2 => new Vector3Int(max.x, max.y, min.z),
+            3 => new Vector3Int(min.x, max.y, min.z),
+            4 => new Vector3Int(min.x, min.y, max.z),
+            5 => new Vector3Int(max.x, min.y, max.z),
+            6 => new Vector3Int(max.x, max.y, max.z),
+            _ => new Vector3Int(min.x, max.y, max.z)
         };
     }
 
@@ -514,31 +613,15 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private float EvaluateCornerCached(IScalarFieldSource source, Vector3Int gridCoord, Vector3 worldPos)
     {
         if (_cornerSampleCache.TryGetValue(gridCoord, out float cached))
+        {
+            _cornerCacheHits++;
             return cached;
+        }
 
-        float value = source.Evaluate(worldPos);
+        _cornerCacheMisses++;
+        float value = EvaluateSource(source, worldPos);
         _cornerSampleCache[gridCoord] = value;
         return value;
-    }
-
-    /// <summary>Returns the eight corner positions for a bound.</summary>
-    private Vector3[] GetCornerPositions(Bounds bounds)
-    {
-        Vector3 min = bounds.min;
-        Vector3 max = bounds.max;
-
-        return new Vector3[]
-        {
-            new Vector3(min.x, min.y, min.z),
-            new Vector3(max.x, min.y, min.z),
-            new Vector3(max.x, max.y, min.z),
-            new Vector3(min.x, max.y, min.z),
-
-            new Vector3(min.x, min.y, max.z),
-            new Vector3(max.x, min.y, max.z),
-            new Vector3(max.x, max.y, max.z),
-            new Vector3(min.x, max.y, max.z)
-        };
     }
 
     /// <summary>Estimates a dual-contouring vertex from edge crossing positions.</summary>
@@ -549,8 +632,10 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 origin,
         Vector3 cellSize)
     {
-        Vector3[] cornerPositions = GetCornerPositions(bounds);
-        Vector3Int[] cornerCoords = GetCornerGridCoords(bounds, origin, cellSize);
+        Vector3 min = bounds.min;
+        Vector3 max = bounds.max;
+        Vector3Int minCoord = WorldToGridVertex(min.x, min.y, min.z, origin, cellSize);
+        Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
 
         Vector3 sum = Vector3.zero;
         int count = 0;
@@ -568,10 +653,10 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             if (!HasCrossing(va, vb))
                 continue;
 
-            Vector3 pa = cornerPositions[edge.A];
-            Vector3 pb = cornerPositions[edge.B];
-            Vector3Int ca = cornerCoords[edge.A];
-            Vector3Int cb = cornerCoords[edge.B];
+            Vector3 pa = GetCornerPosition(edge.A, min, max);
+            Vector3 pb = GetCornerPosition(edge.B, min, max);
+            Vector3Int ca = GetCornerGridCoord(edge.A, minCoord, maxCoord);
+            Vector3Int cb = GetCornerGridCoord(edge.B, minCoord, maxCoord);
 
             AddHermiteSamplesForEdge(source, pa, pb, va, vb, ca, cb, cellSize, 0f, ref sum, ref count);
         }
@@ -761,11 +846,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         float fA = fa;
         float fB = fb;
 
-        // A few bisection steps produce more stable and crisper crossings.
-        for (int i = 0; i < 3; i++)
+        // Optional bisection steps improve crossing precision at additional sampling cost.
+        for (int i = 0; i < Mathf.Max(0, edgeRefinementSteps); i++)
         {
             Vector3 mid = (a + b) * 0.5f;
-            float fM = source.Evaluate(mid) - isoLevel;
+            float fM = EvaluateEdgeRefinement(source, mid) - isoLevel;
             best = mid;
 
             if (Mathf.Abs(fM) < 1e-6f)
@@ -799,8 +884,12 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     {
         HermiteEdgeKey key = new HermiteEdgeKey(ca, cb);
         if (_hermiteSampleCache.TryGetValue(key, out HermiteSample cached))
+        {
+            _hermiteCacheHits++;
             return cached;
+        }
 
+        _hermiteCacheMisses++;
         Vector3 p = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
         Vector3 g = EstimateGradientVector(source, p, cellSize);
         float strength = g.magnitude;
@@ -921,11 +1010,102 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         float hy = Mathf.Max(Mathf.Abs(cellSize.y), 1e-4f) * 0.5f;
         float hz = Mathf.Max(Mathf.Abs(cellSize.z), 1e-4f) * 0.5f;
 
-        float dx = source.Evaluate(p + new Vector3(hx, 0f, 0f)) - source.Evaluate(p - new Vector3(hx, 0f, 0f));
-        float dy = source.Evaluate(p + new Vector3(0f, hy, 0f)) - source.Evaluate(p - new Vector3(0f, hy, 0f));
-        float dz = source.Evaluate(p + new Vector3(0f, 0f, hz)) - source.Evaluate(p - new Vector3(0f, 0f, hz));
+        float dx = EvaluateGradient(source, p + new Vector3(hx, 0f, 0f)) - EvaluateGradient(source, p - new Vector3(hx, 0f, 0f));
+        float dy = EvaluateGradient(source, p + new Vector3(0f, hy, 0f)) - EvaluateGradient(source, p - new Vector3(0f, hy, 0f));
+        float dz = EvaluateGradient(source, p + new Vector3(0f, 0f, hz)) - EvaluateGradient(source, p - new Vector3(0f, 0f, hz));
 
         return new Vector3(dx, dy, dz);
+    }
+
+    private void ResetProfilingCounters()
+    {
+        _sourceEvaluations = 0;
+        _cornerCacheHits = 0;
+        _cornerCacheMisses = 0;
+        _centerEvaluations = 0;
+        _centerCacheHits = 0;
+        _centerCacheMisses = 0;
+        _centerDirectEvaluations = 0;
+        _edgeRefinementEvaluations = 0;
+        _gradientEvaluations = 0;
+        _hermiteCacheHits = 0;
+        _hermiteCacheMisses = 0;
+        _surfaceVertexTicks = 0;
+    }
+
+    private void CaptureBuildStats(double totalMs, double recursiveBuildMs)
+    {
+        LastBuildStats = new BuildStats(
+            totalMs,
+            recursiveBuildMs,
+            _surfaceVertexTicks * 1000d / Stopwatch.Frequency,
+            _totalNodes,
+            _surfaceLeaves,
+            _sourceEvaluations,
+            _cornerCacheHits,
+            _cornerCacheMisses,
+            _centerEvaluations,
+            _centerCacheHits,
+            _centerCacheMisses,
+            _centerDirectEvaluations,
+            _edgeRefinementEvaluations,
+            _gradientEvaluations,
+            _hermiteCacheHits,
+            _hermiteCacheMisses
+        );
+    }
+
+    private float EvaluateSource(IScalarFieldSource source, Vector3 position)
+    {
+        _sourceEvaluations++;
+        return source.Evaluate(position);
+    }
+
+    private float EvaluateCenter(IScalarFieldSource source, Vector3 position, Vector3 origin, Vector3 cellSize)
+    {
+        _centerEvaluations++;
+        if (!TryGetGridVertex(position, origin, cellSize, out Vector3Int gridCoord))
+        {
+            _centerDirectEvaluations++;
+            return EvaluateSource(source, position);
+        }
+
+        if (_cornerSampleCache.TryGetValue(gridCoord, out float cached))
+        {
+            _centerCacheHits++;
+            return cached;
+        }
+
+        _centerCacheMisses++;
+        float value = EvaluateSource(source, position);
+        _cornerSampleCache[gridCoord] = value;
+        return value;
+    }
+
+    private static bool TryGetGridVertex(Vector3 position, Vector3 origin, Vector3 cellSize, out Vector3Int gridCoord)
+    {
+        float x = (position.x - origin.x) / cellSize.x;
+        float y = (position.y - origin.y) / cellSize.y;
+        float z = (position.z - origin.z) / cellSize.z;
+        int rx = Mathf.RoundToInt(x);
+        int ry = Mathf.RoundToInt(y);
+        int rz = Mathf.RoundToInt(z);
+        gridCoord = new Vector3Int(rx, ry, rz);
+        return Mathf.Abs(x - rx) <= 1e-5f &&
+               Mathf.Abs(y - ry) <= 1e-5f &&
+               Mathf.Abs(z - rz) <= 1e-5f;
+    }
+
+    private float EvaluateEdgeRefinement(IScalarFieldSource source, Vector3 position)
+    {
+        _edgeRefinementEvaluations++;
+        return EvaluateSource(source, position);
+    }
+
+    private float EvaluateGradient(IScalarFieldSource source, Vector3 position)
+    {
+        _gradientEvaluations++;
+        return EvaluateSource(source, position);
     }
 
     private static Vector3 SafeNormalize(Vector3 v)

@@ -11,6 +11,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     public float qefAxisSnapStrength = 2.5f;
     public bool qefEnableMultiHermite = false;
     public int qefHermiteSamplesPerEdge = 3;
+    public int edgeRefinementSteps = 3;
     public QefSolver.RobustKernel qefRobustKernel = QefSolver.RobustKernel.Cauchy;
     public float qefRobustScale = 2.5f;
     public int qefIrlsIterations = 3;
@@ -32,6 +33,9 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     private readonly HashSet<Vector3Int> _missingLeafCoords = new();
     private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
     private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
+    private OctreeVolume _sampleCacheVolume;
+    private float _sampleCacheIsoLevel;
+    private int _sampleCacheRefinementSteps;
 
     private int _skippedNullQuads;
     private int _skippedInvalidQuads;
@@ -233,8 +237,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         _processedEdges.Clear();
         _ownedGridBounds.Clear();
         _missingLeafCoords.Clear();
-        _cornerSampleCache.Clear();
-        _hermiteSampleCache.Clear();
+        PrepareSampleCaches(volume, iso);
 
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
@@ -390,6 +393,22 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         }
 
         return false;
+    }
+
+    private void PrepareSampleCaches(OctreeVolume volume, float iso)
+    {
+        if (ReferenceEquals(_sampleCacheVolume, volume) &&
+            _sampleCacheIsoLevel == iso &&
+            _sampleCacheRefinementSteps == edgeRefinementSteps)
+        {
+            return;
+        }
+
+        _cornerSampleCache.Clear();
+        _hermiteSampleCache.Clear();
+        _sampleCacheVolume = volume;
+        _sampleCacheIsoLevel = iso;
+        _sampleCacheRefinementSteps = edgeRefinementSteps;
     }
 
     /// <summary>Tests grid-edge ownership against one half-open grid bound.</summary>
@@ -1094,7 +1113,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         Vector3 b = pb;
         float fA = fa;
 
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < Mathf.Max(0, edgeRefinementSteps); i++)
         {
             Vector3 mid = (a + b) * 0.5f;
             float fM = source.Evaluate(mid) - iso;

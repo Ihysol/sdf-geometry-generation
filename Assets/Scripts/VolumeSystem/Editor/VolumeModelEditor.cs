@@ -347,6 +347,10 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("isoLevel")
         );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("edgeRefinementSteps"),
+            new GUIContent("Edge Refinement Steps")
+        );
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("useQefVertices"),
