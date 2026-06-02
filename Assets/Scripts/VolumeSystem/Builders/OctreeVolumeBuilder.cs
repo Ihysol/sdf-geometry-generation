@@ -21,8 +21,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int centerDirectEvaluations;
         public readonly int edgeRefinementEvaluations;
         public readonly int gradientEvaluations;
+        public readonly int gradientCacheHits;
+        public readonly int gradientCacheMisses;
         public readonly int hermiteCacheHits;
         public readonly int hermiteCacheMisses;
+        public readonly int subdivisionMinDepth;
+        public readonly int subdivisionCornerCrossing;
+        public readonly int subdivisionCenterMismatch;
+        public readonly int subdivisionDistanceThreshold;
 
         public BuildStats(
             double totalMs,
@@ -39,8 +45,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int centerDirectEvaluations,
             int edgeRefinementEvaluations,
             int gradientEvaluations,
+            int gradientCacheHits,
+            int gradientCacheMisses,
             int hermiteCacheHits,
-            int hermiteCacheMisses)
+            int hermiteCacheMisses,
+            int subdivisionMinDepth,
+            int subdivisionCornerCrossing,
+            int subdivisionCenterMismatch,
+            int subdivisionDistanceThreshold)
         {
             this.totalMs = totalMs;
             this.recursiveBuildMs = recursiveBuildMs;
@@ -56,8 +68,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.centerDirectEvaluations = centerDirectEvaluations;
             this.edgeRefinementEvaluations = edgeRefinementEvaluations;
             this.gradientEvaluations = gradientEvaluations;
+            this.gradientCacheHits = gradientCacheHits;
+            this.gradientCacheMisses = gradientCacheMisses;
             this.hermiteCacheHits = hermiteCacheHits;
             this.hermiteCacheMisses = hermiteCacheMisses;
+            this.subdivisionMinDepth = subdivisionMinDepth;
+            this.subdivisionCornerCrossing = subdivisionCornerCrossing;
+            this.subdivisionCenterMismatch = subdivisionCenterMismatch;
+            this.subdivisionDistanceThreshold = subdivisionDistanceThreshold;
         }
     }
 
@@ -121,8 +139,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _centerDirectEvaluations;
     private int _edgeRefinementEvaluations;
     private int _gradientEvaluations;
+    private int _gradientCacheHits;
+    private int _gradientCacheMisses;
     private int _hermiteCacheHits;
     private int _hermiteCacheMisses;
+    private int _subdivisionMinDepth;
+    private int _subdivisionCornerCrossing;
+    private int _subdivisionCenterMismatch;
+    private int _subdivisionDistanceThreshold;
     private long _surfaceVertexTicks;
 
     public BuildStats LastBuildStats { get; private set; }
@@ -166,65 +190,55 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         new Edge(3, 7)
     };
 
+    private readonly struct CornerSamples
+    {
+        private readonly float _v0;
+        private readonly float _v1;
+        private readonly float _v2;
+        private readonly float _v3;
+        private readonly float _v4;
+        private readonly float _v5;
+        private readonly float _v6;
+        private readonly float _v7;
+
+        public int Length => 8;
+
+        public CornerSamples(float v0, float v1, float v2, float v3, float v4, float v5, float v6, float v7)
+        {
+            _v0 = v0;
+            _v1 = v1;
+            _v2 = v2;
+            _v3 = v3;
+            _v4 = v4;
+            _v5 = v5;
+            _v6 = v6;
+            _v7 = v7;
+        }
+
+        public float this[int index] => index switch
+        {
+            0 => _v0,
+            1 => _v1,
+            2 => _v2,
+            3 => _v3,
+            4 => _v4,
+            5 => _v5,
+            6 => _v6,
+            _ => _v7
+        };
+
+        public float[] ToArray()
+        {
+            return new[] { _v0, _v1, _v2, _v3, _v4, _v5, _v6, _v7 };
+        }
+    }
+
     private readonly List<Vector3> _qefPoints = new(12);
     private readonly List<Vector3> _qefNormals = new(12);
     private readonly List<float> _qefWeights = new(12);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
-    private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
-
-    private readonly struct HermiteSample
-    {
-        public readonly Vector3 Point;
-        public readonly Vector3 Normal;
-        public readonly float Weight;
-
-        public HermiteSample(Vector3 point, Vector3 normal, float weight)
-        {
-            Point = point;
-            Normal = normal;
-            Weight = weight;
-        }
-    }
-
-    private readonly struct HermiteEdgeKey
-    {
-        public readonly Vector3Int A;
-        public readonly Vector3Int B;
-
-        public HermiteEdgeKey(Vector3Int a, Vector3Int b)
-        {
-            if (LexicographicLessOrEqual(a, b))
-            {
-                A = a;
-                B = b;
-            }
-            else
-            {
-                A = b;
-                B = a;
-            }
-        }
-
-        public override int GetHashCode()
-        {
-            return (A.GetHashCode() * 397) ^ B.GetHashCode();
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (obj is not HermiteEdgeKey other)
-                return false;
-
-            return A == other.A && B == other.B;
-        }
-
-        private static bool LexicographicLessOrEqual(Vector3Int x, Vector3Int y)
-        {
-            if (x.x != y.x) return x.x < y.x;
-            if (x.y != y.y) return x.y < y.y;
-            return x.z <= y.z;
-        }
-    }
+    private readonly Dictionary<Vector3, float> _gradientSampleCache = new();
+    private readonly Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample> _hermiteSampleCache = new();
 
     /// <summary>Builds an adaptive octree by recursively sampling the scalar field.</summary>
     public override OctreeVolume Build(IScalarFieldSource source)
@@ -235,6 +249,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _surfaceLeaves = 0;
         ResetProfilingCounters();
         _cornerSampleCache.Clear();
+        _gradientSampleCache.Clear();
         _hermiteSampleCache.Clear();
 
         Bounds buildBounds = Bounds;
@@ -263,7 +278,9 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}, gradient={LastBuildStats.gradientEvaluations}), " +
                 $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}), " +
                 $"centerCache(hit={LastBuildStats.centerCacheHits}, miss={LastBuildStats.centerCacheMisses}, direct={LastBuildStats.centerDirectEvaluations}), " +
-                $"hermiteCache(hit={LastBuildStats.hermiteCacheHits}, miss={LastBuildStats.hermiteCacheMisses})"
+                $"gradientCache(hit={LastBuildStats.gradientCacheHits}, miss={LastBuildStats.gradientCacheMisses}), " +
+                $"hermiteCache(hit={LastBuildStats.hermiteCacheHits}, miss={LastBuildStats.hermiteCacheMisses}), " +
+                $"subdivision(minDepth={LastBuildStats.subdivisionMinDepth}, crossing={LastBuildStats.subdivisionCornerCrossing}, centerMismatch={LastBuildStats.subdivisionCenterMismatch}, distance={LastBuildStats.subdivisionDistanceThreshold})"
             );
         }
 #endif
@@ -276,7 +293,10 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _surfaceLeaves,
             source,
             origin,
-            cellSize
+            cellSize,
+            new Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample>(_hermiteSampleCache),
+            edgeRefinementSteps,
+            0f
         );
     }
 
@@ -284,6 +304,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     {
         rebuilt = null;
         _cornerSampleCache.Clear();
+        _gradientSampleCache.Clear();
         _hermiteSampleCache.Clear();
 
         if (source == null || existing == null || existing.Root == null)
@@ -436,10 +457,9 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         OctreeNode node = new OctreeNode(bounds);
         node.Depth = depth;
 
-        float[] corners = SampleCorners(source, bounds, origin, cellSize);
+        CornerSamples corners = SampleCorners(source, bounds, origin, cellSize);
         float centerValue = EvaluateCenter(source, bounds.center, origin, cellSize);
 
-        node.CornerValues = corners;
         node.Coord = GetCoord(bounds, origin, cellSize);
         node.SizeInCells = GetSizeInCells(bounds, cellSize);
         node.CenterValue = centerValue;
@@ -463,6 +483,15 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         bool couldContainSurface =
             Mathf.Abs(centerValue - 0f) <= bounds.extents.magnitude;
+
+        if (depth < minDepth)
+            _subdivisionMinDepth++;
+        if (cornerContainsSurface)
+            _subdivisionCornerCrossing++;
+        if (centerDiffersFromCorners)
+            _subdivisionCenterMismatch++;
+        if (couldContainSurface)
+            _subdivisionDistanceThreshold++;
 
         bool shouldSubdivide =
             depth < minDepth ||
@@ -490,6 +519,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
             if (cornerContainsSurface)
             {
+                node.CornerValues = corners.ToArray();
                 long surfaceVertexStart = Stopwatch.GetTimestamp();
                 node.SurfaceVertex = EstimateSurfaceVertex(
                     source,
@@ -551,15 +581,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     }
 
     /// <summary>Samples all eight corners of a node bound.</summary>
-    private float[] SampleCorners(IScalarFieldSource source, Bounds bounds, Vector3 origin, Vector3 cellSize)
+    private CornerSamples SampleCorners(IScalarFieldSource source, Bounds bounds, Vector3 origin, Vector3 cellSize)
     {
         Vector3 min = bounds.min;
         Vector3 max = bounds.max;
         Vector3Int minCoord = WorldToGridVertex(min.x, min.y, min.z, origin, cellSize);
         Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
 
-        return new float[]
-        {
+        return new CornerSamples(
             EvaluateCornerCached(source, GetCornerGridCoord(0, minCoord, maxCoord), GetCornerPosition(0, min, max)),
             EvaluateCornerCached(source, GetCornerGridCoord(1, minCoord, maxCoord), GetCornerPosition(1, min, max)),
             EvaluateCornerCached(source, GetCornerGridCoord(2, minCoord, maxCoord), GetCornerPosition(2, min, max)),
@@ -568,7 +597,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             EvaluateCornerCached(source, GetCornerGridCoord(5, minCoord, maxCoord), GetCornerPosition(5, min, max)),
             EvaluateCornerCached(source, GetCornerGridCoord(6, minCoord, maxCoord), GetCornerPosition(6, min, max)),
             EvaluateCornerCached(source, GetCornerGridCoord(7, minCoord, maxCoord), GetCornerPosition(7, min, max))
-        };
+        );
     }
 
     private static Vector3 GetCornerPosition(int index, Vector3 min, Vector3 max)
@@ -628,7 +657,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private Vector3 EstimateSurfaceVertex(
         IScalarFieldSource source,
         Bounds bounds,
-        float[] cornerValues,
+        CornerSamples cornerValues,
         Vector3 origin,
         Vector3 cellSize)
     {
@@ -871,7 +900,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return best;
     }
 
-    private HermiteSample GetHermiteSample(
+    private OctreeHermiteSample GetHermiteSample(
         IScalarFieldSource source,
         Vector3 pa,
         Vector3 pb,
@@ -882,8 +911,8 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 cellSize,
         float isoLevel)
     {
-        HermiteEdgeKey key = new HermiteEdgeKey(ca, cb);
-        if (_hermiteSampleCache.TryGetValue(key, out HermiteSample cached))
+        OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
+        if (_hermiteSampleCache.TryGetValue(key, out OctreeHermiteSample cached))
         {
             _hermiteCacheHits++;
             return cached;
@@ -893,7 +922,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 p = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
         Vector3 g = EstimateGradientVector(source, p, cellSize);
         float strength = g.magnitude;
-        HermiteSample sample = new HermiteSample(
+        OctreeHermiteSample sample = new OctreeHermiteSample(
             p,
             SafeNormalize(g),
             Mathf.Max(0.05f, strength)
@@ -916,7 +945,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         ref Vector3 sum,
         ref int count)
     {
-        HermiteSample center = GetHermiteSample(source, pa, pb, va, vb, ca, cb, cellSize, isoLevel);
+        OctreeHermiteSample center = GetHermiteSample(source, pa, pb, va, vb, ca, cb, cellSize, isoLevel);
         sum += center.Point;
         count++;
         _qefPoints.Add(center.Point);
@@ -1028,8 +1057,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _centerDirectEvaluations = 0;
         _edgeRefinementEvaluations = 0;
         _gradientEvaluations = 0;
+        _gradientCacheHits = 0;
+        _gradientCacheMisses = 0;
         _hermiteCacheHits = 0;
         _hermiteCacheMisses = 0;
+        _subdivisionMinDepth = 0;
+        _subdivisionCornerCrossing = 0;
+        _subdivisionCenterMismatch = 0;
+        _subdivisionDistanceThreshold = 0;
         _surfaceVertexTicks = 0;
     }
 
@@ -1050,8 +1085,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _centerDirectEvaluations,
             _edgeRefinementEvaluations,
             _gradientEvaluations,
+            _gradientCacheHits,
+            _gradientCacheMisses,
             _hermiteCacheHits,
-            _hermiteCacheMisses
+            _hermiteCacheMisses,
+            _subdivisionMinDepth,
+            _subdivisionCornerCrossing,
+            _subdivisionCenterMismatch,
+            _subdivisionDistanceThreshold
         );
     }
 
@@ -1104,8 +1145,17 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
     private float EvaluateGradient(IScalarFieldSource source, Vector3 position)
     {
+        if (_gradientSampleCache.TryGetValue(position, out float cached))
+        {
+            _gradientCacheHits++;
+            return cached;
+        }
+
+        _gradientCacheMisses++;
         _gradientEvaluations++;
-        return EvaluateSource(source, position);
+        float value = EvaluateSource(source, position);
+        _gradientSampleCache[position] = value;
+        return value;
     }
 
     private static Vector3 SafeNormalize(Vector3 v)

@@ -30,7 +30,14 @@ public class OctreeVolumeBuilderProfilingTests
         Assert.That(stats.cornerCacheMisses, Is.GreaterThan(0));
         Assert.That(stats.centerCacheMisses, Is.GreaterThan(0));
         Assert.That(stats.centerDirectEvaluations, Is.GreaterThan(0));
+        Assert.That(stats.gradientCacheMisses, Is.EqualTo(stats.gradientEvaluations));
         Assert.That(stats.hermiteCacheMisses, Is.GreaterThan(0));
+        Assert.That(stats.subdivisionMinDepth, Is.GreaterThan(0));
+        Assert.That(stats.subdivisionCornerCrossing, Is.GreaterThan(0));
+        Assert.That(stats.subdivisionDistanceThreshold, Is.GreaterThan(0));
+        Assert.That(volume.CachedHermiteSampleCount, Is.EqualTo(stats.hermiteCacheMisses));
+        Assert.That(volume.Root.CornerValues, Is.Null);
+        AssertSurfaceLeavesRetainCorners(volume.Root);
         Assert.That(stats.totalMs, Is.GreaterThanOrEqualTo(stats.recursiveBuildMs));
         Assert.That(stats.recursiveBuildMs, Is.GreaterThanOrEqualTo(stats.surfaceVertexMs));
     }
@@ -64,5 +71,18 @@ public class OctreeVolumeBuilderProfilingTests
             Evaluations++;
             return worldPosition.magnitude - 0.75f;
         }
+    }
+
+    private static void AssertSurfaceLeavesRetainCorners(OctreeNode node)
+    {
+        if (node.IsLeaf)
+        {
+            if (node.ContainsSurface)
+                Assert.That(node.CornerValues, Has.Length.EqualTo(8));
+            return;
+        }
+
+        foreach (OctreeNode child in node.Children)
+            AssertSurfaceLeavesRetainCorners(child);
     }
 }

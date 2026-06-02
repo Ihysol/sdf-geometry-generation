@@ -32,6 +32,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     private readonly List<GridBounds> _ownedGridBounds = new();
     private readonly HashSet<Vector3Int> _missingLeafCoords = new();
     private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
+    private readonly Dictionary<Vector3, float> _gradientSampleCache = new();
     private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
     private OctreeVolume _sampleCacheVolume;
     private float _sampleCacheIsoLevel;
@@ -405,6 +406,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         }
 
         _cornerSampleCache.Clear();
+        _gradientSampleCache.Clear();
         _hermiteSampleCache.Clear();
         _sampleCacheVolume = volume;
         _sampleCacheIsoLevel = iso;
@@ -1150,6 +1152,13 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         if (_hermiteSampleCache.TryGetValue(key, out HermiteSample cached))
             return cached;
 
+        if (_volume.TryGetHermiteSample(ca, cb, edgeRefinementSteps, isoLevel, out OctreeHermiteSample volumeSample))
+        {
+            HermiteSample imported = new HermiteSample(volumeSample.Point, volumeSample.Normal, volumeSample.Weight);
+            _hermiteSampleCache[key] = imported;
+            return imported;
+        }
+
         Vector3 p = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
         Vector3 g = EstimateGradientVector(source, p);
         float strength = g.magnitude;
@@ -1287,11 +1296,21 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         float hy = Mathf.Max(Mathf.Abs(_cellSize.y), 1e-4f) * 0.5f;
         float hz = Mathf.Max(Mathf.Abs(_cellSize.z), 1e-4f) * 0.5f;
 
-        float dx = source.Evaluate(p + new Vector3(hx, 0f, 0f)) - source.Evaluate(p - new Vector3(hx, 0f, 0f));
-        float dy = source.Evaluate(p + new Vector3(0f, hy, 0f)) - source.Evaluate(p - new Vector3(0f, hy, 0f));
-        float dz = source.Evaluate(p + new Vector3(0f, 0f, hz)) - source.Evaluate(p - new Vector3(0f, 0f, hz));
+        float dx = EvaluateGradientCached(source, p + new Vector3(hx, 0f, 0f)) - EvaluateGradientCached(source, p - new Vector3(hx, 0f, 0f));
+        float dy = EvaluateGradientCached(source, p + new Vector3(0f, hy, 0f)) - EvaluateGradientCached(source, p - new Vector3(0f, hy, 0f));
+        float dz = EvaluateGradientCached(source, p + new Vector3(0f, 0f, hz)) - EvaluateGradientCached(source, p - new Vector3(0f, 0f, hz));
 
         return new Vector3(dx, dy, dz);
+    }
+
+    private float EvaluateGradientCached(IScalarFieldSource source, Vector3 position)
+    {
+        if (_gradientSampleCache.TryGetValue(position, out float cached))
+            return cached;
+
+        float value = source.Evaluate(position);
+        _gradientSampleCache[position] = value;
+        return value;
     }
 
     private static Vector3 SafeNormalize(Vector3 v)

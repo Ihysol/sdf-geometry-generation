@@ -1,6 +1,57 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+public readonly struct OctreeHermiteSample
+{
+    public readonly Vector3 Point;
+    public readonly Vector3 Normal;
+    public readonly float Weight;
+
+    public OctreeHermiteSample(Vector3 point, Vector3 normal, float weight)
+    {
+        Point = point;
+        Normal = normal;
+        Weight = weight;
+    }
+}
+
+public readonly struct OctreeHermiteEdgeKey
+{
+    public readonly Vector3Int A;
+    public readonly Vector3Int B;
+
+    public OctreeHermiteEdgeKey(Vector3Int a, Vector3Int b)
+    {
+        if (LexicographicLessOrEqual(a, b))
+        {
+            A = a;
+            B = b;
+        }
+        else
+        {
+            A = b;
+            B = a;
+        }
+    }
+
+    public override int GetHashCode()
+    {
+        return (A.GetHashCode() * 397) ^ B.GetHashCode();
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is OctreeHermiteEdgeKey other && A == other.A && B == other.B;
+    }
+
+    private static bool LexicographicLessOrEqual(Vector3Int x, Vector3Int y)
+    {
+        if (x.x != y.x) return x.x < y.x;
+        if (x.y != y.y) return x.y < y.y;
+        return x.z <= y.z;
+    }
+}
+
 public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolumeData
 {
     public OctreeNode Root { get; }
@@ -14,7 +65,11 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolume
 
     public Vector3 GridOrigin { get; }
     public Vector3 CellSize { get; }
+    public int CachedHermiteSampleCount => _hermiteSamples?.Count ?? 0;
     private FlatOctreeLayout _flatLayout;
+    private readonly Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample> _hermiteSamples;
+    private readonly int _hermiteSampleRefinementSteps;
+    private readonly float _hermiteSampleIsoLevel;
 
     /// <summary>Stores a built octree volume and its global grid metadata.</summary>
     public OctreeVolume(
@@ -25,7 +80,10 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolume
         int surfaceLeaves,
         IScalarFieldSource source,
         Vector3 gridOrigin,
-        Vector3 cellSize)
+        Vector3 cellSize,
+        Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample> hermiteSamples = null,
+        int hermiteSampleRefinementSteps = 0,
+        float hermiteSampleIsoLevel = 0f)
     {
         Root = root;
         Bounds = bounds;
@@ -35,6 +93,23 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolume
         Source = source;
         GridOrigin = gridOrigin;
         CellSize = cellSize;
+        _hermiteSamples = hermiteSamples;
+        _hermiteSampleRefinementSteps = hermiteSampleRefinementSteps;
+        _hermiteSampleIsoLevel = hermiteSampleIsoLevel;
+    }
+
+    public bool TryGetHermiteSample(
+        Vector3Int a,
+        Vector3Int b,
+        int refinementSteps,
+        float isoLevel,
+        out OctreeHermiteSample sample)
+    {
+        sample = default;
+        return _hermiteSamples != null &&
+               _hermiteSampleRefinementSteps == refinementSteps &&
+               _hermiteSampleIsoLevel == isoLevel &&
+               _hermiteSamples.TryGetValue(new OctreeHermiteEdgeKey(a, b), out sample);
     }
 
     public void BuildChunkBounds(ChunkingSettings settings, List<Bounds> output)
