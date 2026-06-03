@@ -44,18 +44,18 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
 
             case OctreeMesherType.DualContouring:
             default:
-                if (model.storageMode == VolumeStorageMode.Flat)
+                if (model.GetEffectiveStorageMode() == VolumeStorageMode.Flat)
                 {
                     IFlatAdaptiveVolumeData flatVolume = model.GetActiveFlatAdaptiveVolume() ?? volume;
                     _flatMesher.enableDebugLog = model != null && model.ShouldLogChunkRebuildStats();
                     _flatMesher.isoLevel = model.isoLevel;
-                    _flatMesher.useQefVertices = model.useQefVertices;
-                    _flatMesher.qefVertexMode = model.qefVertexMode;
+                    _flatMesher.useQefVertices = model.GetEffectiveUseQefVertices();
+                    _flatMesher.qefVertexMode = model.GetEffectiveQefVertexMode();
                     _flatMesher.qefBlendFactor = model.qefBlendFactor;
                     _flatMesher.qefSnapEpsilon = model.qefSnapEpsilon;
                     _flatMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
                     _flatMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
-                    _flatMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+                    _flatMesher.qefEnableMultiHermite = model.GetEffectiveQefEnableMultiHermite();
                     _flatMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
                     _flatMesher.ownedBounds = coreBounds;
                     _flatMesher.ownedBoundsList = null;
@@ -67,13 +67,13 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
                 {
                     _mesher.enableDebugLog = false;
                     _mesher.isoLevel = model.isoLevel;
-                    _mesher.useQefVertices = model.useQefVertices;
-                    _mesher.qefVertexMode = model.qefVertexMode;
+                    _mesher.useQefVertices = model.GetEffectiveUseQefVertices();
+                    _mesher.qefVertexMode = model.GetEffectiveQefVertexMode();
                     _mesher.qefBlendFactor = model.qefBlendFactor;
                     _mesher.qefSnapEpsilon = model.qefSnapEpsilon;
                     _mesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
                     _mesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
-                    _mesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+                    _mesher.qefEnableMultiHermite = model.GetEffectiveQefEnableMultiHermite();
                     _mesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
                     _mesher.edgeRefinementSteps = model.edgeRefinementSteps;
                     _mesher.ownedBounds = coreBounds;

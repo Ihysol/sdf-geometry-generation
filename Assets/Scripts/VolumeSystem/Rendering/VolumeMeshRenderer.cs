@@ -149,7 +149,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 if (active == null)
                     break;
 
-                if (model.storageMode == VolumeStorageMode.Flat)
+                if (model.GetEffectiveStorageMode() == VolumeStorageMode.Flat)
                 {
                     IFlatAdaptiveVolumeData flatActive = model.GetActiveFlatAdaptiveVolume();
                     if (flatActive == null)
@@ -169,26 +169,26 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
     private void ConfigureOctreeMesher(VolumeModel model)
     {
-        octreeMesher.useQefVertices = model.useQefVertices;
-        octreeMesher.qefVertexMode = model.qefVertexMode;
+        octreeMesher.useQefVertices = model.GetEffectiveUseQefVertices();
+        octreeMesher.qefVertexMode = model.GetEffectiveQefVertexMode();
         octreeMesher.qefBlendFactor = model.qefBlendFactor;
         octreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
         octreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
         octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
-        octreeMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+        octreeMesher.qefEnableMultiHermite = model.GetEffectiveQefEnableMultiHermite();
         octreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
         octreeMesher.edgeRefinementSteps = model.edgeRefinementSteps;
     }
 
     private void ConfigureFlatOctreeMesher(VolumeModel model)
     {
-        flatOctreeMesher.useQefVertices = model.useQefVertices;
-        flatOctreeMesher.qefVertexMode = model.qefVertexMode;
+        flatOctreeMesher.useQefVertices = model.GetEffectiveUseQefVertices();
+        flatOctreeMesher.qefVertexMode = model.GetEffectiveQefVertexMode();
         flatOctreeMesher.qefBlendFactor = model.qefBlendFactor;
         flatOctreeMesher.qefSnapEpsilon = model.qefSnapEpsilon;
         flatOctreeMesher.qefMaxOffsetCells = model.qefMaxOffsetCells;
         flatOctreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
-        flatOctreeMesher.qefEnableMultiHermite = model.qefEnableMultiHermite;
+        flatOctreeMesher.qefEnableMultiHermite = model.GetEffectiveQefEnableMultiHermite();
         flatOctreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
     }
 
@@ -773,7 +773,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             return false;
 
         return (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree) &&
-               model.storageMode == VolumeStorageMode.Flat &&
+               model.GetEffectiveStorageMode() == VolumeStorageMode.Flat &&
                model.octreeMesherType == OctreeMesherType.DualContouring;
     }
 

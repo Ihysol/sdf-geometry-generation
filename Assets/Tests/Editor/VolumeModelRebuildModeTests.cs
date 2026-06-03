@@ -70,4 +70,94 @@ public class VolumeModelRebuildModeTests
         Assert.That(_model.ShouldUseInteractionPreview(), Is.False);
         Assert.That(_model.ShouldRebuildEveryFrame(), Is.False);
     }
+
+    [Test]
+    public void PreviewQefSimplification_DisablesQefForPreviewOnly()
+    {
+        _model.useQefVertices = true;
+        _model.qefVertexMode = QefVertexMode.QefAxisSnap;
+        _model.qefEnableMultiHermite = true;
+        _model.simplifyQefDuringPreview = true;
+
+        bool previous = _model.SetPreviewRebuildContext(true);
+
+        try
+        {
+            Assert.That(_model.GetEffectiveUseQefVertices(), Is.False);
+            Assert.That(_model.GetEffectiveQefVertexMode(), Is.EqualTo(QefVertexMode.AverageCrossings));
+            Assert.That(_model.GetEffectiveQefEnableMultiHermite(), Is.False);
+        }
+        finally
+        {
+            _model.RestorePreviewRebuildContext(previous);
+        }
+
+        Assert.That(_model.GetEffectiveUseQefVertices(), Is.True);
+        Assert.That(_model.GetEffectiveQefVertexMode(), Is.EqualTo(QefVertexMode.QefAxisSnap));
+        Assert.That(_model.GetEffectiveQefEnableMultiHermite(), Is.True);
+    }
+
+    [Test]
+    public void PreviewQefSimplification_CanBeDisabled()
+    {
+        _model.useQefVertices = true;
+        _model.qefVertexMode = QefVertexMode.QefAxisSnap;
+        _model.qefEnableMultiHermite = true;
+        _model.simplifyQefDuringPreview = false;
+
+        bool previous = _model.SetPreviewRebuildContext(true);
+
+        try
+        {
+            Assert.That(_model.GetEffectiveUseQefVertices(), Is.True);
+            Assert.That(_model.GetEffectiveQefVertexMode(), Is.EqualTo(QefVertexMode.QefAxisSnap));
+            Assert.That(_model.GetEffectiveQefEnableMultiHermite(), Is.True);
+        }
+        finally
+        {
+            _model.RestorePreviewRebuildContext(previous);
+        }
+    }
+
+    [Test]
+    public void FlatPreviewMeshing_UsesFlatStorageForOctreeDualContouringPreviewOnly()
+    {
+        _model.dataStructure = VolumeDataStructure.Octree;
+        _model.octreeMesherType = OctreeMesherType.DualContouring;
+        _model.storageMode = VolumeStorageMode.Tree;
+        _model.useFlatDualContouringPreview = true;
+
+        bool previous = _model.SetPreviewRebuildContext(true);
+
+        try
+        {
+            Assert.That(_model.GetEffectiveStorageMode(), Is.EqualTo(VolumeStorageMode.Flat));
+        }
+        finally
+        {
+            _model.RestorePreviewRebuildContext(previous);
+        }
+
+        Assert.That(_model.GetEffectiveStorageMode(), Is.EqualTo(VolumeStorageMode.Tree));
+    }
+
+    [Test]
+    public void FlatPreviewMeshing_DoesNotOverrideNonDualContouringMesher()
+    {
+        _model.dataStructure = VolumeDataStructure.Octree;
+        _model.octreeMesherType = OctreeMesherType.SurfaceNets;
+        _model.storageMode = VolumeStorageMode.Tree;
+        _model.useFlatDualContouringPreview = true;
+
+        bool previous = _model.SetPreviewRebuildContext(true);
+
+        try
+        {
+            Assert.That(_model.GetEffectiveStorageMode(), Is.EqualTo(VolumeStorageMode.Tree));
+        }
+        finally
+        {
+            _model.RestorePreviewRebuildContext(previous);
+        }
+    }
 }

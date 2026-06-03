@@ -31,8 +31,13 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     private readonly HashSet<EdgeKey> _processedEdges = new();
     private readonly List<GridBounds> _ownedGridBounds = new();
     private readonly HashSet<Vector3Int> _missingLeafCoords = new();
-    private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
+    private const int MaxDenseCornerCacheEntries = 8 * 1024 * 1024;
+    private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new();
+    private float[] _cornerSampleValues;
+    private byte[] _cornerSampleStates;
+    private int _cornerSampleGridSide;
     private readonly Dictionary<Vector3, float> _gradientSampleCache = new();
+    private readonly Dictionary<HermiteEdgeKey, Vector3> _averageCrossingCache = new();
     private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
     private OctreeVolume _sampleCacheVolume;
     private float _sampleCacheIsoLevel;
@@ -54,6 +59,23 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     private readonly List<Vector3> _qefPoints = new(12);
     private readonly List<Vector3> _qefNormals = new(12);
     private readonly List<float> _qefWeights = new(12);
+    private readonly List<float> _qefWeightedWeights = new(12);
+
+    private readonly struct NormalEigenvalues
+    {
+        public readonly float L1;
+        public readonly float L2;
+        public readonly float L3;
+        public readonly bool IsValid;
+
+        public NormalEigenvalues(float l1, float l2, float l3, bool isValid)
+        {
+            L1 = l1;
+            L2 = l2;
+            L3 = l3;
+            IsValid = isValid;
+        }
+    }
 
     private readonly struct HermiteSample
     {
@@ -405,12 +427,40 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             return;
         }
 
-        _cornerSampleCache.Clear();
+        PrepareCornerSampleCache(volume);
         _gradientSampleCache.Clear();
+        _averageCrossingCache.Clear();
         _hermiteSampleCache.Clear();
         _sampleCacheVolume = volume;
         _sampleCacheIsoLevel = iso;
         _sampleCacheRefinementSteps = edgeRefinementSteps;
+    }
+
+    private void PrepareCornerSampleCache(OctreeVolume volume)
+    {
+        _cornerSampleCacheFallback.Clear();
+        _cornerSampleGridSide = 0;
+
+        if (volume == null)
+            return;
+
+        int side = (1 << volume.MaxDepth) + 1;
+        long entryCount = (long)side * side * side;
+        if (entryCount > MaxDenseCornerCacheEntries)
+            return;
+
+        int count = (int)entryCount;
+        if (_cornerSampleValues == null || _cornerSampleValues.Length != count)
+        {
+            _cornerSampleValues = new float[count];
+            _cornerSampleStates = new byte[count];
+        }
+        else
+        {
+            System.Array.Clear(_cornerSampleStates, 0, count);
+        }
+
+        _cornerSampleGridSide = side;
     }
 
     /// <summary>Tests grid-edge ownership against one half-open grid bound.</summary>
@@ -792,7 +842,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
 
     private float EvaluateCornerCached(IScalarFieldSource source, Vector3Int gridVertex)
     {
-        if (_cornerSampleCache.TryGetValue(gridVertex, out float cached))
+        if (TryGetCornerSample(gridVertex, out float cached))
             return cached;
 
         Vector3 worldPos = _origin + new Vector3(
@@ -802,8 +852,53 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         );
 
         float value = source.Evaluate(worldPos);
-        _cornerSampleCache[gridVertex] = value;
+        StoreCornerSample(gridVertex, value);
         return value;
+    }
+
+    private bool TryGetCornerSample(Vector3Int gridVertex, out float value)
+    {
+        if (TryGetDenseCornerSampleIndex(gridVertex, out int index))
+        {
+            if (_cornerSampleStates[index] != 0)
+            {
+                value = _cornerSampleValues[index];
+                return true;
+            }
+
+            value = 0f;
+            return false;
+        }
+
+        return _cornerSampleCacheFallback.TryGetValue(gridVertex, out value);
+    }
+
+    private void StoreCornerSample(Vector3Int gridVertex, float value)
+    {
+        if (TryGetDenseCornerSampleIndex(gridVertex, out int index))
+        {
+            _cornerSampleValues[index] = value;
+            _cornerSampleStates[index] = 1;
+            return;
+        }
+
+        _cornerSampleCacheFallback[gridVertex] = value;
+    }
+
+    private bool TryGetDenseCornerSampleIndex(Vector3Int gridVertex, out int index)
+    {
+        int side = _cornerSampleGridSide;
+        if (side > 0 &&
+            gridVertex.x >= 0 && gridVertex.x < side &&
+            gridVertex.y >= 0 && gridVertex.y < side &&
+            gridVertex.z >= 0 && gridVertex.z < side)
+        {
+            index = gridVertex.x + side * (gridVertex.y + side * gridVertex.z);
+            return true;
+        }
+
+        index = -1;
+        return false;
     }
 
     /// <summary>Returns the eight corner positions for a bound.</summary>
@@ -841,6 +936,10 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         _qefPoints.Clear();
         _qefNormals.Clear();
         _qefWeights.Clear();
+        bool useQef = useQefVertices && qefVertexMode != QefVertexMode.AverageCrossings;
+        bool useAdaptiveBlend = useQef && (qefVertexMode == QefVertexMode.QefFeaturePreserving || qefVertexMode == QefVertexMode.QefAxisSnap);
+        bool useAxisSnap = useQef && qefVertexMode == QefVertexMode.QefAxisSnap;
+        bool needsHermiteSamples = useQef || useAxisSnap;
 
         for (int i = 0; i < SurfaceEdges.Length; i++)
         {
@@ -857,21 +956,24 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             Vector3Int ca = cornerCoords[edge.A];
             Vector3Int cb = cornerCoords[edge.B];
 
-            AddHermiteSamplesForEdge(source, pa, pb, va, vb, ca, cb, isoLevel, ref sum, ref count);
+            if (needsHermiteSamples)
+                AddHermiteSamplesForEdge(source, pa, pb, va, vb, ca, cb, isoLevel, ref sum, ref count);
+            else
+                AddAverageCrossingForEdge(source, pa, pb, va, vb, ca, cb, isoLevel, ref sum, ref count);
         }
 
         Vector3 avg = count == 0 ? bounds.center : (sum / count);
-        bool useQef = useQefVertices && qefVertexMode != QefVertexMode.AverageCrossings;
-        bool useAdaptiveBlend = qefVertexMode == QefVertexMode.QefFeaturePreserving || qefVertexMode == QefVertexMode.QefAxisSnap;
-        bool useAxisSnap = qefVertexMode == QefVertexMode.QefAxisSnap;
+        NormalEigenvalues eigenvalues = needsHermiteSamples
+            ? GetNormalEigenvalues(_qefNormals)
+            : new NormalEigenvalues(0f, 0f, 0f, false);
 
         if (useQef &&
             _qefPoints.Count >= 3 &&
-            HasSufficientGradientDiversity(_qefNormals) &&
+            HasSufficientGradientDiversity(eigenvalues) &&
             QefSolver.TrySolve(
                 _qefPoints,
                 _qefNormals,
-                BuildWeightedQefWeights(_qefWeights, _qefNormals),
+                BuildWeightedQefWeights(_qefWeights, eigenvalues),
                 bounds,
                 BuildQefSettings(),
                 out Vector3 qef))
@@ -879,7 +981,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             qef = ConstrainQefToLocalWindow(qef, avg, bounds);
             if (IsQefSolutionAcceptable(qef, avg, bounds))
             {
-                float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(_qefNormals) : Mathf.Clamp01(qefBlendFactor);
+                float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(eigenvalues) : Mathf.Clamp01(qefBlendFactor);
                 Vector3 blended = Vector3.Lerp(avg, qef, blend);
                 Vector3 result = useAxisSnap ? SnapAxisAlignedFeature(blended, _qefNormals) : blended;
                 if (useAxisSnap)
@@ -898,6 +1000,29 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         return SnapToGridNearBoundary(avgResult);
     }
 
+    private void AddAverageCrossingForEdge(
+        IScalarFieldSource source,
+        Vector3 pa,
+        Vector3 pb,
+        float va,
+        float vb,
+        Vector3Int ca,
+        Vector3Int cb,
+        float isoLevel,
+        ref Vector3 sum,
+        ref int count)
+    {
+        HermiteEdgeKey key = new HermiteEdgeKey(ca, cb);
+        if (!_averageCrossingCache.TryGetValue(key, out Vector3 crossing))
+        {
+            crossing = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
+            _averageCrossingCache[key] = crossing;
+        }
+
+        sum += crossing;
+        count++;
+    }
+
     private QefSolver.Settings BuildQefSettings()
     {
         return new QefSolver.Settings
@@ -910,98 +1035,32 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         };
     }
 
-    private List<float> BuildWeightedQefWeights(List<float> baseWeights, List<Vector3> normals)
+    private List<float> BuildWeightedQefWeights(List<float> baseWeights, NormalEigenvalues eigenvalues)
     {
         if (baseWeights == null || qefFeatureWeightMode == QefFeatureClassWeightMode.Off)
             return baseWeights;
 
-        float featureScale = GetFeatureClassWeightMultiplier(normals);
+        float featureScale = GetFeatureClassWeightMultiplier(eigenvalues);
         if (Mathf.Abs(featureScale - 1f) < 1e-5f)
             return baseWeights;
 
-        List<float> weighted = new List<float>(baseWeights.Count);
+        _qefWeightedWeights.Clear();
         for (int i = 0; i < baseWeights.Count; i++)
-            weighted.Add(baseWeights[i] * featureScale);
-        return weighted;
+            _qefWeightedWeights.Add(baseWeights[i] * featureScale);
+        return _qefWeightedWeights;
     }
 
-    private float GetFeatureClassWeightMultiplier(List<Vector3> normals)
+    private float GetFeatureClassWeightMultiplier(NormalEigenvalues eigenvalues)
     {
-        if (normals == null || normals.Count < 3)
+        if (!eigenvalues.IsValid)
             return 1f;
 
-        float xx = 0f, xy = 0f, xz = 0f, yy = 0f, yz = 0f, zz = 0f;
-        int count = 0;
-        for (int i = 0; i < normals.Count; i++)
-        {
-            Vector3 n = normals[i];
-            float len = n.magnitude;
-            if (len < 1e-8f)
-                continue;
-            n /= len;
-            xx += n.x * n.x; xy += n.x * n.y; xz += n.x * n.z;
-            yy += n.y * n.y; yz += n.y * n.z; zz += n.z * n.z;
-            count++;
-        }
-
-        if (count < 3)
-            return 1f;
-
-        float inv = 1f / count;
-        Matrix4x4 c = Matrix4x4.zero;
-        c.m00 = xx * inv; c.m01 = xy * inv; c.m02 = xz * inv;
-        c.m10 = xy * inv; c.m11 = yy * inv; c.m12 = yz * inv;
-        c.m20 = xz * inv; c.m21 = yz * inv; c.m22 = zz * inv;
-
-        Vector3 eval = EstimateEigenvaluesSymmetric(c);
-        float l0 = eval.x;
-        float l1 = eval.y;
-        float l2 = eval.z;
         float eps = 1e-4f;
-        if (l2 < eps)
+        if (eigenvalues.L1 < eps)
             return qefSurfaceWeight;
-        if (l1 < 0.12f * l2)
+        if (eigenvalues.L2 < 0.12f * eigenvalues.L1)
             return qefEdgeWeight;
         return qefCornerWeight;
-    }
-
-    private static Vector3 EstimateEigenvaluesSymmetric(Matrix4x4 m)
-    {
-        float p1 = m.m01 * m.m01 + m.m02 * m.m02 + m.m12 * m.m12;
-        if (p1 <= 1e-12f)
-            return new Vector3(m.m00, m.m11, m.m22);
-
-        float q = (m.m00 + m.m11 + m.m22) / 3f;
-        float p2 =
-            (m.m00 - q) * (m.m00 - q) +
-            (m.m11 - q) * (m.m11 - q) +
-            (m.m22 - q) * (m.m22 - q) +
-            2f * p1;
-        float p = Mathf.Sqrt(Mathf.Max(p2 / 6f, 1e-12f));
-
-        Matrix4x4 b = Matrix4x4.zero;
-        b.m00 = (m.m00 - q) / p; b.m01 = m.m01 / p; b.m02 = m.m02 / p;
-        b.m10 = m.m10 / p; b.m11 = (m.m11 - q) / p; b.m12 = m.m12 / p;
-        b.m20 = m.m20 / p; b.m21 = m.m21 / p; b.m22 = (m.m22 - q) / p;
-
-        float r = Determinant3x3(b) * 0.5f;
-        float phi = r <= -1f ? Mathf.PI / 3f : r >= 1f ? 0f : Mathf.Acos(r) / 3f;
-        float e1 = q + 2f * p * Mathf.Cos(phi);
-        float e3 = q + 2f * p * Mathf.Cos(phi + (2f * Mathf.PI / 3f));
-        float e2 = 3f * q - e1 - e3;
-
-        float a = Mathf.Max(e1, Mathf.Max(e2, e3));
-        float cmin = Mathf.Min(e1, Mathf.Min(e2, e3));
-        float bmid = e1 + e2 + e3 - a - cmin;
-        return new Vector3(cmin, bmid, a);
-    }
-
-    private static float Determinant3x3(Matrix4x4 m)
-    {
-        return
-            m.m00 * (m.m11 * m.m22 - m.m12 * m.m21) -
-            m.m01 * (m.m10 * m.m22 - m.m12 * m.m20) +
-            m.m02 * (m.m10 * m.m21 - m.m11 * m.m20);
     }
 
     private Vector3 ConstrainQefToLocalWindow(Vector3 qef, Vector3 avg, Bounds bounds)
@@ -1335,27 +1394,30 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         return true;
     }
 
-    private bool HasSufficientGradientDiversity(List<Vector3> normals)
+    private static bool HasSufficientGradientDiversity(NormalEigenvalues eigenvalues)
     {
-        if (normals == null || normals.Count < 3)
+        if (!eigenvalues.IsValid)
             return false;
-        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
-        return l1 > 1e-4f && (l2 + l3) > 0.02f;
+        return eigenvalues.L1 > 1e-4f && (eigenvalues.L2 + eigenvalues.L3) > 0.02f;
     }
 
-    private float GetAdaptiveQefBlend(List<Vector3> normals)
+    private float GetAdaptiveQefBlend(NormalEigenvalues eigenvalues)
     {
         float baseBlend = Mathf.Clamp01(qefBlendFactor);
-        if (normals == null || normals.Count < 3)
+        if (!eigenvalues.IsValid)
             return baseBlend * 0.35f;
-        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
-        float featureStrength = l1 > 1e-6f ? Mathf.Clamp01((l2 + l3) / l1) : 0f;
+        float featureStrength = eigenvalues.L1 > 1e-6f
+            ? Mathf.Clamp01((eigenvalues.L2 + eigenvalues.L3) / eigenvalues.L1)
+            : 0f;
         float scale = Mathf.Lerp(0.35f, 1f, featureStrength);
         return baseBlend * scale;
     }
 
-    private static void GetNormalEigenvalues(List<Vector3> normals, out float l1, out float l2, out float l3)
+    private static NormalEigenvalues GetNormalEigenvalues(List<Vector3> normals)
     {
+        if (normals == null || normals.Count < 3)
+            return new NormalEigenvalues(0f, 0f, 0f, false);
+
         float c00 = 0f, c01 = 0f, c02 = 0f, c11 = 0f, c12 = 0f, c22 = 0f;
         int n = 0;
         for (int i = 0; i < normals.Count; i++)
@@ -1369,7 +1431,9 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             c11 += v.y * v.y; c12 += v.y * v.z; c22 += v.z * v.z;
             n++;
         }
-        if (n == 0) { l1 = l2 = l3 = 0f; return; }
+        if (n < 3)
+            return new NormalEigenvalues(0f, 0f, 0f, false);
+
         float inv = 1f / n;
         c00 *= inv; c01 *= inv; c02 *= inv; c11 *= inv; c12 *= inv; c22 *= inv;
         for (int it = 0; it < 6; it++)
@@ -1378,10 +1442,13 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             Rotate(ref c00, ref c02, ref c22);
             Rotate(ref c11, ref c12, ref c22);
         }
-        l1 = c00; l2 = c11; l3 = c22;
+        float l1 = c00;
+        float l2 = c11;
+        float l3 = c22;
         if (l1 < l2) Swap(ref l1, ref l2);
         if (l2 < l3) Swap(ref l2, ref l3);
         if (l1 < l2) Swap(ref l1, ref l2);
+        return new NormalEigenvalues(l1, l2, l3, true);
     }
 
     private static void Rotate(ref float app, ref float apq, ref float aqq)

@@ -532,6 +532,14 @@ public class VolumeModelEditor : Editor
         if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
             EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("useFlatDualContouringPreview"),
+                new GUIContent("Use Flat DC Preview")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("simplifyQefDuringPreview"),
+                new GUIContent("Simplify QEF During Preview")
+            );
+            EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("usePreviewDepthWhileInteracting"),
                 new GUIContent("Use Preview Depth While Interacting")
             );

@@ -14,6 +14,7 @@ public class OctreeVolumeBuilderProfilingTests
             minDepth = 1,
             maxDepth = 2,
             useQefVertices = false,
+            qefVertexMode = QefVertexMode.AverageCrossings,
             suppressBuildLog = true
         };
         CountingSphereSource source = new CountingSphereSource();
@@ -30,12 +31,20 @@ public class OctreeVolumeBuilderProfilingTests
         Assert.That(stats.cornerCacheMisses, Is.GreaterThan(0));
         Assert.That(stats.centerCacheMisses, Is.GreaterThan(0));
         Assert.That(stats.centerDirectEvaluations, Is.GreaterThan(0));
-        Assert.That(stats.gradientCacheMisses, Is.EqualTo(stats.gradientEvaluations));
-        Assert.That(stats.hermiteCacheMisses, Is.GreaterThan(0));
+        Assert.That(stats.gradientEvaluations, Is.Zero);
+        Assert.That(stats.gradientCacheMisses, Is.Zero);
+        Assert.That(stats.hermiteCacheMisses, Is.Zero);
         Assert.That(stats.subdivisionMinDepth, Is.GreaterThan(0));
         Assert.That(stats.subdivisionCornerCrossing, Is.GreaterThan(0));
         Assert.That(stats.subdivisionDistanceThreshold, Is.GreaterThan(0));
-        Assert.That(volume.CachedHermiteSampleCount, Is.EqualTo(stats.hermiteCacheMisses));
+        Assert.That(
+            stats.subdivisionOnlyMinDepth +
+            stats.subdivisionOnlyCornerCrossing +
+            stats.subdivisionOnlyCenterMismatch +
+            stats.subdivisionOnlyDistanceThreshold +
+            stats.subdivisionMixedReasons,
+            Is.GreaterThan(0));
+        Assert.That(volume.CachedHermiteSampleCount, Is.Zero);
         Assert.That(volume.Root.CornerValues, Is.Null);
         AssertSurfaceLeavesRetainCorners(volume.Root);
         Assert.That(stats.totalMs, Is.GreaterThanOrEqualTo(stats.recursiveBuildMs));

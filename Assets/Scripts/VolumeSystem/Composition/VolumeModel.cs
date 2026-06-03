@@ -206,6 +206,8 @@ public class VolumeModel : MonoBehaviour
     public bool usePreviewResolutionWhileInteracting = true;
     public bool previewVoxelUniformResolution = true;
     public Vector3Int previewVoxelGridSize = new Vector3Int(24, 24, 24);
+    public bool useFlatDualContouringPreview = true;
+    public bool simplifyQefDuringPreview = true;
     [Min(0f)]
     public float previewInteractionHoldSeconds = 0.2f;
 
@@ -367,13 +369,13 @@ public class VolumeModel : MonoBehaviour
                 _isPreviewRebuild = usingPreviewDepth;
                 activeBuilder.maxDepth = effectiveMaxDepth;
                 activeBuilder.suppressBuildLog = !ShouldLogRebuildDuration();
-                activeBuilder.useQefVertices = useQefVertices;
-                activeBuilder.qefVertexMode = qefVertexMode;
+                activeBuilder.useQefVertices = GetEffectiveUseQefVertices();
+                activeBuilder.qefVertexMode = GetEffectiveQefVertexMode();
                 activeBuilder.qefBlendFactor = qefBlendFactor;
                 activeBuilder.qefSnapEpsilon = qefSnapEpsilon;
                 activeBuilder.qefMaxOffsetCells = qefMaxOffsetCells;
                 activeBuilder.qefAxisSnapStrength = qefAxisSnapStrength;
-                activeBuilder.qefEnableMultiHermite = qefEnableMultiHermite;
+                activeBuilder.qefEnableMultiHermite = GetEffectiveQefEnableMultiHermite();
                 activeBuilder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
                 activeBuilder.edgeRefinementSteps = edgeRefinementSteps;
                 activeBuilder.qefRobustKernel = qefRobustKernel;
@@ -506,6 +508,36 @@ public class VolumeModel : MonoBehaviour
     }
 
     public bool IsPreviewRebuild => _isPreviewRebuild;
+
+    public bool GetEffectiveUseQefVertices()
+    {
+        return useQefVertices && !(simplifyQefDuringPreview && _isPreviewRebuild);
+    }
+
+    public QefVertexMode GetEffectiveQefVertexMode()
+    {
+        return simplifyQefDuringPreview && _isPreviewRebuild
+            ? QefVertexMode.AverageCrossings
+            : qefVertexMode;
+    }
+
+    public bool GetEffectiveQefEnableMultiHermite()
+    {
+        return qefEnableMultiHermite && !(simplifyQefDuringPreview && _isPreviewRebuild);
+    }
+
+    public VolumeStorageMode GetEffectiveStorageMode()
+    {
+        if (useFlatDualContouringPreview &&
+            _isPreviewRebuild &&
+            octreeMesherType == OctreeMesherType.DualContouring &&
+            (dataStructure == VolumeDataStructure.Octree || dataStructure == VolumeDataStructure.SparseVoxelOctree))
+        {
+            return VolumeStorageMode.Flat;
+        }
+
+        return storageMode;
+    }
 
     public bool SetPreviewRebuildContext(bool isPreview)
     {

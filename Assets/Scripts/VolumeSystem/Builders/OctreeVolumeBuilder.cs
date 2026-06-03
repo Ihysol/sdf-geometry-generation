@@ -29,6 +29,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int subdivisionCornerCrossing;
         public readonly int subdivisionCenterMismatch;
         public readonly int subdivisionDistanceThreshold;
+        public readonly int subdivisionOnlyMinDepth;
+        public readonly int subdivisionOnlyCornerCrossing;
+        public readonly int subdivisionOnlyCenterMismatch;
+        public readonly int subdivisionOnlyDistanceThreshold;
+        public readonly int subdivisionMixedReasons;
 
         public BuildStats(
             double totalMs,
@@ -52,7 +57,12 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int subdivisionMinDepth,
             int subdivisionCornerCrossing,
             int subdivisionCenterMismatch,
-            int subdivisionDistanceThreshold)
+            int subdivisionDistanceThreshold,
+            int subdivisionOnlyMinDepth,
+            int subdivisionOnlyCornerCrossing,
+            int subdivisionOnlyCenterMismatch,
+            int subdivisionOnlyDistanceThreshold,
+            int subdivisionMixedReasons)
         {
             this.totalMs = totalMs;
             this.recursiveBuildMs = recursiveBuildMs;
@@ -76,6 +86,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.subdivisionCornerCrossing = subdivisionCornerCrossing;
             this.subdivisionCenterMismatch = subdivisionCenterMismatch;
             this.subdivisionDistanceThreshold = subdivisionDistanceThreshold;
+            this.subdivisionOnlyMinDepth = subdivisionOnlyMinDepth;
+            this.subdivisionOnlyCornerCrossing = subdivisionOnlyCornerCrossing;
+            this.subdivisionOnlyCenterMismatch = subdivisionOnlyCenterMismatch;
+            this.subdivisionOnlyDistanceThreshold = subdivisionOnlyDistanceThreshold;
+            this.subdivisionMixedReasons = subdivisionMixedReasons;
         }
     }
 
@@ -147,6 +162,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _subdivisionCornerCrossing;
     private int _subdivisionCenterMismatch;
     private int _subdivisionDistanceThreshold;
+    private int _subdivisionOnlyMinDepth;
+    private int _subdivisionOnlyCornerCrossing;
+    private int _subdivisionOnlyCenterMismatch;
+    private int _subdivisionOnlyDistanceThreshold;
+    private int _subdivisionMixedReasons;
     private long _surfaceVertexTicks;
 
     public BuildStats LastBuildStats { get; private set; }
@@ -236,8 +256,14 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private readonly List<Vector3> _qefPoints = new(12);
     private readonly List<Vector3> _qefNormals = new(12);
     private readonly List<float> _qefWeights = new(12);
-    private readonly Dictionary<Vector3Int, float> _cornerSampleCache = new();
+    private readonly List<float> _qefWeightedWeights = new(12);
+    private const int MaxDenseCornerCacheEntries = 8 * 1024 * 1024;
+    private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new();
+    private float[] _cornerSampleValues;
+    private byte[] _cornerSampleStates;
+    private int _cornerSampleGridSide;
     private readonly Dictionary<Vector3, float> _gradientSampleCache = new();
+    private readonly Dictionary<OctreeHermiteEdgeKey, Vector3> _averageCrossingCache = new();
     private readonly Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample> _hermiteSampleCache = new();
 
     /// <summary>Builds an adaptive octree by recursively sampling the scalar field.</summary>
@@ -248,8 +274,9 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _totalNodes = 0;
         _surfaceLeaves = 0;
         ResetProfilingCounters();
-        _cornerSampleCache.Clear();
+        PrepareCornerSampleCache();
         _gradientSampleCache.Clear();
+        _averageCrossingCache.Clear();
         _hermiteSampleCache.Clear();
 
         Bounds buildBounds = Bounds;
@@ -280,7 +307,8 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 $"centerCache(hit={LastBuildStats.centerCacheHits}, miss={LastBuildStats.centerCacheMisses}, direct={LastBuildStats.centerDirectEvaluations}), " +
                 $"gradientCache(hit={LastBuildStats.gradientCacheHits}, miss={LastBuildStats.gradientCacheMisses}), " +
                 $"hermiteCache(hit={LastBuildStats.hermiteCacheHits}, miss={LastBuildStats.hermiteCacheMisses}), " +
-                $"subdivision(minDepth={LastBuildStats.subdivisionMinDepth}, crossing={LastBuildStats.subdivisionCornerCrossing}, centerMismatch={LastBuildStats.subdivisionCenterMismatch}, distance={LastBuildStats.subdivisionDistanceThreshold})"
+                $"subdivision(minDepth={LastBuildStats.subdivisionMinDepth}, crossing={LastBuildStats.subdivisionCornerCrossing}, centerMismatch={LastBuildStats.subdivisionCenterMismatch}, distance={LastBuildStats.subdivisionDistanceThreshold}), " +
+                $"exclusive(minDepth={LastBuildStats.subdivisionOnlyMinDepth}, crossing={LastBuildStats.subdivisionOnlyCornerCrossing}, centerMismatch={LastBuildStats.subdivisionOnlyCenterMismatch}, distance={LastBuildStats.subdivisionOnlyDistanceThreshold}, mixed={LastBuildStats.subdivisionMixedReasons})"
             );
         }
 #endif
@@ -303,8 +331,9 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     public bool RebuildRegion(OctreeVolume existing, IScalarFieldSource source, Bounds dirtyBounds, out OctreeVolume rebuilt)
     {
         rebuilt = null;
-        _cornerSampleCache.Clear();
+        PrepareCornerSampleCache();
         _gradientSampleCache.Clear();
+        _averageCrossingCache.Clear();
         _hermiteSampleCache.Clear();
 
         if (source == null || existing == null || existing.Root == null)
@@ -484,14 +513,28 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         bool couldContainSurface =
             Mathf.Abs(centerValue - 0f) <= bounds.extents.magnitude;
 
+        int subdivisionReasons = 0;
         if (depth < minDepth)
+        {
             _subdivisionMinDepth++;
+            subdivisionReasons |= 1;
+        }
         if (cornerContainsSurface)
+        {
             _subdivisionCornerCrossing++;
+            subdivisionReasons |= 2;
+        }
         if (centerDiffersFromCorners)
+        {
             _subdivisionCenterMismatch++;
+            subdivisionReasons |= 4;
+        }
         if (couldContainSurface)
+        {
             _subdivisionDistanceThreshold++;
+            subdivisionReasons |= 8;
+        }
+        CountExclusiveSubdivisionReason(subdivisionReasons);
 
         bool shouldSubdivide =
             depth < minDepth ||
@@ -641,7 +684,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
     private float EvaluateCornerCached(IScalarFieldSource source, Vector3Int gridCoord, Vector3 worldPos)
     {
-        if (_cornerSampleCache.TryGetValue(gridCoord, out float cached))
+        if (TryGetCornerSample(gridCoord, out float cached))
         {
             _cornerCacheHits++;
             return cached;
@@ -649,7 +692,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         _cornerCacheMisses++;
         float value = EvaluateSource(source, worldPos);
-        _cornerSampleCache[gridCoord] = value;
+        StoreCornerSample(gridCoord, value);
         return value;
     }
 
@@ -671,6 +714,10 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _qefPoints.Clear();
         _qefNormals.Clear();
         _qefWeights.Clear();
+        bool useQef = useQefVertices && qefVertexMode != QefVertexMode.AverageCrossings;
+        bool useAdaptiveBlend = useQef && (qefVertexMode == QefVertexMode.QefFeaturePreserving || qefVertexMode == QefVertexMode.QefAxisSnap);
+        bool useAxisSnap = useQef && qefVertexMode == QefVertexMode.QefAxisSnap;
+        bool needsHermiteSamples = useQef || useAxisSnap;
 
         for (int i = 0; i < Edges.Length; i++)
         {
@@ -687,21 +734,24 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             Vector3Int ca = GetCornerGridCoord(edge.A, minCoord, maxCoord);
             Vector3Int cb = GetCornerGridCoord(edge.B, minCoord, maxCoord);
 
-            AddHermiteSamplesForEdge(source, pa, pb, va, vb, ca, cb, cellSize, 0f, ref sum, ref count);
+            if (needsHermiteSamples)
+                AddHermiteSamplesForEdge(source, pa, pb, va, vb, ca, cb, cellSize, 0f, ref sum, ref count);
+            else
+                AddAverageCrossingForEdge(source, pa, pb, va, vb, ca, cb, 0f, ref sum, ref count);
         }
 
         Vector3 avg = count == 0 ? bounds.center : (sum / count);
-        bool useQef = useQefVertices && qefVertexMode != QefVertexMode.AverageCrossings;
-        bool useAdaptiveBlend = qefVertexMode == QefVertexMode.QefFeaturePreserving || qefVertexMode == QefVertexMode.QefAxisSnap;
-        bool useAxisSnap = qefVertexMode == QefVertexMode.QefAxisSnap;
+        NormalEigenvalues eigenvalues = needsHermiteSamples
+            ? GetNormalEigenvalues(_qefNormals)
+            : new NormalEigenvalues(0f, 0f, 0f, false);
 
         if (useQef &&
             _qefPoints.Count >= 3 &&
-            HasSufficientGradientDiversity(_qefNormals) &&
+            HasSufficientGradientDiversity(eigenvalues) &&
             QefSolver.TrySolve(
                 _qefPoints,
                 _qefNormals,
-                BuildWeightedQefWeights(_qefWeights, _qefNormals),
+                BuildWeightedQefWeights(_qefWeights, eigenvalues),
                 bounds,
                 BuildQefSettings(),
                 out Vector3 qef))
@@ -709,7 +759,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             qef = ConstrainQefToLocalWindow(qef, avg, bounds, cellSize);
             if (IsQefSolutionAcceptable(qef, avg, bounds, cellSize))
             {
-                float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(_qefNormals) : Mathf.Clamp01(qefBlendFactor);
+                float blend = useAdaptiveBlend ? GetAdaptiveQefBlend(eigenvalues) : Mathf.Clamp01(qefBlendFactor);
                 Vector3 blended = Vector3.Lerp(avg, qef, blend);
                 Vector3 result = useAxisSnap
                     ? SnapAxisAlignedFeature(blended, _qefNormals, origin, cellSize)
@@ -728,6 +778,29 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (useAxisSnap)
             avgResult = SnapToGridNearBoundaryWithFactor(avgResult, origin, cellSize, qefAxisSnapStrength);
         return SnapToGridNearBoundary(avgResult, origin, cellSize);
+    }
+
+    private void AddAverageCrossingForEdge(
+        IScalarFieldSource source,
+        Vector3 pa,
+        Vector3 pb,
+        float va,
+        float vb,
+        Vector3Int ca,
+        Vector3Int cb,
+        float isoLevel,
+        ref Vector3 sum,
+        ref int count)
+    {
+        OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
+        if (!_averageCrossingCache.TryGetValue(key, out Vector3 crossing))
+        {
+            crossing = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
+            _averageCrossingCache[key] = crossing;
+        }
+
+        sum += crossing;
+        count++;
     }
 
     private Vector3 ConstrainQefToLocalWindow(Vector3 qef, Vector3 avg, Bounds bounds, Vector3 cellSize)
@@ -759,31 +832,30 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         };
     }
 
-    private List<float> BuildWeightedQefWeights(List<float> baseWeights, List<Vector3> normals)
+    private List<float> BuildWeightedQefWeights(List<float> baseWeights, NormalEigenvalues eigenvalues)
     {
         if (baseWeights == null || qefFeatureWeightMode == QefFeatureClassWeightMode.Off)
             return baseWeights;
 
-        float featureScale = GetFeatureClassWeightMultiplier(normals);
+        float featureScale = GetFeatureClassWeightMultiplier(eigenvalues);
         if (Mathf.Abs(featureScale - 1f) < 1e-5f)
             return baseWeights;
 
-        List<float> weighted = new List<float>(baseWeights.Count);
+        _qefWeightedWeights.Clear();
         for (int i = 0; i < baseWeights.Count; i++)
-            weighted.Add(baseWeights[i] * featureScale);
-        return weighted;
+            _qefWeightedWeights.Add(baseWeights[i] * featureScale);
+        return _qefWeightedWeights;
     }
 
-    private float GetFeatureClassWeightMultiplier(List<Vector3> normals)
+    private float GetFeatureClassWeightMultiplier(NormalEigenvalues eigenvalues)
     {
-        if (normals == null || normals.Count < 3)
+        if (!eigenvalues.IsValid)
             return 1f;
 
-        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
         float eps = 1e-4f;
-        if (l1 < eps)
+        if (eigenvalues.L1 < eps)
             return qefSurfaceWeight;
-        if (l2 < 0.12f * l1)
+        if (eigenvalues.L2 < 0.12f * eigenvalues.L1)
             return qefEdgeWeight;
         return qefCornerWeight;
     }
@@ -1065,6 +1137,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _subdivisionCornerCrossing = 0;
         _subdivisionCenterMismatch = 0;
         _subdivisionDistanceThreshold = 0;
+        _subdivisionOnlyMinDepth = 0;
+        _subdivisionOnlyCornerCrossing = 0;
+        _subdivisionOnlyCenterMismatch = 0;
+        _subdivisionOnlyDistanceThreshold = 0;
+        _subdivisionMixedReasons = 0;
         _surfaceVertexTicks = 0;
     }
 
@@ -1092,7 +1169,12 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _subdivisionMinDepth,
             _subdivisionCornerCrossing,
             _subdivisionCenterMismatch,
-            _subdivisionDistanceThreshold
+            _subdivisionDistanceThreshold,
+            _subdivisionOnlyMinDepth,
+            _subdivisionOnlyCornerCrossing,
+            _subdivisionOnlyCenterMismatch,
+            _subdivisionOnlyDistanceThreshold,
+            _subdivisionMixedReasons
         );
     }
 
@@ -1111,7 +1193,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             return EvaluateSource(source, position);
         }
 
-        if (_cornerSampleCache.TryGetValue(gridCoord, out float cached))
+        if (TryGetCornerSample(gridCoord, out float cached))
         {
             _centerCacheHits++;
             return cached;
@@ -1119,8 +1201,77 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         _centerCacheMisses++;
         float value = EvaluateSource(source, position);
-        _cornerSampleCache[gridCoord] = value;
+        StoreCornerSample(gridCoord, value);
         return value;
+    }
+
+    private void PrepareCornerSampleCache()
+    {
+        _cornerSampleCacheFallback.Clear();
+        int side = (1 << maxDepth) + 1;
+        long entryCount = (long)side * side * side;
+        if (entryCount > MaxDenseCornerCacheEntries)
+        {
+            _cornerSampleGridSide = 0;
+            return;
+        }
+
+        int count = (int)entryCount;
+        _cornerSampleGridSide = side;
+        if (_cornerSampleValues == null || _cornerSampleValues.Length != count)
+        {
+            _cornerSampleValues = new float[count];
+            _cornerSampleStates = new byte[count];
+        }
+        else
+        {
+            System.Array.Clear(_cornerSampleStates, 0, _cornerSampleStates.Length);
+        }
+    }
+
+    private bool TryGetCornerSample(Vector3Int gridCoord, out float value)
+    {
+        if (TryGetDenseCornerSampleIndex(gridCoord, out int index))
+        {
+            if (_cornerSampleStates[index] != 0)
+            {
+                value = _cornerSampleValues[index];
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        return _cornerSampleCacheFallback.TryGetValue(gridCoord, out value);
+    }
+
+    private void StoreCornerSample(Vector3Int gridCoord, float value)
+    {
+        if (TryGetDenseCornerSampleIndex(gridCoord, out int index))
+        {
+            _cornerSampleValues[index] = value;
+            _cornerSampleStates[index] = 1;
+            return;
+        }
+
+        _cornerSampleCacheFallback[gridCoord] = value;
+    }
+
+    private bool TryGetDenseCornerSampleIndex(Vector3Int gridCoord, out int index)
+    {
+        int side = _cornerSampleGridSide;
+        if (side > 0 &&
+            gridCoord.x >= 0 && gridCoord.x < side &&
+            gridCoord.y >= 0 && gridCoord.y < side &&
+            gridCoord.z >= 0 && gridCoord.z < side)
+        {
+            index = gridCoord.x + side * (gridCoord.y + side * gridCoord.z);
+            return true;
+        }
+
+        index = -1;
+        return false;
     }
 
     private static bool TryGetGridVertex(Vector3 position, Vector3 origin, Vector3 cellSize, out Vector3Int gridCoord)
@@ -1181,27 +1332,61 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return true;
     }
 
-    private bool HasSufficientGradientDiversity(List<Vector3> normals)
+    private void CountExclusiveSubdivisionReason(int reasons)
     {
-        if (normals == null || normals.Count < 3)
-            return false;
-        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
-        return l1 > 1e-4f && (l2 + l3) > 0.02f;
+        switch (reasons)
+        {
+            case 1: _subdivisionOnlyMinDepth++; break;
+            case 2: _subdivisionOnlyCornerCrossing++; break;
+            case 4: _subdivisionOnlyCenterMismatch++; break;
+            case 8: _subdivisionOnlyDistanceThreshold++; break;
+            default:
+                if (reasons != 0)
+                    _subdivisionMixedReasons++;
+                break;
+        }
     }
 
-    private float GetAdaptiveQefBlend(List<Vector3> normals)
+    private readonly struct NormalEigenvalues
+    {
+        public readonly float L1;
+        public readonly float L2;
+        public readonly float L3;
+        public readonly bool IsValid;
+
+        public NormalEigenvalues(float l1, float l2, float l3, bool isValid)
+        {
+            L1 = l1;
+            L2 = l2;
+            L3 = l3;
+            IsValid = isValid;
+        }
+    }
+
+    private static bool HasSufficientGradientDiversity(NormalEigenvalues eigenvalues)
+    {
+        return eigenvalues.IsValid &&
+               eigenvalues.L1 > 1e-4f &&
+               (eigenvalues.L2 + eigenvalues.L3) > 0.02f;
+    }
+
+    private float GetAdaptiveQefBlend(NormalEigenvalues eigenvalues)
     {
         float baseBlend = Mathf.Clamp01(qefBlendFactor);
-        if (normals == null || normals.Count < 3)
+        if (!eigenvalues.IsValid)
             return baseBlend * 0.35f;
-        GetNormalEigenvalues(normals, out float l1, out float l2, out float l3);
-        float featureStrength = l1 > 1e-6f ? Mathf.Clamp01((l2 + l3) / l1) : 0f;
+        float featureStrength = eigenvalues.L1 > 1e-6f
+            ? Mathf.Clamp01((eigenvalues.L2 + eigenvalues.L3) / eigenvalues.L1)
+            : 0f;
         float scale = Mathf.Lerp(0.35f, 1f, featureStrength);
         return baseBlend * scale;
     }
 
-    private static void GetNormalEigenvalues(List<Vector3> normals, out float l1, out float l2, out float l3)
+    private static NormalEigenvalues GetNormalEigenvalues(List<Vector3> normals)
     {
+        if (normals == null || normals.Count < 3)
+            return new NormalEigenvalues(0f, 0f, 0f, false);
+
         float c00 = 0f, c01 = 0f, c02 = 0f, c11 = 0f, c12 = 0f, c22 = 0f;
         int n = 0;
         for (int i = 0; i < normals.Count; i++)
@@ -1216,10 +1401,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             n++;
         }
         if (n == 0)
-        {
-            l1 = l2 = l3 = 0f;
-            return;
-        }
+            return new NormalEigenvalues(0f, 0f, 0f, false);
         float inv = 1f / n;
         c00 *= inv; c01 *= inv; c02 *= inv; c11 *= inv; c12 *= inv; c22 *= inv;
 
@@ -1231,10 +1413,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             Rotate(ref c11, ref c12, ref c22);
         }
 
-        l1 = c00; l2 = c11; l3 = c22;
+        float l1 = c00, l2 = c11, l3 = c22;
         if (l1 < l2) Swap(ref l1, ref l2);
         if (l2 < l3) Swap(ref l2, ref l3);
         if (l1 < l2) Swap(ref l1, ref l2);
+        return new NormalEigenvalues(l1, l2, l3, n >= 3);
     }
 
     private static void Rotate(ref float app, ref float apq, ref float aqq)
