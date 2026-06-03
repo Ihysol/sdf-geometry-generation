@@ -52,4 +52,29 @@ public class DualContouringOctreeMesherCacheTests
             Evaluations = 0;
         }
     }
+
+    [Test]
+    public void FlatLayout_RuntimeCacheMapsContainedCellsToLeaf()
+    {
+        FlatOctreeLayout layout = new FlatOctreeLayout
+        {
+            Centers = new[] { Vector3.zero },
+            Sizes = new[] { Vector3.one },
+            SurfaceVertices = new[] { Vector3.zero },
+            Coords = new[] { Vector3Int.zero },
+            NodeSizeInCells = new[] { new Vector3Int(4, 4, 4) },
+            CornerValues8 = new float[8],
+            FirstChildIndex = new[] { -1 },
+            ChildMask = new byte[] { 0 },
+            Flags = new[] { (byte)(FlatOctreeLayout.FlagLeaf | FlatOctreeLayout.FlagSurface) }
+        };
+
+        layout.EnsureRuntimeCache();
+
+        Assert.That(layout.TryGetContainingLeafIndex(new Vector3Int(0, 0, 0), out int originLeaf), Is.True);
+        Assert.That(originLeaf, Is.EqualTo(0));
+        Assert.That(layout.TryGetContainingLeafIndex(new Vector3Int(3, 3, 3), out int farLeaf), Is.True);
+        Assert.That(farLeaf, Is.EqualTo(0));
+        Assert.That(layout.TryGetContainingLeafIndex(new Vector3Int(4, 0, 0), out _), Is.False);
+    }
 }

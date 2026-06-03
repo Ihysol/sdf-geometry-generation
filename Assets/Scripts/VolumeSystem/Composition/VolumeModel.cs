@@ -136,6 +136,7 @@ public class VolumeModel : MonoBehaviour
         qefAxisSnapStrength = Mathf.Max(1f, qefAxisSnapStrength);
         qefHermiteSamplesPerEdge = Mathf.Max(1, qefHermiteSamplesPerEdge);
         edgeRefinementSteps = Mathf.Max(0, edgeRefinementSteps);
+        previewEdgeRefinementSteps = Mathf.Max(0, previewEdgeRefinementSteps);
         qefRobustScale = Mathf.Max(0.1f, qefRobustScale);
         qefIrlsIterations = Mathf.Max(1, qefIrlsIterations);
         qefAnisotropicStrength = Mathf.Max(0f, qefAnisotropicStrength);
@@ -208,6 +209,8 @@ public class VolumeModel : MonoBehaviour
     public Vector3Int previewVoxelGridSize = new Vector3Int(24, 24, 24);
     public bool useFlatDualContouringPreview = true;
     public bool simplifyQefDuringPreview = true;
+    [Min(0)]
+    public int previewEdgeRefinementSteps = 3;
     [Min(0f)]
     public float previewInteractionHoldSeconds = 0.2f;
 
@@ -377,7 +380,7 @@ public class VolumeModel : MonoBehaviour
                 activeBuilder.qefAxisSnapStrength = qefAxisSnapStrength;
                 activeBuilder.qefEnableMultiHermite = GetEffectiveQefEnableMultiHermite();
                 activeBuilder.qefHermiteSamplesPerEdge = qefHermiteSamplesPerEdge;
-                activeBuilder.edgeRefinementSteps = edgeRefinementSteps;
+                activeBuilder.edgeRefinementSteps = GetEffectiveEdgeRefinementSteps();
                 activeBuilder.qefRobustKernel = qefRobustKernel;
                 activeBuilder.qefRobustScale = qefRobustScale;
                 activeBuilder.qefIrlsIterations = qefIrlsIterations;
@@ -537,6 +540,13 @@ public class VolumeModel : MonoBehaviour
         }
 
         return storageMode;
+    }
+
+    public int GetEffectiveEdgeRefinementSteps()
+    {
+        return _isPreviewRebuild
+            ? Mathf.Min(Mathf.Max(0, edgeRefinementSteps), Mathf.Max(0, previewEdgeRefinementSteps))
+            : Mathf.Max(0, edgeRefinementSteps);
     }
 
     public bool SetPreviewRebuildContext(bool isPreview)

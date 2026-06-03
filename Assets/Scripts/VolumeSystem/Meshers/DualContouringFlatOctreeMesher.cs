@@ -32,6 +32,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
     private int _skippedNullQuads;
     private int _skippedInvalidQuads;
     private int _resolveLeafCalls;
+    private int _resolveLeafDenseHits;
     private int _resolveLeafCacheHits;
     private int _resolveLeafExactHits;
     private int _resolveLeafFindCalls;
@@ -94,6 +95,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
         _resolveLeafCalls = 0;
+        _resolveLeafDenseHits = 0;
         _resolveLeafCacheHits = 0;
         _resolveLeafExactHits = 0;
         _resolveLeafFindCalls = 0;
@@ -122,7 +124,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         double cacheOwnedMs = 0d;
         double runtimeCacheMs = 0d;
         double edgeQuadsMs = 0d;
-        if (enableDebugLog && UnityEngine.Debug.isDebugBuild)
+        if (enableDebugLog)
         {
             totalSw = Stopwatch.StartNew();
             phaseSw = Stopwatch.StartNew();
@@ -155,13 +157,13 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         mesh.SetTriangles(_triangles, 0);
 
 #if UNITY_EDITOR
-        if (enableDebugLog && UnityEngine.Debug.isDebugBuild)
+        if (enableDebugLog)
         {
             if (totalSw != null)
                 totalSw.Stop();
             float avgFindSteps = _resolveLeafFindCalls > 0 ? (float)_findContainingLeafSteps / _resolveLeafFindCalls : 0f;
             UnityEngine.Debug.Log(
-                $"Flat Octree DC: total={(totalSw != null ? totalSw.Elapsed.TotalMilliseconds : 0d):F2} ms, cacheOwned={cacheOwnedMs:F2} ms, runtimeCache={runtimeCacheMs:F2} ms, edgeQuads={edgeQuadsMs:F2} ms, leaves={_layout.SurfaceLeafIndices.Length}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}, resolveCalls={_resolveLeafCalls}, resolveCacheHits={_resolveLeafCacheHits}, resolveExactHits={_resolveLeafExactHits}, resolveFindCalls={_resolveLeafFindCalls}, avgFindSteps={avgFindSteps:F2}");
+                $"Flat Octree DC: total={(totalSw != null ? totalSw.Elapsed.TotalMilliseconds : 0d):F2} ms, cacheOwned={cacheOwnedMs:F2} ms, runtimeCache={runtimeCacheMs:F2} ms, edgeQuads={edgeQuadsMs:F2} ms, leaves={_layout.SurfaceLeafIndices.Length}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}, resolveCalls={_resolveLeafCalls}, resolveDenseHits={_resolveLeafDenseHits}, resolveCacheHits={_resolveLeafCacheHits}, resolveExactHits={_resolveLeafExactHits}, resolveFindCalls={_resolveLeafFindCalls}, avgFindSteps={avgFindSteps:F2}");
         }
 #endif
     }
@@ -247,6 +249,12 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _resolveLeafCalls++;
         if (!IsCoordInsideVolumeGrid(coord))
             return -1;
+
+        if (_layout.TryGetContainingLeafIndex(coord, out int denseLeaf))
+        {
+            _resolveLeafDenseHits++;
+            return denseLeaf;
+        }
 
         if (_layout.ResolvedLeafByCoord.TryGetValue(coord, out int cached))
         {

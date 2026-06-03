@@ -540,6 +540,10 @@ public class VolumeModelEditor : Editor
                 new GUIContent("Simplify QEF During Preview")
             );
             EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("previewEdgeRefinementSteps"),
+                new GUIContent("Preview Edge Refinement Steps")
+            );
+            EditorGUILayout.PropertyField(
                 serializedObject.FindProperty("usePreviewDepthWhileInteracting"),
                 new GUIContent("Use Preview Depth While Interacting")
             );

@@ -15,13 +15,17 @@ public sealed class FlatOctreeLayout
     public int[] SurfaceLeafIndices { get; private set; }
     public int[] SubtreeSize { get; private set; }
     public int[] ChildIndexByOctant { get; private set; }
+    public int[] LeafByCellCoord { get; private set; }
+    public Vector3Int LeafLookupGridSize { get; private set; }
     public Dictionary<Vector3Int, int> LeafExactByCoord { get; private set; }
     public Dictionary<Vector3Int, int> ResolvedLeafByCoord { get; private set; }
     public HashSet<Vector3Int> MissingLeafCoords { get; private set; }
+    private bool _runtimeCacheReady;
     public int Count => Centers != null ? Centers.Length : 0;
 
     public const byte FlagLeaf = 1 << 0;
     public const byte FlagSurface = 1 << 1;
+    private const int MaxDenseLeafLookupEntries = 8 * 1024 * 1024;
 
     public bool IsValid =>
         Centers != null &&
@@ -44,12 +48,7 @@ public sealed class FlatOctreeLayout
 
     public void EnsureRuntimeCache()
     {
-        if (SurfaceLeafIndices != null &&
-            SubtreeSize != null &&
-            ChildIndexByOctant != null &&
-            LeafExactByCoord != null &&
-            ResolvedLeafByCoord != null &&
-            MissingLeafCoords != null)
+        if (_runtimeCacheReady)
             return;
 
         List<int> surfaceLeaves = new List<int>();
@@ -71,13 +70,33 @@ public sealed class FlatOctreeLayout
             childIndexByOctant[i] = -1;
 
         ComputeSubtreeSize(0, subtreeSize, childIndexByOctant);
+        BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int leafLookupGridSize);
 
         SurfaceLeafIndices = surfaceLeaves.ToArray();
         SubtreeSize = subtreeSize;
         ChildIndexByOctant = childIndexByOctant;
+        LeafByCellCoord = leafByCellCoord;
+        LeafLookupGridSize = leafLookupGridSize;
         LeafExactByCoord = leafExactByCoord;
         ResolvedLeafByCoord = new Dictionary<Vector3Int, int>();
         MissingLeafCoords = new HashSet<Vector3Int>();
+        _runtimeCacheReady = true;
+    }
+
+    public bool TryGetContainingLeafIndex(Vector3Int coord, out int nodeIndex)
+    {
+        if (LeafByCellCoord != null &&
+            coord.x >= 0 && coord.x < LeafLookupGridSize.x &&
+            coord.y >= 0 && coord.y < LeafLookupGridSize.y &&
+            coord.z >= 0 && coord.z < LeafLookupGridSize.z)
+        {
+            int index = coord.x + LeafLookupGridSize.x * (coord.y + LeafLookupGridSize.y * coord.z);
+            nodeIndex = LeafByCellCoord[index];
+            return nodeIndex >= 0;
+        }
+
+        nodeIndex = -1;
+        return false;
     }
 
     public Vector3Int GetNodeSizeInCells(int nodeIndex)
@@ -157,5 +176,46 @@ public sealed class FlatOctreeLayout
 
         subtreeSize[nodeIndex] = size;
         return size;
+    }
+
+    private void BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int gridSize)
+    {
+        leafByCellCoord = null;
+        gridSize = Vector3Int.zero;
+
+        if (Count == 0 || NodeSizeInCells == null)
+            return;
+
+        gridSize = GetNodeSizeInCells(0);
+        long entryCount = (long)gridSize.x * gridSize.y * gridSize.z;
+        if (entryCount <= 0 || entryCount > MaxDenseLeafLookupEntries)
+        {
+            gridSize = Vector3Int.zero;
+            return;
+        }
+
+        leafByCellCoord = new int[(int)entryCount];
+        for (int i = 0; i < leafByCellCoord.Length; i++)
+            leafByCellCoord[i] = -1;
+
+        for (int i = 0; i < Count; i++)
+        {
+            if (!IsLeaf(i))
+                continue;
+
+            Vector3Int coord = Coords[i];
+            Vector3Int size = GetNodeSizeInCells(i);
+            int xMax = Mathf.Min(gridSize.x, coord.x + size.x);
+            int yMax = Mathf.Min(gridSize.y, coord.y + size.y);
+            int zMax = Mathf.Min(gridSize.z, coord.z + size.z);
+
+            for (int z = Mathf.Max(0, coord.z); z < zMax; z++)
+            for (int y = Mathf.Max(0, coord.y); y < yMax; y++)
+            for (int x = Mathf.Max(0, coord.x); x < xMax; x++)
+            {
+                int index = x + gridSize.x * (y + gridSize.y * z);
+                leafByCellCoord[index] = i;
+            }
+        }
     }
 }

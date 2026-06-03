@@ -177,7 +177,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         octreeMesher.qefAxisSnapStrength = model.qefAxisSnapStrength;
         octreeMesher.qefEnableMultiHermite = model.GetEffectiveQefEnableMultiHermite();
         octreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
-        octreeMesher.edgeRefinementSteps = model.edgeRefinementSteps;
+        octreeMesher.edgeRefinementSteps = model.GetEffectiveEdgeRefinementSteps();
     }
 
     private void ConfigureFlatOctreeMesher(VolumeModel model)
@@ -311,6 +311,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (fullRebuildRequested)
             ResetChunkCycleState();
 
+        if (IsFlatOctreeDualContouring(model))
+            WarmupFlatOctreeRuntimeCache(model);
+
         int rebuildBudget = GetChunkRebuildBudget(model, fullRebuildRequested);
         float rebuildTimeBudgetMs = GetChunkRebuildTimeBudgetMs(model);
         bool isPreviewPass = model != null && model.IsPreviewRebuild;
@@ -334,7 +337,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             if (model.ShouldLogRebuildDuration())
             {
                 UnityEngine.Debug.Log(
-                    $"VolumeMeshRenderer Chunked [{model.GetPipelineDebugLabel()}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}, refinementSteps={model.edgeRefinementSteps}");
+                    $"VolumeMeshRenderer Chunked [{model.GetPipelineDebugLabel()}]: total={totalTimer.Elapsed.TotalMilliseconds:F2} ms, queueSetup={queueSetupMs:F2} ms, chunkRebuild={chunkRebuildMs:F2} ms, rebuilt={rebuiltNow}, pending={_pendingChunkQueue.Count}, budget={rebuildBudget}, refinementSteps={model.GetEffectiveEdgeRefinementSteps()}");
             }
         }
 #endif
@@ -777,6 +780,13 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                model.octreeMesherType == OctreeMesherType.DualContouring;
     }
 
+    private static void WarmupFlatOctreeRuntimeCache(VolumeModel model)
+    {
+        IFlatAdaptiveVolumeData flatVolume = model.GetActiveFlatAdaptiveVolume();
+        FlatOctreeLayout layout = flatVolume?.GetFlatLayout(includeCornerValues: true);
+        layout?.EnsureRuntimeCache();
+    }
+
     private int RebuildQueuedChunks(int budget, float timeBudgetMs, out double passChunkMs)
     {
         Stopwatch passTimer = Stopwatch.StartNew();
@@ -870,7 +880,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (!_chunkCycleIsPreview && model.ShouldLogRebuildDuration())
         {
             UnityEngine.Debug.Log(
-                $"VolumeMeshRenderer Chunked Final [{model.GetPipelineDebugLabel()}] | work(expected={_chunkCycleExpected}, rebuilt={_chunkCycleRebuiltTotal}, refinementSteps={model.edgeRefinementSteps})\n" +
+                $"VolumeMeshRenderer Chunked Final [{model.GetPipelineDebugLabel()}] | work(expected={_chunkCycleExpected}, rebuilt={_chunkCycleRebuiltTotal}, refinementSteps={model.GetEffectiveEdgeRefinementSteps()})\n" +
                 $"timing(total={_chunkCycleTimer.Elapsed.TotalMilliseconds:F2} ms, chunk={_chunkCycleChunkMsTotal:F2} ms, passes={_chunkCyclePasses}, avg={avg:F2} ms, max={_chunkCycleChunkMsMax:F2} ms)");
         }
 

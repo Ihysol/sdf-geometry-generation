@@ -160,4 +160,42 @@ public class VolumeModelRebuildModeTests
             _model.RestorePreviewRebuildContext(previous);
         }
     }
+
+    [Test]
+    public void PreviewEdgeRefinement_UsesPreviewValueOnlyDuringPreview()
+    {
+        _model.edgeRefinementSteps = 3;
+        _model.previewEdgeRefinementSteps = 2;
+
+        bool previous = _model.SetPreviewRebuildContext(true);
+
+        try
+        {
+            Assert.That(_model.GetEffectiveEdgeRefinementSteps(), Is.EqualTo(2));
+        }
+        finally
+        {
+            _model.RestorePreviewRebuildContext(previous);
+        }
+
+        Assert.That(_model.GetEffectiveEdgeRefinementSteps(), Is.EqualTo(3));
+    }
+
+    [Test]
+    public void PreviewEdgeRefinement_NeverExceedsFinalValue()
+    {
+        _model.edgeRefinementSteps = 2;
+        _model.previewEdgeRefinementSteps = 5;
+
+        bool previous = _model.SetPreviewRebuildContext(true);
+
+        try
+        {
+            Assert.That(_model.GetEffectiveEdgeRefinementSteps(), Is.EqualTo(2));
+        }
+        finally
+        {
+            _model.RestorePreviewRebuildContext(previous);
+        }
+    }
 }
