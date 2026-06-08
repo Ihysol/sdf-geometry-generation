@@ -53,18 +53,20 @@ public sealed class FlatOctreeLayout
         if (_runtimeCacheReady)
             return;
 
-        List<int> surfaceLeaves = new List<int>();
-        Dictionary<Vector3Int, int> leafExactByCoord = new Dictionary<Vector3Int, int>();
-
+        int leafCount = 0;
+        int surfaceLeafCount = 0;
         for (int i = 0; i < Count; i++)
         {
             if (!IsLeaf(i))
                 continue;
 
-            leafExactByCoord[Coords[i]] = i;
+            leafCount++;
             if (IsSurface(i))
-                surfaceLeaves.Add(i);
+                surfaceLeafCount++;
         }
+
+        int[] surfaceLeaves = new int[surfaceLeafCount];
+        int surfaceLeafWrite = 0;
 
         int[] subtreeSize = new int[Count];
         int[] childIndexByOctant = new int[Count * 8];
@@ -72,9 +74,23 @@ public sealed class FlatOctreeLayout
             childIndexByOctant[i] = -1;
 
         ComputeSubtreeSize(0, subtreeSize, childIndexByOctant);
-        BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int leafLookupGridSize);
+        bool hasDenseLeafLookup = BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int leafLookupGridSize);
+        Dictionary<Vector3Int, int> leafExactByCoord = hasDenseLeafLookup
+            ? new Dictionary<Vector3Int, int>(0)
+            : new Dictionary<Vector3Int, int>(leafCount);
 
-        SurfaceLeafIndices = surfaceLeaves.ToArray();
+        for (int i = 0; i < Count; i++)
+        {
+            if (!IsLeaf(i))
+                continue;
+
+            if (!hasDenseLeafLookup)
+                leafExactByCoord[Coords[i]] = i;
+            if (IsSurface(i))
+                surfaceLeaves[surfaceLeafWrite++] = i;
+        }
+
+        SurfaceLeafIndices = surfaceLeaves;
         SubtreeSize = subtreeSize;
         ChildIndexByOctant = childIndexByOctant;
         LeafByCellCoord = leafByCellCoord;
@@ -189,20 +205,20 @@ public sealed class FlatOctreeLayout
         return size;
     }
 
-    private void BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int gridSize)
+    private bool BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int gridSize)
     {
         leafByCellCoord = null;
         gridSize = Vector3Int.zero;
 
         if (Count == 0 || NodeSizeInCells == null)
-            return;
+            return false;
 
         gridSize = GetNodeSizeInCells(0);
         long entryCount = (long)gridSize.x * gridSize.y * gridSize.z;
         if (entryCount <= 0 || entryCount > MaxDenseLeafLookupEntries)
         {
             gridSize = Vector3Int.zero;
-            return;
+            return false;
         }
 
         leafByCellCoord = new int[(int)entryCount];
@@ -228,5 +244,7 @@ public sealed class FlatOctreeLayout
                 leafByCellCoord[index] = i;
             }
         }
+
+        return true;
     }
 }
