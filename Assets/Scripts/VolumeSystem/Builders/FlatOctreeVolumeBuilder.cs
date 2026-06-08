@@ -12,6 +12,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly double createLayoutMs;
         public readonly double runtimeCacheMs;
         public readonly double surfaceVertexMs;
+        public readonly double surfaceCrossingMs;
+        public readonly double surfaceNormalMs;
         public readonly int totalNodes;
         public readonly int surfaceLeaves;
         public readonly int sourceEvaluations;
@@ -19,6 +21,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int cornerCacheMisses;
         public readonly int centerEvaluations;
         public readonly int edgeRefinementEvaluations;
+        public readonly int crossingCacheHits;
+        public readonly int crossingCacheMisses;
         public readonly int gcGen0Delta;
         public readonly int gcGen1Delta;
         public readonly int gcGen2Delta;
@@ -29,6 +33,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             double createLayoutMs,
             double runtimeCacheMs,
             double surfaceVertexMs,
+            double surfaceCrossingMs,
+            double surfaceNormalMs,
             int totalNodes,
             int surfaceLeaves,
             int sourceEvaluations,
@@ -36,6 +42,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int cornerCacheMisses,
             int centerEvaluations,
             int edgeRefinementEvaluations,
+            int crossingCacheHits,
+            int crossingCacheMisses,
             int gcGen0Delta,
             int gcGen1Delta,
             int gcGen2Delta)
@@ -45,6 +53,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.createLayoutMs = createLayoutMs;
             this.runtimeCacheMs = runtimeCacheMs;
             this.surfaceVertexMs = surfaceVertexMs;
+            this.surfaceCrossingMs = surfaceCrossingMs;
+            this.surfaceNormalMs = surfaceNormalMs;
             this.totalNodes = totalNodes;
             this.surfaceLeaves = surfaceLeaves;
             this.sourceEvaluations = sourceEvaluations;
@@ -52,6 +62,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.cornerCacheMisses = cornerCacheMisses;
             this.centerEvaluations = centerEvaluations;
             this.edgeRefinementEvaluations = edgeRefinementEvaluations;
+            this.crossingCacheHits = crossingCacheHits;
+            this.crossingCacheMisses = crossingCacheMisses;
             this.gcGen0Delta = gcGen0Delta;
             this.gcGen1Delta = gcGen1Delta;
             this.gcGen2Delta = gcGen2Delta;
@@ -156,7 +168,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private const int MaxDenseCornerCacheEntries = 8 * 1024 * 1024;
     private const int InitialNodeCapacity = 32 * 1024;
     private const int InitialFallbackCornerCapacity = 1024;
-    private const int InitialAverageCrossingCapacity = 16 * 1024;
+    private const int InitialAverageCrossingCapacity = 64 * 1024;
     private readonly List<NodeRecord> _nodes = new(InitialNodeCapacity);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<OctreeHermiteEdgeKey, Vector3> _averageCrossingCache = new(InitialAverageCrossingCapacity);
@@ -168,8 +180,12 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _cornerCacheMisses;
     private int _centerEvaluations;
     private int _edgeRefinementEvaluations;
+    private int _crossingCacheHits;
+    private int _crossingCacheMisses;
     private int _surfaceLeaves;
     private long _surfaceVertexTicks;
+    private long _surfaceCrossingTicks;
+    private long _surfaceNormalTicks;
 
     public BuildStats LastBuildStats { get; private set; }
 
@@ -228,9 +244,10 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         {
             UnityEngine.Debug.Log(
                 $"Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
-                $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, createLayout={LastBuildStats.createLayoutMs:F2} ms, runtimeCache={LastBuildStats.runtimeCacheMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms), " +
+                $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, createLayout={LastBuildStats.createLayoutMs:F2} ms, runtimeCache={LastBuildStats.runtimeCacheMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms, surfaceCrossing={LastBuildStats.surfaceCrossingMs:F2} ms, surfaceNormal={LastBuildStats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
                 $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}), " +
+                $"crossingCache(hit={LastBuildStats.crossingCacheHits}, miss={LastBuildStats.crossingCacheMisses}), " +
                 $"gc(gen0={LastBuildStats.gcGen0Delta}, gen1={LastBuildStats.gcGen1Delta}, gen2={LastBuildStats.gcGen2Delta})"
             );
         }
@@ -416,6 +433,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
         Vector3 sum = Vector3.zero;
         int count = 0;
+        long crossingStart = Stopwatch.GetTimestamp();
 
         for (int i = 0; i < Edges.Length; i++)
         {
@@ -435,7 +453,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         surfaceVertex = count == 0
             ? SnapToGridNearBoundary(bounds.center, origin, cellSize)
             : SnapToGridNearBoundary(sum / count, origin, cellSize);
+
+        _surfaceCrossingTicks += Stopwatch.GetTimestamp() - crossingStart;
+        long normalStart = Stopwatch.GetTimestamp();
         surfaceNormal = EstimateSdfNormal(source, surfaceVertex, cellSize);
+        _surfaceNormalTicks += Stopwatch.GetTimestamp() - normalStart;
     }
 
     private void AddAverageCrossingForEdge(
@@ -450,8 +472,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         ref int count)
     {
         OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
-        if (!_averageCrossingCache.TryGetValue(key, out Vector3 crossing))
+        if (_averageCrossingCache.TryGetValue(key, out Vector3 crossing))
         {
+            _crossingCacheHits++;
+        }
+        else
+        {
+            _crossingCacheMisses++;
             crossing = RefineEdgeIntersection(source, pa, pb, va, vb, 0f);
             _averageCrossingCache[key] = crossing;
         }
@@ -738,8 +765,12 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _cornerCacheMisses = 0;
         _centerEvaluations = 0;
         _edgeRefinementEvaluations = 0;
+        _crossingCacheHits = 0;
+        _crossingCacheMisses = 0;
         _surfaceLeaves = 0;
         _surfaceVertexTicks = 0;
+        _surfaceCrossingTicks = 0;
+        _surfaceNormalTicks = 0;
     }
 
     private void CaptureBuildStats(
@@ -757,6 +788,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             createLayoutMs,
             runtimeCacheMs,
             _surfaceVertexTicks * 1000d / Stopwatch.Frequency,
+            _surfaceCrossingTicks * 1000d / Stopwatch.Frequency,
+            _surfaceNormalTicks * 1000d / Stopwatch.Frequency,
             _nodes.Count,
             _surfaceLeaves,
             _sourceEvaluations,
@@ -764,6 +797,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _cornerCacheMisses,
             _centerEvaluations,
             _edgeRefinementEvaluations,
+            _crossingCacheHits,
+            _crossingCacheMisses,
             gcGen0Delta,
             gcGen1Delta,
             gcGen2Delta
