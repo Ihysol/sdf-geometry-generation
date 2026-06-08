@@ -7,7 +7,7 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
     public Vector3 extent = new Vector3(4, 4, 4);
 
     public OctreeVolumeBuilder builder = new OctreeVolumeBuilder();
-    public DirectFlatOctreeVolumeBuilder directFlatBuilder = new DirectFlatOctreeVolumeBuilder();
+    public FlatOctreeVolumeBuilder flatBuilder = new FlatOctreeVolumeBuilder();
     public string LastIncrementalFallbackReason { get; private set; } = string.Empty;
 
     /// <summary>Rebuilds the octree volume from the given scalar field.</summary>
@@ -28,7 +28,7 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
         IsDirty = false;
     }
 
-    public void RebuildFlatVolume(IScalarFieldSource source)
+    public void RebuildFlatOctreeVolume(IScalarFieldSource source)
     {
         if (source == null)
         {
@@ -37,10 +37,10 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
             return;
         }
 
-        directFlatBuilder.center = center;
-        directFlatBuilder.size = extent;
+        flatBuilder.center = center;
+        flatBuilder.size = extent;
 
-        Volume = directFlatBuilder.Build(source);
+        Volume = flatBuilder.Build(source);
         IsDirty = false;
     }
 

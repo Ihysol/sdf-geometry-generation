@@ -93,7 +93,7 @@ public class MeshVolumeChunk : VolumeChunkBase
         }
 #endif
 
-        if (model.recalculateNormals)
+        if (model.recalculateNormals && !_mesh.HasVertexAttribute(VertexAttribute.Normal))
         {
             _mesh.RecalculateNormals();
 #if UNITY_EDITOR

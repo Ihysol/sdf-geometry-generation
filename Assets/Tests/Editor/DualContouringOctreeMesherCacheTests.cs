@@ -79,10 +79,10 @@ public class DualContouringOctreeMesherCacheTests
     }
 
     [Test]
-    public void DirectFlatBuilder_BuildsMeshableFlatLayout()
+    public void FlatOctreeBuilder_BuildsMeshableFlatLayout()
     {
         CountingSphereSource source = new CountingSphereSource();
-        DirectFlatOctreeVolumeBuilder builder = new DirectFlatOctreeVolumeBuilder
+        FlatOctreeVolumeBuilder builder = new FlatOctreeVolumeBuilder
         {
             center = Vector3.zero,
             size = Vector3.one * 2f,
@@ -101,6 +101,7 @@ public class DualContouringOctreeMesherCacheTests
         mesher.BuildMesh(volume, 0f, mesh);
         int vertexCount = mesh.vertexCount;
         int indexCount = mesh.triangles.Length;
+        int normalCount = mesh.normals.Length;
         Object.DestroyImmediate(mesh);
 
         Assert.That(volume.Root, Is.Null);
@@ -108,6 +109,7 @@ public class DualContouringOctreeMesherCacheTests
         Assert.That(layout.IsValid, Is.True);
         Assert.That(layout.SurfaceLeafIndices.Length, Is.GreaterThan(0));
         Assert.That(vertexCount, Is.GreaterThan(0));
+        Assert.That(normalCount, Is.EqualTo(vertexCount));
         Assert.That(indexCount, Is.GreaterThan(0));
     }
 }

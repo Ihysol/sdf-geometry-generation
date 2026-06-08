@@ -390,7 +390,7 @@ public class VolumeModel : MonoBehaviour
                 activeBuilder.qefSurfaceWeight = qefSurfaceWeight;
                 activeBuilder.qefEdgeWeight = qefEdgeWeight;
                 activeBuilder.qefCornerWeight = qefCornerWeight;
-                bool canUseDirectFlatBuilder = CanUseDirectFlatBuilder();
+                bool canUseFlatBuilder = CanUseFlatOctreeBuilder();
 
                 bool hasInitializedVolume = dataStructure == VolumeDataStructure.Octree
                     ? octreeSampler.Volume != null
@@ -455,11 +455,11 @@ public class VolumeModel : MonoBehaviour
                     if (!hasDirtyBounds)
                         rebuildCause = "octree-full-no-dirty";
                     octreeSampler.MarkDirty();
-                    if (canUseDirectFlatBuilder)
+                    if (canUseFlatBuilder)
                     {
-                        ConfigureDirectFlatBuilder(activeBuilder);
-                        octreeSampler.RebuildFlatVolume(source);
-                        rebuildCause += "-direct-flat";
+                        ConfigureFlatOctreeBuilder(activeBuilder);
+                        octreeSampler.RebuildFlatOctreeVolume(source);
+                        rebuildCause += "-flat-builder";
                     }
                     else
                     {
@@ -581,17 +581,21 @@ public class VolumeModel : MonoBehaviour
         return logChunkRebuildStats && !_isPreviewRebuild;
     }
 
-    private bool CanUseDirectFlatBuilder()
+    private bool CanUseFlatOctreeBuilder()
     {
+        bool usesAverageCrossingVertices =
+            !GetEffectiveUseQefVertices() ||
+            GetEffectiveQefVertexMode() == QefVertexMode.AverageCrossings;
+
         return dataStructure == VolumeDataStructure.Octree &&
                octreeMesherType == OctreeMesherType.DualContouring &&
                GetEffectiveStorageMode() == VolumeStorageMode.Flat &&
-               GetEffectiveQefVertexMode() == QefVertexMode.AverageCrossings;
+               usesAverageCrossingVertices;
     }
 
-    private void ConfigureDirectFlatBuilder(OctreeVolumeBuilder sourceBuilder)
+    private void ConfigureFlatOctreeBuilder(OctreeVolumeBuilder sourceBuilder)
     {
-        DirectFlatOctreeVolumeBuilder target = octreeSampler.directFlatBuilder;
+        FlatOctreeVolumeBuilder target = octreeSampler.flatBuilder;
         target.center = octreeSampler.center;
         target.size = octreeSampler.extent;
         target.boundsPadding = sourceBuilder.boundsPadding;

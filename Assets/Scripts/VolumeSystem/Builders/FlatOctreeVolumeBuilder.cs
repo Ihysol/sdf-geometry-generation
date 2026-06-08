@@ -3,7 +3,7 @@ using System.Diagnostics;
 using UnityEngine;
 
 [System.Serializable]
-public class DirectFlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
+public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 {
     public readonly struct BuildStats
     {
@@ -177,16 +177,16 @@ public class DirectFlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         BuildNode(source, buildBounds, 0, origin, cellSize);
 
         recursiveStopwatch.Stop();
-        totalStopwatch.Stop();
         FlatOctreeLayout layout = CreateLayout();
         layout.EnsureRuntimeCache();
+        totalStopwatch.Stop();
         CaptureBuildStats(totalStopwatch.Elapsed.TotalMilliseconds, recursiveStopwatch.Elapsed.TotalMilliseconds);
 
 #if UNITY_EDITOR
         if (!suppressBuildLog && UnityEngine.Debug.isDebugBuild)
         {
             UnityEngine.Debug.Log(
-                $"Direct Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
+                $"Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
                 $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms), " +
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
                 $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses})"

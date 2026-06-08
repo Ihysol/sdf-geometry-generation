@@ -19,12 +19,15 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
     public int qefHermiteSamplesPerEdge = 3;
 
     private readonly List<Vector3> _vertices = new();
+    private readonly List<Vector3> _normals = new();
     private readonly List<int> _triangles = new();
     private readonly HashSet<EdgeKey> _processedEdges = new();
     private readonly List<GridBounds> _ownedGridBounds = new();
+    private readonly Dictionary<Vector3, Vector3> _normalByVertex = new();
     private int[] _meshVertexIndexByNode;
 
     private FlatOctreeLayout _layout;
+    private IScalarFieldSource _source;
     private Vector3 _origin;
     private Vector3 _cellSize;
     private Vector3Int _gridMin;
@@ -89,9 +92,11 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
     {
         mesh.Clear();
         _vertices.Clear();
+        _normals.Clear();
         _triangles.Clear();
         _processedEdges.Clear();
         _ownedGridBounds.Clear();
+        _normalByVertex.Clear();
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
         _resolveLeafCalls = 0;
@@ -109,6 +114,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         if (_layout == null || _layout.Count == 0 || !_layout.IsValid)
             return;
 
+        _source = volume.Source;
         int count = _layout.Count;
         EnsureWorkingBuffers(count);
 
@@ -154,6 +160,8 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
 #endif
 
         mesh.SetVertices(_vertices);
+        if (_normals.Count == _vertices.Count)
+            mesh.SetNormals(_normals);
         mesh.SetTriangles(_triangles, 0);
 
 #if UNITY_EDITOR
@@ -369,7 +377,37 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
             return;
 
         _meshVertexIndexByNode[nodeIndex] = _vertices.Count;
-        _vertices.Add(_layout.GetSurfaceVertexOrCenter(nodeIndex));
+        Vector3 vertex = _layout.GetSurfaceVertexOrCenter(nodeIndex);
+        _vertices.Add(vertex);
+        _normals.Add(EstimateNormal(vertex));
+    }
+
+    private Vector3 EstimateNormal(Vector3 position)
+    {
+        if (_source == null)
+            return Vector3.up;
+
+        if (_normalByVertex.TryGetValue(position, out Vector3 cached))
+            return cached;
+
+        float h = Mathf.Max(1e-4f, Mathf.Min(_cellSize.x, Mathf.Min(_cellSize.y, _cellSize.z)) * 0.5f);
+        Vector3 dx = new Vector3(h, 0f, 0f);
+        Vector3 dy = new Vector3(0f, h, 0f);
+        Vector3 dz = new Vector3(0f, 0f, h);
+
+        Vector3 n = new Vector3(
+            _source.Evaluate(position + dx) - _source.Evaluate(position - dx),
+            _source.Evaluate(position + dy) - _source.Evaluate(position - dy),
+            _source.Evaluate(position + dz) - _source.Evaluate(position - dz)
+        );
+
+        if (n.sqrMagnitude <= 1e-12f)
+            n = Vector3.up;
+        else
+            n.Normalize();
+
+        _normalByVertex[position] = n;
+        return n;
     }
 
     private bool IsCoordInsideVolumeGrid(Vector3Int coord)
