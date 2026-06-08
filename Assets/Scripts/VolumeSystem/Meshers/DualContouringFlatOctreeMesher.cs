@@ -23,11 +23,9 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
     private readonly List<int> _triangles = new();
     private readonly HashSet<EdgeKey> _processedEdges = new();
     private readonly List<GridBounds> _ownedGridBounds = new();
-    private readonly Dictionary<Vector3, Vector3> _normalByVertex = new();
     private int[] _meshVertexIndexByNode;
 
     private FlatOctreeLayout _layout;
-    private IScalarFieldSource _source;
     private Vector3 _origin;
     private Vector3 _cellSize;
     private Vector3Int _gridMin;
@@ -96,7 +94,6 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _triangles.Clear();
         _processedEdges.Clear();
         _ownedGridBounds.Clear();
-        _normalByVertex.Clear();
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
         _resolveLeafCalls = 0;
@@ -114,7 +111,6 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         if (_layout == null || _layout.Count == 0 || !_layout.IsValid)
             return;
 
-        _source = volume.Source;
         int count = _layout.Count;
         EnsureWorkingBuffers(count);
 
@@ -123,6 +119,7 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _gridMin = Vector3Int.zero;
         int resolution = 1 << volume.MaxDepth;
         _gridMax = new Vector3Int(Mathf.Max(0, resolution - 1), Mathf.Max(0, resolution - 1), Mathf.Max(0, resolution - 1));
+        EnsureLayoutNormals(volume.Source);
 
 #if UNITY_EDITOR
         Stopwatch totalSw = null;
@@ -379,35 +376,53 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _meshVertexIndexByNode[nodeIndex] = _vertices.Count;
         Vector3 vertex = _layout.GetSurfaceVertexOrCenter(nodeIndex);
         _vertices.Add(vertex);
-        _normals.Add(EstimateNormal(vertex));
+        _normals.Add(_layout.GetSurfaceNormalOrDefault(nodeIndex));
     }
 
-    private Vector3 EstimateNormal(Vector3 position)
+    private void EnsureLayoutNormals(IScalarFieldSource source)
     {
-        if (_source == null)
-            return Vector3.up;
+        if (_layout.SurfaceNormals != null && _layout.SurfaceNormals.Length == _layout.Count)
+            return;
 
-        if (_normalByVertex.TryGetValue(position, out Vector3 cached))
-            return cached;
+        Vector3[] normals = new Vector3[_layout.Count];
+        if (source == null)
+        {
+            for (int i = 0; i < normals.Length; i++)
+                normals[i] = Vector3.up;
+            _layout.SurfaceNormals = normals;
+            return;
+        }
 
         float h = Mathf.Max(1e-4f, Mathf.Min(_cellSize.x, Mathf.Min(_cellSize.y, _cellSize.z)) * 0.5f);
         Vector3 dx = new Vector3(h, 0f, 0f);
         Vector3 dy = new Vector3(0f, h, 0f);
         Vector3 dz = new Vector3(0f, 0f, h);
 
-        Vector3 n = new Vector3(
-            _source.Evaluate(position + dx) - _source.Evaluate(position - dx),
-            _source.Evaluate(position + dy) - _source.Evaluate(position - dy),
-            _source.Evaluate(position + dz) - _source.Evaluate(position - dz)
-        );
+        for (int i = 0; i < _layout.Count; i++)
+        {
+            if (!_layout.IsSurface(i))
+            {
+                normals[i] = Vector3.up;
+                continue;
+            }
 
-        if (n.sqrMagnitude <= 1e-12f)
-            n = Vector3.up;
-        else
-            n.Normalize();
+            Vector3 position = _layout.GetSurfaceVertexOrCenter(i);
+            Vector3 n = new Vector3(
+                source.Evaluate(position + dx) - source.Evaluate(position - dx),
+                source.Evaluate(position + dy) - source.Evaluate(position - dy),
+                source.Evaluate(position + dz) - source.Evaluate(position - dz)
+            );
 
-        _normalByVertex[position] = n;
-        return n;
+            if (n.sqrMagnitude <= 1e-12f)
+                normals[i] = Vector3.up;
+            else
+            {
+                n.Normalize();
+                normals[i] = n;
+            }
+        }
+
+        _layout.SurfaceNormals = normals;
     }
 
     private bool IsCoordInsideVolumeGrid(Vector3Int coord)

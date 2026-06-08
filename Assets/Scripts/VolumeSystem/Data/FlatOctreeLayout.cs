@@ -6,6 +6,7 @@ public sealed class FlatOctreeLayout
     public Vector3[] Centers;
     public Vector3[] Sizes;
     public Vector3[] SurfaceVertices;
+    public Vector3[] SurfaceNormals;
     public Vector3Int[] Coords;
     public Vector3Int[] NodeSizeInCells;
     public float[] CornerValues8;
@@ -31,6 +32,7 @@ public sealed class FlatOctreeLayout
         Centers != null &&
         Sizes != null &&
         SurfaceVertices != null &&
+        (SurfaceNormals == null || SurfaceNormals.Length == Count) &&
         Coords != null &&
         NodeSizeInCells != null &&
         CornerValues8 != null &&
@@ -138,6 +140,15 @@ public sealed class FlatOctreeLayout
         return IsSurface(nodeIndex) && SurfaceVertices != null && nodeIndex < SurfaceVertices.Length
             ? SurfaceVertices[nodeIndex]
             : Centers[nodeIndex];
+    }
+
+    public Vector3 GetSurfaceNormalOrDefault(int nodeIndex)
+    {
+        if (!IsIndexValid(nodeIndex) || SurfaceNormals == null || nodeIndex >= SurfaceNormals.Length)
+            return Vector3.up;
+
+        Vector3 normal = SurfaceNormals[nodeIndex];
+        return normal.sqrMagnitude > 1e-12f ? normal : Vector3.up;
     }
 
     private bool IsIndexValid(int nodeIndex)
