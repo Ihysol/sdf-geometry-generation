@@ -77,4 +77,37 @@ public class DualContouringOctreeMesherCacheTests
         Assert.That(farLeaf, Is.EqualTo(0));
         Assert.That(layout.TryGetContainingLeafIndex(new Vector3Int(4, 0, 0), out _), Is.False);
     }
+
+    [Test]
+    public void DirectFlatBuilder_BuildsMeshableFlatLayout()
+    {
+        CountingSphereSource source = new CountingSphereSource();
+        DirectFlatOctreeVolumeBuilder builder = new DirectFlatOctreeVolumeBuilder
+        {
+            center = Vector3.zero,
+            size = Vector3.one * 2f,
+            boundsPadding = 0f,
+            minDepth = 1,
+            maxDepth = 3,
+            suppressBuildLog = true,
+            edgeRefinementSteps = 3
+        };
+
+        OctreeVolume volume = builder.Build(source);
+        FlatOctreeLayout layout = volume.GetFlatLayout(includeCornerValues: true);
+        Mesh mesh = new Mesh();
+        DualContouringFlatOctreeMesher mesher = new DualContouringFlatOctreeMesher();
+
+        mesher.BuildMesh(volume, 0f, mesh);
+        int vertexCount = mesh.vertexCount;
+        int indexCount = mesh.triangles.Length;
+        Object.DestroyImmediate(mesh);
+
+        Assert.That(volume.Root, Is.Null);
+        Assert.That(layout, Is.Not.Null);
+        Assert.That(layout.IsValid, Is.True);
+        Assert.That(layout.SurfaceLeafIndices.Length, Is.GreaterThan(0));
+        Assert.That(vertexCount, Is.GreaterThan(0));
+        Assert.That(indexCount, Is.GreaterThan(0));
+    }
 }

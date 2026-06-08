@@ -390,6 +390,7 @@ public class VolumeModel : MonoBehaviour
                 activeBuilder.qefSurfaceWeight = qefSurfaceWeight;
                 activeBuilder.qefEdgeWeight = qefEdgeWeight;
                 activeBuilder.qefCornerWeight = qefCornerWeight;
+                bool canUseDirectFlatBuilder = CanUseDirectFlatBuilder();
 
                 bool hasInitializedVolume = dataStructure == VolumeDataStructure.Octree
                     ? octreeSampler.Volume != null
@@ -454,7 +455,16 @@ public class VolumeModel : MonoBehaviour
                     if (!hasDirtyBounds)
                         rebuildCause = "octree-full-no-dirty";
                     octreeSampler.MarkDirty();
-                    octreeSampler.RebuildVolume(source);
+                    if (canUseDirectFlatBuilder)
+                    {
+                        ConfigureDirectFlatBuilder(activeBuilder);
+                        octreeSampler.RebuildFlatVolume(source);
+                        rebuildCause += "-direct-flat";
+                    }
+                    else
+                    {
+                        octreeSampler.RebuildVolume(source);
+                    }
                 }
                 else
                 {
@@ -569,6 +579,26 @@ public class VolumeModel : MonoBehaviour
     public bool ShouldLogChunkRebuildStats()
     {
         return logChunkRebuildStats && !_isPreviewRebuild;
+    }
+
+    private bool CanUseDirectFlatBuilder()
+    {
+        return dataStructure == VolumeDataStructure.Octree &&
+               octreeMesherType == OctreeMesherType.DualContouring &&
+               GetEffectiveStorageMode() == VolumeStorageMode.Flat &&
+               GetEffectiveQefVertexMode() == QefVertexMode.AverageCrossings;
+    }
+
+    private void ConfigureDirectFlatBuilder(OctreeVolumeBuilder sourceBuilder)
+    {
+        DirectFlatOctreeVolumeBuilder target = octreeSampler.directFlatBuilder;
+        target.center = octreeSampler.center;
+        target.size = octreeSampler.extent;
+        target.boundsPadding = sourceBuilder.boundsPadding;
+        target.maxDepth = sourceBuilder.maxDepth;
+        target.minDepth = sourceBuilder.minDepth;
+        target.suppressBuildLog = sourceBuilder.suppressBuildLog;
+        target.edgeRefinementSteps = sourceBuilder.edgeRefinementSteps;
     }
 
     /// <summary>Returns the currently active sampled volume data.</summary>

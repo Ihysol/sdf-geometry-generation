@@ -315,7 +315,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             WarmupFlatOctreeRuntimeCache(model);
 
         int rebuildBudget = GetChunkRebuildBudget(model, fullRebuildRequested);
-        float rebuildTimeBudgetMs = GetChunkRebuildTimeBudgetMs(model);
+        float rebuildTimeBudgetMs = GetChunkRebuildTimeBudgetMs(model, fullRebuildRequested);
         bool isPreviewPass = model != null && model.IsPreviewRebuild;
         StartChunkCycleIfNeeded(bounds.Count, isPreviewPass);
         rebuiltNow = RebuildQueuedChunks(rebuildBudget, rebuildTimeBudgetMs, out double passChunkMs);
@@ -683,7 +683,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         {
             int rebuiltNow = RebuildQueuedChunks(
                 GetChunkRebuildBudget(_activeChunkModel, fullRebuildRequested: false),
-                GetChunkRebuildTimeBudgetMs(_activeChunkModel),
+                GetChunkRebuildTimeBudgetMs(_activeChunkModel, fullRebuildRequested: false),
                 out double passChunkMs);
             RecordChunkCyclePass(rebuiltNow, passChunkMs);
             TryFinalizeChunkCycle(_activeChunkModel);
@@ -739,6 +739,8 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
         if (isFlatOctree)
         {
+            if (fullRebuildRequested)
+                return pending;
             if (pending <= 32)
                 return pending;
             return Mathf.Min(pending, Mathf.Max(12, model.maxChunksPerRebuild * 3));
@@ -751,7 +753,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         return pending;
     }
 
-    private float GetChunkRebuildTimeBudgetMs(VolumeModel model)
+    private float GetChunkRebuildTimeBudgetMs(VolumeModel model, bool fullRebuildRequested)
     {
         if (model == null || Application.isPlaying)
             return -1f;
@@ -760,7 +762,11 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             return -1f;
 
         if (IsFlatOctreeDualContouring(model))
+        {
+            if (fullRebuildRequested)
+                return -1f;
             return 28f;
+        }
 
         bool isOctreeLike = model.dataStructure == VolumeDataStructure.Octree ||
                             model.dataStructure == VolumeDataStructure.SparseVoxelOctree;

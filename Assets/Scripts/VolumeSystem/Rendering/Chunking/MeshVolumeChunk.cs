@@ -107,7 +107,7 @@ public class MeshVolumeChunk : VolumeChunkBase
 
         if (model.recalculateBounds)
         {
-            _mesh.RecalculateBounds();
+            _mesh.bounds = coreBounds;
 #if UNITY_EDITOR
             if (timer != null)
                 boundsMs = timer.Elapsed.TotalMilliseconds;

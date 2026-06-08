@@ -83,7 +83,8 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolume
         Vector3 cellSize,
         Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample> hermiteSamples = null,
         int hermiteSampleRefinementSteps = 0,
-        float hermiteSampleIsoLevel = 0f)
+        float hermiteSampleIsoLevel = 0f,
+        FlatOctreeLayout flatLayout = null)
     {
         Root = root;
         Bounds = bounds;
@@ -96,6 +97,7 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolume
         _hermiteSamples = hermiteSamples;
         _hermiteSampleRefinementSteps = hermiteSampleRefinementSteps;
         _hermiteSampleIsoLevel = hermiteSampleIsoLevel;
+        _flatLayout = flatLayout;
     }
 
     public bool TryGetHermiteSample(
