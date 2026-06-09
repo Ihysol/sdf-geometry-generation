@@ -479,6 +479,10 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("logRebuildDuration")
         );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("rebuildBenchmarkRuns"),
+            new GUIContent("Benchmark Runs")
+        );
 
         if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
@@ -661,6 +665,15 @@ public class VolumeModelEditor : Editor
             serializedObject.ApplyModifiedProperties();
 
             model.RebuildModel();
+
+            EditorUtility.SetDirty(model);
+        }
+
+        if (GUILayout.Button("Benchmark Rebuilds", GUILayout.Height(25)))
+        {
+            serializedObject.ApplyModifiedProperties();
+
+            model.RunRebuildBenchmark();
 
             EditorUtility.SetDirty(model);
         }

@@ -456,7 +456,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         _surfaceCrossingTicks += Stopwatch.GetTimestamp() - crossingStart;
         long normalStart = Stopwatch.GetTimestamp();
-        surfaceNormal = EstimateSdfNormal(source, surfaceVertex, cellSize);
+        surfaceNormal = EstimateCornerNormal(cornerValues, bounds.size);
         _surfaceNormalTicks += Stopwatch.GetTimestamp() - normalStart;
     }
 
@@ -525,17 +525,19 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return best;
     }
 
-    private Vector3 EstimateSdfNormal(IScalarFieldSource source, Vector3 position, Vector3 cellSize)
+    private static Vector3 EstimateCornerNormal(CornerSamples cornerValues, Vector3 size)
     {
-        float h = Mathf.Max(1e-4f, Mathf.Min(cellSize.x, Mathf.Min(cellSize.y, cellSize.z)) * 0.5f);
-        Vector3 dx = new Vector3(h, 0f, 0f);
-        Vector3 dy = new Vector3(0f, h, 0f);
-        Vector3 dz = new Vector3(0f, 0f, h);
+        float invX = size.x > 1e-8f ? 1f / size.x : 1f;
+        float invY = size.y > 1e-8f ? 1f / size.y : 1f;
+        float invZ = size.z > 1e-8f ? 1f / size.z : 1f;
 
         Vector3 normal = new Vector3(
-            EvaluateSource(source, position + dx) - EvaluateSource(source, position - dx),
-            EvaluateSource(source, position + dy) - EvaluateSource(source, position - dy),
-            EvaluateSource(source, position + dz) - EvaluateSource(source, position - dz)
+            ((cornerValues[1] + cornerValues[2] + cornerValues[5] + cornerValues[6]) -
+             (cornerValues[0] + cornerValues[3] + cornerValues[4] + cornerValues[7])) * invX,
+            ((cornerValues[2] + cornerValues[3] + cornerValues[6] + cornerValues[7]) -
+             (cornerValues[0] + cornerValues[1] + cornerValues[4] + cornerValues[5])) * invY,
+            ((cornerValues[4] + cornerValues[5] + cornerValues[6] + cornerValues[7]) -
+             (cornerValues[0] + cornerValues[1] + cornerValues[2] + cornerValues[3])) * invZ
         );
 
         if (normal.sqrMagnitude > 1e-12f)
@@ -782,12 +784,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         int gcGen1Delta,
         int gcGen2Delta)
     {
+        long surfaceVertexExclusiveTicks = System.Math.Max(0, _surfaceVertexTicks - _surfaceCrossingTicks - _surfaceNormalTicks);
         LastBuildStats = new BuildStats(
             totalMs,
             recursiveBuildMs,
             createLayoutMs,
             runtimeCacheMs,
-            _surfaceVertexTicks * 1000d / Stopwatch.Frequency,
+            surfaceVertexExclusiveTicks * 1000d / Stopwatch.Frequency,
             _surfaceCrossingTicks * 1000d / Stopwatch.Frequency,
             _surfaceNormalTicks * 1000d / Stopwatch.Frequency,
             _nodes.Count,

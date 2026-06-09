@@ -6,6 +6,15 @@ public class VolumeRenderOutput : MonoBehaviour
 {
     private VolumeMeshRenderer _renderer;
 
+    public VolumeMeshRenderer.RenderStats LastRenderStats
+    {
+        get
+        {
+            EnsureSetup();
+            return _renderer != null ? _renderer.LastRenderStats : default;
+        }
+    }
+
     /// <summary>Fetches the renderer component.</summary>
     private void EnsureSetup()
     {

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using UnityEngine;
 
 public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeData>
@@ -21,9 +20,13 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
     private readonly List<Vector3> _vertices = new();
     private readonly List<Vector3> _normals = new();
     private readonly List<int> _triangles = new();
-    private readonly HashSet<EdgeKey> _processedEdges = new();
     private readonly List<GridBounds> _ownedGridBounds = new();
     private int[] _meshVertexIndexByNode;
+    private byte[] _processedEdgeMarks;
+    private byte _processedEdgeGeneration;
+    private int _processedEdgeGridX;
+    private int _processedEdgeGridY;
+    private int _processedEdgeGridZ;
 
     private FlatOctreeLayout _layout;
     private Vector3 _origin;
@@ -48,15 +51,6 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         public readonly Axis Axis;
         public readonly Vector3Int GridStart;
         public CellEdge(int a, int b, Axis axis, Vector3Int gridStart) { A = a; B = b; Axis = axis; GridStart = gridStart; }
-    }
-
-    private readonly struct EdgeKey
-    {
-        public readonly Vector3Int Start;
-        public readonly Axis Axis;
-        public EdgeKey(Vector3Int start, Axis axis) { Start = start; Axis = axis; }
-        public override int GetHashCode() => Start.GetHashCode() ^ ((int)Axis * 397);
-        public override bool Equals(object obj) => obj is EdgeKey other && Start == other.Start && Axis == other.Axis;
     }
 
     private readonly struct GridBounds
@@ -92,7 +86,6 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _vertices.Clear();
         _normals.Clear();
         _triangles.Clear();
-        _processedEdges.Clear();
         _ownedGridBounds.Clear();
         _skippedNullQuads = 0;
         _skippedInvalidQuads = 0;
@@ -119,58 +112,17 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _gridMin = Vector3Int.zero;
         int resolution = 1 << volume.MaxDepth;
         _gridMax = new Vector3Int(Mathf.Max(0, resolution - 1), Mathf.Max(0, resolution - 1), Mathf.Max(0, resolution - 1));
+        PrepareProcessedEdgeTracker(resolution + 1);
         EnsureLayoutNormals(volume.Source);
 
-#if UNITY_EDITOR
-        Stopwatch totalSw = null;
-        Stopwatch phaseSw = null;
-        double cacheOwnedMs = 0d;
-        double runtimeCacheMs = 0d;
-        double edgeQuadsMs = 0d;
-        if (enableDebugLog)
-        {
-            totalSw = Stopwatch.StartNew();
-            phaseSw = Stopwatch.StartNew();
-        }
-#endif
-
         CacheOwnedGridBounds();
-#if UNITY_EDITOR
-        if (phaseSw != null)
-        {
-            cacheOwnedMs = phaseSw.Elapsed.TotalMilliseconds;
-            phaseSw.Restart();
-        }
-#endif
         _layout.EnsureRuntimeCache();
-#if UNITY_EDITOR
-        if (phaseSw != null)
-        {
-            runtimeCacheMs = phaseSw.Elapsed.TotalMilliseconds;
-            phaseSw.Restart();
-        }
-#endif
         BuildEdgeQuads();
-#if UNITY_EDITOR
-        if (phaseSw != null)
-            edgeQuadsMs = phaseSw.Elapsed.TotalMilliseconds;
-#endif
 
         mesh.SetVertices(_vertices);
         if (_normals.Count == _vertices.Count)
             mesh.SetNormals(_normals);
         mesh.SetTriangles(_triangles, 0);
-
-#if UNITY_EDITOR
-        if (enableDebugLog)
-        {
-            if (totalSw != null)
-                totalSw.Stop();
-            float avgFindSteps = _resolveLeafFindCalls > 0 ? (float)_findContainingLeafSteps / _resolveLeafFindCalls : 0f;
-            UnityEngine.Debug.Log(
-                $"Flat Octree DC: total={(totalSw != null ? totalSw.Elapsed.TotalMilliseconds : 0d):F2} ms, cacheOwned={cacheOwnedMs:F2} ms, runtimeCache={runtimeCacheMs:F2} ms, edgeQuads={edgeQuadsMs:F2} ms, leaves={_layout.SurfaceLeafIndices.Length}, vertices={_vertices.Count}, triangles={_triangles.Count}, nullQuads={_skippedNullQuads}, invalidQuads={_skippedInvalidQuads}, resolveCalls={_resolveLeafCalls}, resolveDenseHits={_resolveLeafDenseHits}, resolveCacheHits={_resolveLeafCacheHits}, resolveExactHits={_resolveLeafExactHits}, resolveFindCalls={_resolveLeafFindCalls}, avgFindSteps={avgFindSteps:F2}");
-        }
-#endif
     }
 
     private void EnsureWorkingBuffers(int count)
@@ -203,17 +155,63 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
                     continue;
 
                 Vector3Int gridEdgeStart = cellCoord + edge.GridStart;
-                EdgeKey key = new EdgeKey(gridEdgeStart, edge.Axis);
-                if (_processedEdges.Contains(key))
+                if (IsEdgeProcessed(gridEdgeStart, edge.Axis))
                     continue;
 
                 if (hasOwnedBounds && !IsOwnedGridEdgeAny(gridEdgeStart, edge.Axis))
                     continue;
 
-                _processedEdges.Add(key);
+                MarkEdgeProcessed(gridEdgeStart, edge.Axis);
                 BuildQuadForEdge(gridEdgeStart, edge.Axis, a);
             }
         }
+    }
+
+    private void PrepareProcessedEdgeTracker(int gridVertexSide)
+    {
+        _processedEdgeGridX = Mathf.Max(1, gridVertexSide);
+        _processedEdgeGridY = Mathf.Max(1, gridVertexSide);
+        _processedEdgeGridZ = Mathf.Max(1, gridVertexSide);
+        long requiredLong = (long)_processedEdgeGridX * _processedEdgeGridY * _processedEdgeGridZ * 3;
+        int required = requiredLong <= int.MaxValue ? (int)requiredLong : 0;
+        if (required <= 0)
+            return;
+
+        if (_processedEdgeMarks == null || _processedEdgeMarks.Length < required)
+            _processedEdgeMarks = new byte[required];
+
+        _processedEdgeGeneration++;
+        if (_processedEdgeGeneration == 0)
+        {
+            System.Array.Clear(_processedEdgeMarks, 0, _processedEdgeMarks.Length);
+            _processedEdgeGeneration = 1;
+        }
+    }
+
+    private bool IsEdgeProcessed(Vector3Int start, Axis axis)
+    {
+        int index = ProcessedEdgeIndex(start, axis);
+        return index >= 0 && _processedEdgeMarks[index] == _processedEdgeGeneration;
+    }
+
+    private void MarkEdgeProcessed(Vector3Int start, Axis axis)
+    {
+        int index = ProcessedEdgeIndex(start, axis);
+        if (index >= 0)
+            _processedEdgeMarks[index] = _processedEdgeGeneration;
+    }
+
+    private int ProcessedEdgeIndex(Vector3Int start, Axis axis)
+    {
+        if (start.x < 0 || start.x >= _processedEdgeGridX ||
+            start.y < 0 || start.y >= _processedEdgeGridY ||
+            start.z < 0 || start.z >= _processedEdgeGridZ)
+        {
+            return -1;
+        }
+
+        int vertexIndex = start.x + _processedEdgeGridX * (start.y + _processedEdgeGridY * start.z);
+        return ((int)axis * _processedEdgeGridX * _processedEdgeGridY * _processedEdgeGridZ) + vertexIndex;
     }
 
     private void BuildQuadForEdge(Vector3Int g, Axis axis, float startValue)

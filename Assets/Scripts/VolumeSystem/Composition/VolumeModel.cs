@@ -228,6 +228,66 @@ public class VolumeModel : MonoBehaviour
 #if UNITY_EDITOR
     private double _lastInteractiveEditTime = double.NegativeInfinity;
     private bool _finalizePreviewRebuildQueued;
+    private bool _suppressRebuildProfileLog;
+    [Min(2)]
+    public int rebuildBenchmarkRuns = 10;
+    public RebuildProfileSample LastRebuildProfileSample { get; private set; }
+
+    public readonly struct RebuildProfileSample
+    {
+        public readonly double totalMs;
+        public readonly double compositionMs;
+        public readonly double volumeBuildMs;
+        public readonly double renderMs;
+        public readonly double flatBuildMs;
+        public readonly double flatRecursiveMs;
+        public readonly double flatCreateLayoutMs;
+        public readonly double flatRuntimeCacheMs;
+        public readonly double surfaceVertexMs;
+        public readonly double surfaceCrossingMs;
+        public readonly double surfaceNormalMs;
+        public readonly int sourceEvaluations;
+        public readonly int edgeEvaluations;
+        public readonly double rendererMs;
+        public readonly double rendererChunkMs;
+        public readonly int rebuiltChunks;
+
+        public RebuildProfileSample(
+            double totalMs,
+            double compositionMs,
+            double volumeBuildMs,
+            double renderMs,
+            double flatBuildMs,
+            double flatRecursiveMs,
+            double flatCreateLayoutMs,
+            double flatRuntimeCacheMs,
+            double surfaceVertexMs,
+            double surfaceCrossingMs,
+            double surfaceNormalMs,
+            int sourceEvaluations,
+            int edgeEvaluations,
+            double rendererMs,
+            double rendererChunkMs,
+            int rebuiltChunks)
+        {
+            this.totalMs = totalMs;
+            this.compositionMs = compositionMs;
+            this.volumeBuildMs = volumeBuildMs;
+            this.renderMs = renderMs;
+            this.flatBuildMs = flatBuildMs;
+            this.flatRecursiveMs = flatRecursiveMs;
+            this.flatCreateLayoutMs = flatCreateLayoutMs;
+            this.flatRuntimeCacheMs = flatRuntimeCacheMs;
+            this.surfaceVertexMs = surfaceVertexMs;
+            this.surfaceCrossingMs = surfaceCrossingMs;
+            this.surfaceNormalMs = surfaceNormalMs;
+            this.sourceEvaluations = sourceEvaluations;
+            this.edgeEvaluations = edgeEvaluations;
+            this.rendererMs = rendererMs;
+            this.rendererChunkMs = rendererChunkMs;
+            this.rebuiltChunks = rebuiltChunks;
+        }
+    }
 #endif
 
     /// <summary>Continuously rebuilds the model when realtime rebuild is enabled.</summary>
@@ -294,7 +354,7 @@ public class VolumeModel : MonoBehaviour
         double compositionMs = 0d;
         double volumeBuildMs = 0d;
         double renderMs = 0d;
-        if (logRebuildDuration)
+        if (logRebuildDuration || _suppressRebuildProfileLog)
         {
             rebuildStopwatch = System.Diagnostics.Stopwatch.StartNew();
             phaseStopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -322,6 +382,7 @@ public class VolumeModel : MonoBehaviour
         bool hasDirtyBounds = TryGetPendingDirtyBounds(out Bounds dirtyBounds);
         string rebuildCause = "unknown";
         bool usedIncrementalUpdate = false;
+        bool builtFlatOctreeThisRebuild = false;
 
         switch (dataStructure)
         {
@@ -371,7 +432,7 @@ public class VolumeModel : MonoBehaviour
                 bool usingPreviewDepth = ShouldUsePreviewDepth(configuredMaxDepth, out int effectiveMaxDepth);
                 _isPreviewRebuild = usingPreviewDepth;
                 activeBuilder.maxDepth = effectiveMaxDepth;
-                activeBuilder.suppressBuildLog = !ShouldLogRebuildDuration();
+                activeBuilder.suppressBuildLog = true;
                 activeBuilder.useQefVertices = GetEffectiveUseQefVertices();
                 activeBuilder.qefVertexMode = GetEffectiveQefVertexMode();
                 activeBuilder.qefBlendFactor = qefBlendFactor;
@@ -423,7 +484,7 @@ public class VolumeModel : MonoBehaviour
                         }
                         activeBuilder.maxDepth = configuredMaxDepth;
                         _isPreviewRebuild = false;
-                        activeBuilder.suppressBuildLog = !ShouldLogRebuildDuration();
+                        activeBuilder.suppressBuildLog = true;
                         break;
                     }
 
@@ -459,6 +520,7 @@ public class VolumeModel : MonoBehaviour
                     {
                         ConfigureFlatOctreeBuilder(activeBuilder);
                         octreeSampler.RebuildFlatOctreeVolume(source);
+                        builtFlatOctreeThisRebuild = true;
                         rebuildCause += "-flat-builder";
                     }
                     else
@@ -480,8 +542,7 @@ public class VolumeModel : MonoBehaviour
                     QueueFinalizePreviewRebuild();
                 }
                 activeBuilder.maxDepth = configuredMaxDepth;
-                activeBuilder.suppressBuildLog = !logRebuildDuration;
-                ClearDirtyBounds();
+                activeBuilder.suppressBuildLog = true;
                 break;
         }
 #if UNITY_EDITOR
@@ -496,6 +557,7 @@ public class VolumeModel : MonoBehaviour
             ClearDirtyBounds();
 
         RenderOutput.Rebuild(this);
+        ClearDirtyBounds();
 #if UNITY_EDITOR
         if (phaseStopwatch != null)
             renderMs = phaseStopwatch.Elapsed.TotalMilliseconds;
@@ -505,15 +567,180 @@ public class VolumeModel : MonoBehaviour
         if (rebuildStopwatch != null)
         {
             rebuildStopwatch.Stop();
-            if (ShouldLogRebuildDuration())
+            LastRebuildProfileSample = CreateRebuildProfileSample(
+                rebuildStopwatch.Elapsed.TotalMilliseconds,
+                compositionMs,
+                volumeBuildMs,
+                renderMs,
+                builtFlatOctreeThisRebuild);
+            if (ShouldLogRebuildDuration() && !_suppressRebuildProfileLog)
             {
-                Debug.Log(
-                    $"VolumeModel Rebuild [{GetPipelineDebugLabel()}]: total={rebuildStopwatch.Elapsed.TotalMilliseconds:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms, cause={rebuildCause}, hasDirty={hasDirtyBounds}, incremental={usedIncrementalUpdate}");
+                Debug.Log(BuildRebuildProfileLog(
+                    rebuildStopwatch.Elapsed.TotalMilliseconds,
+                    compositionMs,
+                    volumeBuildMs,
+                    renderMs,
+                    rebuildCause,
+                    hasDirtyBounds,
+                    usedIncrementalUpdate,
+                    builtFlatOctreeThisRebuild));
             }
         }
 #endif
         _isPreviewRebuild = previousPreviewRebuild;
     }
+
+#if UNITY_EDITOR
+    private RebuildProfileSample CreateRebuildProfileSample(
+        double totalMs,
+        double compositionMs,
+        double volumeBuildMs,
+        double renderMs,
+        bool includeFlatBuildStats)
+    {
+        VolumeMeshRenderer.RenderStats renderStats = RenderOutput.LastRenderStats;
+        double flatBuildMs = 0d;
+        double flatRecursiveMs = 0d;
+        double flatCreateLayoutMs = 0d;
+        double flatRuntimeCacheMs = 0d;
+        double surfaceVertexMs = 0d;
+        double surfaceCrossingMs = 0d;
+        double surfaceNormalMs = 0d;
+        int sourceEvaluations = 0;
+        int edgeEvaluations = 0;
+
+        if (includeFlatBuildStats)
+        {
+            FlatOctreeVolumeBuilder.BuildStats stats = octreeSampler.flatBuilder.LastBuildStats;
+            flatBuildMs = stats.totalMs;
+            flatRecursiveMs = stats.recursiveBuildMs;
+            flatCreateLayoutMs = stats.createLayoutMs;
+            flatRuntimeCacheMs = stats.runtimeCacheMs;
+            surfaceVertexMs = stats.surfaceVertexMs;
+            surfaceCrossingMs = stats.surfaceCrossingMs;
+            surfaceNormalMs = stats.surfaceNormalMs;
+            sourceEvaluations = stats.sourceEvaluations;
+            edgeEvaluations = stats.edgeRefinementEvaluations;
+        }
+
+        return new RebuildProfileSample(
+            totalMs,
+            compositionMs,
+            volumeBuildMs,
+            renderMs,
+            flatBuildMs,
+            flatRecursiveMs,
+            flatCreateLayoutMs,
+            flatRuntimeCacheMs,
+            surfaceVertexMs,
+            surfaceCrossingMs,
+            surfaceNormalMs,
+            sourceEvaluations,
+            edgeEvaluations,
+            renderStats.totalMs,
+            renderStats.chunkRebuildMs,
+            renderStats.rebuilt);
+    }
+
+    private string BuildRebuildProfileLog(
+        double totalMs,
+        double compositionMs,
+        double volumeBuildMs,
+        double renderMs,
+        string rebuildCause,
+        bool hadDirtyBounds,
+        bool usedIncrementalUpdate,
+        bool includeFlatBuildStats)
+    {
+        VolumeMeshRenderer.RenderStats renderStats = RenderOutput.LastRenderStats;
+        string log =
+            $"Volume Rebuild Profile [{GetPipelineDebugLabel()}]: " +
+            $"model(total={totalMs:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms), " +
+            $"cause={rebuildCause}, hasDirty={hadDirtyBounds}, incremental={usedIncrementalUpdate}, refinementSteps={GetEffectiveEdgeRefinementSteps()}, " +
+            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget})";
+
+        if (includeFlatBuildStats)
+        {
+            FlatOctreeVolumeBuilder.BuildStats stats = octreeSampler.flatBuilder.LastBuildStats;
+            log +=
+                $", flatBuild(total={stats.totalMs:F2} ms, recursive={stats.recursiveBuildMs:F2} ms, createLayout={stats.createLayoutMs:F2} ms, runtimeCache={stats.runtimeCacheMs:F2} ms), " +
+                $"surface(vertex={stats.surfaceVertexMs:F2} ms, crossing={stats.surfaceCrossingMs:F2} ms, normal={stats.surfaceNormalMs:F2} ms), " +
+                $"samples(total={stats.sourceEvaluations}, cornerMiss={stats.cornerCacheMisses}, center={stats.centerEvaluations}, edge={stats.edgeRefinementEvaluations}), " +
+                $"cache(cornerHit={stats.cornerCacheHits}, cornerMiss={stats.cornerCacheMisses}, crossingHit={stats.crossingCacheHits}, crossingMiss={stats.crossingCacheMisses}), " +
+                $"gc(gen0={stats.gcGen0Delta}, gen1={stats.gcGen1Delta}, gen2={stats.gcGen2Delta})";
+        }
+
+        return log;
+    }
+
+    public void RunRebuildBenchmark()
+    {
+        int runs = Mathf.Max(2, rebuildBenchmarkRuns);
+        RebuildProfileSample[] samples = new RebuildProfileSample[runs];
+        bool previousSuppressRebuildProfileLog = _suppressRebuildProfileLog;
+        _suppressRebuildProfileLog = true;
+
+        try
+        {
+            for (int i = 0; i < runs; i++)
+            {
+                RebuildModel();
+                samples[i] = LastRebuildProfileSample;
+            }
+        }
+        finally
+        {
+            _suppressRebuildProfileLog = previousSuppressRebuildProfileLog;
+        }
+
+        Debug.Log(BuildRebuildBenchmarkLog(samples));
+    }
+
+    private string BuildRebuildBenchmarkLog(RebuildProfileSample[] samples)
+    {
+        return
+            $"Volume Rebuild Benchmark [{GetPipelineDebugLabel()}] runs={samples.Length}, refinementSteps={GetEffectiveEdgeRefinementSteps()}: " +
+            $"model({Summarize(samples, s => s.totalMs)}), " +
+            $"volumeBuild({Summarize(samples, s => s.volumeBuildMs)}), " +
+            $"render({Summarize(samples, s => s.renderMs)}), " +
+            $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
+            $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
+            $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
+            $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
+            $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
+            $"normal({Summarize(samples, s => s.surfaceNormalMs)}), " +
+            $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
+            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1})";
+    }
+
+    private static string Summarize(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, double> selector)
+    {
+        double[] values = new double[samples.Length];
+        double sum = 0d;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            double value = selector(samples[i]);
+            values[i] = value;
+            sum += value;
+        }
+
+        System.Array.Sort(values);
+        double median = values.Length % 2 == 0
+            ? (values[values.Length / 2 - 1] + values[values.Length / 2]) * 0.5d
+            : values[values.Length / 2];
+
+        return $"min={values[0]:F2} ms, med={median:F2} ms, avg={sum / values.Length:F2} ms, max={values[values.Length - 1]:F2} ms";
+    }
+
+    private static double AverageInt(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, int> selector)
+    {
+        double sum = 0d;
+        for (int i = 0; i < samples.Length; i++)
+            sum += selector(samples[i]);
+
+        return samples.Length > 0 ? sum / samples.Length : 0d;
+    }
+#endif
 
     public string GetPipelineDebugLabel()
     {
