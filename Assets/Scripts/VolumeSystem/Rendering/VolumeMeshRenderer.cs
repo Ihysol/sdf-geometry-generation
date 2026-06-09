@@ -19,6 +19,11 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         public readonly int rebuilt;
         public readonly int pending;
         public readonly int budget;
+        public readonly bool hadDirtyBounds;
+        public readonly bool canDoDirtyRebuild;
+        public readonly bool fullRebuildRequested;
+        public readonly int queuedDirtyChunks;
+        public readonly Bounds dirtyBounds;
 
         public RenderStats(
             double totalMs,
@@ -26,7 +31,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             double chunkRebuildMs,
             int rebuilt,
             int pending,
-            int budget)
+            int budget,
+            bool hadDirtyBounds = false,
+            bool canDoDirtyRebuild = false,
+            bool fullRebuildRequested = false,
+            int queuedDirtyChunks = 0,
+            Bounds dirtyBounds = default)
         {
             this.totalMs = totalMs;
             this.queueSetupMs = queueSetupMs;
@@ -34,6 +44,11 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             this.rebuilt = rebuilt;
             this.pending = pending;
             this.budget = budget;
+            this.hadDirtyBounds = hadDirtyBounds;
+            this.canDoDirtyRebuild = canDoDirtyRebuild;
+            this.fullRebuildRequested = fullRebuildRequested;
+            this.queuedDirtyChunks = queuedDirtyChunks;
+            this.dirtyBounds = dirtyBounds;
         }
     }
 
@@ -267,6 +282,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         bool hasSameLayout = HasSameChunkLayout(bounds);
         bool canDoDirtyRebuild = hasDirtyBounds && hasSameLayout;
         Bounds expandedDirtyBounds = dirtyBounds;
+        int queuedDirtyChunks = 0;
 
         if (canDoDirtyRebuild)
         {
@@ -310,11 +326,13 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             }
 
             QueueDirtyChunks(bounds, expandedDirtyBounds);
+            queuedDirtyChunks = _pendingChunkQueue.Count;
             if (!isFlatOctreeDc &&
                 (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree) &&
                 model.octreeExpandDirtyNeighbors)
             {
                 ExpandQueuedChunks(bounds, Mathf.Max(1, model.octreeDirtyNeighborRings));
+                queuedDirtyChunks = _pendingChunkQueue.Count;
             }
         }
 
@@ -368,10 +386,26 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 chunkRebuildMs,
                 rebuiltNow,
                 _pendingChunkQueue.Count,
-                rebuildBudget);
+                rebuildBudget,
+                hasDirtyBounds,
+                canDoDirtyRebuild,
+                fullRebuildRequested,
+                queuedDirtyChunks,
+                dirtyBounds);
         }
 #else
-        LastRenderStats = new RenderStats(0d, 0d, 0d, rebuiltNow, _pendingChunkQueue.Count, rebuildBudget);
+        LastRenderStats = new RenderStats(
+            0d,
+            0d,
+            0d,
+            rebuiltNow,
+            _pendingChunkQueue.Count,
+            rebuildBudget,
+            hasDirtyBounds,
+            canDoDirtyRebuild,
+            fullRebuildRequested,
+            queuedDirtyChunks,
+            dirtyBounds);
 #endif
     }
 

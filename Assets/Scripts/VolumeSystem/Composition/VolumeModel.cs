@@ -228,6 +228,8 @@ public class VolumeModel : MonoBehaviour
 #if UNITY_EDITOR
     private double _lastInteractiveEditTime = double.NegativeInfinity;
     private bool _finalizePreviewRebuildQueued;
+    private bool _hasFinalizePreviewDirtyBounds;
+    private Bounds _finalizePreviewDirtyBounds;
     private bool _suppressRebuildProfileLog;
     [Min(2)]
     public int rebuildBenchmarkRuns = 10;
@@ -553,6 +555,9 @@ public class VolumeModel : MonoBehaviour
         }
 #endif
 
+        if (_isPreviewRebuild && hasDirtyBounds)
+            CaptureFinalizePreviewDirtyBounds(dirtyBounds);
+
         if (!enableChunking)
             ClearDirtyBounds();
 
@@ -657,7 +662,8 @@ public class VolumeModel : MonoBehaviour
             $"Volume Rebuild Profile [{GetPipelineDebugLabel()}]: " +
             $"model(total={totalMs:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms), " +
             $"cause={rebuildCause}, hasDirty={hadDirtyBounds}, incremental={usedIncrementalUpdate}, refinementSteps={GetEffectiveEdgeRefinementSteps()}, " +
-            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget})";
+            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget}, " +
+            $"dirtySeen={renderStats.hadDirtyBounds}, canDirty={renderStats.canDoDirtyRebuild}, full={renderStats.fullRebuildRequested}, queuedDirty={renderStats.queuedDirtyChunks}, dirtySize={FormatVector(renderStats.dirtyBounds.size)})";
 
         if (includeFlatBuildStats)
         {
@@ -739,6 +745,11 @@ public class VolumeModel : MonoBehaviour
             sum += selector(samples[i]);
 
         return samples.Length > 0 ? sum / samples.Length : 0d;
+    }
+
+    private static string FormatVector(Vector3 value)
+    {
+        return $"({value.x:F2},{value.y:F2},{value.z:F2})";
     }
 #endif
 
@@ -1095,6 +1106,10 @@ public class VolumeModel : MonoBehaviour
 
     private void ClearDirtyBounds()
     {
+#if UNITY_EDITOR
+        if (_isPreviewRebuild && _hasDirtyBounds)
+            CaptureFinalizePreviewDirtyBounds(_dirtyBounds);
+#endif
         _hasDirtyBounds = false;
     }
 
@@ -1206,7 +1221,30 @@ public class VolumeModel : MonoBehaviour
 
         _finalizePreviewRebuildQueued = false;
         EditorApplication.update -= FinalizePreviewRebuildIfNeeded;
+        RestoreFinalizePreviewDirtyBounds();
         RebuildModel();
+    }
+
+    private void CaptureFinalizePreviewDirtyBounds(Bounds dirtyBounds)
+    {
+        if (_hasFinalizePreviewDirtyBounds)
+        {
+            _finalizePreviewDirtyBounds.Encapsulate(dirtyBounds);
+            return;
+        }
+
+        _hasFinalizePreviewDirtyBounds = true;
+        _finalizePreviewDirtyBounds = dirtyBounds;
+    }
+
+    private void RestoreFinalizePreviewDirtyBounds()
+    {
+        if (!_hasFinalizePreviewDirtyBounds)
+            return;
+
+        MarkDirtyBounds(_finalizePreviewDirtyBounds);
+        _hasFinalizePreviewDirtyBounds = false;
+        _finalizePreviewDirtyBounds = default;
     }
 
     private int GetConfiguredMaxDepth()
