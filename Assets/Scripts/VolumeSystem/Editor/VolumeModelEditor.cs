@@ -11,6 +11,7 @@ public class VolumeModelEditor : Editor
     private bool _showRebuild = true;
     private bool _showPreview = false;
     private bool _showObjects = true;
+    private bool _showBenchmark = true;
     private bool _suppressAutoRebuildThisFrame;
 
     /// <summary>Draws the custom inspector for model pipeline and rebuild controls.</summary>
@@ -58,6 +59,10 @@ public class VolumeModelEditor : Editor
 
         if (_showObjects)
             DrawObjectCreation(model);
+
+        GUILayout.Space(10);
+
+        DrawBenchmarkSection(model);
 
         GUILayout.Space(10);
 
@@ -479,10 +484,6 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("logRebuildDuration")
         );
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("rebuildBenchmarkRuns"),
-            new GUIContent("Benchmark Runs")
-        );
 
         if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
@@ -657,6 +658,56 @@ public class VolumeModelEditor : Editor
         GUI.backgroundColor = oldColor;
     }
 
+    private void DrawBenchmarkSection(VolumeModel model)
+    {
+        _showBenchmark = EditorGUILayout.Foldout(_showBenchmark, "Benchmark", true);
+
+        if (!_showBenchmark)
+            return;
+
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("rebuildBenchmarkRuns"),
+            new GUIContent("Rebuild Runs")
+        );
+
+        if (GUILayout.Button("Benchmark Rebuilds", GUILayout.Height(25)))
+        {
+            serializedObject.ApplyModifiedProperties();
+
+            model.RunRebuildBenchmark();
+
+            EditorUtility.SetDirty(model);
+        }
+
+        EditorGUILayout.Space(6);
+        EditorGUILayout.LabelField("Dirty Move", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("dirtyMoveBenchmarkObject"),
+            new GUIContent("Move Object")
+        );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("dirtyMoveBenchmarkOffset"),
+            new GUIContent("Move Offset")
+        );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("dirtyMoveBenchmarkRuns"),
+            new GUIContent("Move Runs")
+        );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("restoreDirtyMoveBenchmarkObject"),
+            new GUIContent("Restore Object")
+        );
+
+        if (GUILayout.Button("Benchmark Dirty Move", GUILayout.Height(25)))
+        {
+            serializedObject.ApplyModifiedProperties();
+
+            model.RunDirtyMoveBenchmark();
+
+            EditorUtility.SetDirty(model);
+        }
+    }
+
     /// <summary>Draws the manual rebuild button.</summary>
     private void DrawRebuildButton(VolumeModel model)
     {
@@ -665,15 +716,6 @@ public class VolumeModelEditor : Editor
             serializedObject.ApplyModifiedProperties();
 
             model.RebuildModel();
-
-            EditorUtility.SetDirty(model);
-        }
-
-        if (GUILayout.Button("Benchmark Rebuilds", GUILayout.Height(25)))
-        {
-            serializedObject.ApplyModifiedProperties();
-
-            model.RunRebuildBenchmark();
 
             EditorUtility.SetDirty(model);
         }

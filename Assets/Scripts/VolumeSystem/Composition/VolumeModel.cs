@@ -56,6 +56,7 @@ public class VolumeModel : MonoBehaviour
     private bool _hasDirtyBounds;
     private Bounds _dirtyBounds;
     private bool _isPreviewRebuild;
+    private bool _forceFullChunkRenderOnce;
 
     [Header("Rendering")]
     public bool enableChunking = true;
@@ -143,6 +144,8 @@ public class VolumeModel : MonoBehaviour
         qefSurfaceWeight = Mathf.Max(0f, qefSurfaceWeight);
         qefEdgeWeight = Mathf.Max(0f, qefEdgeWeight);
         qefCornerWeight = Mathf.Max(0f, qefCornerWeight);
+        rebuildBenchmarkRuns = Mathf.Max(2, rebuildBenchmarkRuns);
+        dirtyMoveBenchmarkRuns = Mathf.Max(2, dirtyMoveBenchmarkRuns);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -233,6 +236,11 @@ public class VolumeModel : MonoBehaviour
     private bool _suppressRebuildProfileLog;
     [Min(2)]
     public int rebuildBenchmarkRuns = 10;
+    [Min(2)]
+    public int dirtyMoveBenchmarkRuns = 10;
+    public VolumeObject dirtyMoveBenchmarkObject;
+    public Vector3 dirtyMoveBenchmarkOffset = Vector3.right;
+    public bool restoreDirtyMoveBenchmarkObject = true;
     public RebuildProfileSample LastRebuildProfileSample { get; private set; }
 
     public readonly struct RebuildProfileSample
@@ -253,6 +261,10 @@ public class VolumeModel : MonoBehaviour
         public readonly double rendererMs;
         public readonly double rendererChunkMs;
         public readonly int rebuiltChunks;
+        public readonly int queuedDirtyChunks;
+        public readonly bool dirtySeen;
+        public readonly bool canUseDirtyChunks;
+        public readonly bool fullChunkRebuild;
 
         public RebuildProfileSample(
             double totalMs,
@@ -270,7 +282,11 @@ public class VolumeModel : MonoBehaviour
             int edgeEvaluations,
             double rendererMs,
             double rendererChunkMs,
-            int rebuiltChunks)
+            int rebuiltChunks,
+            int queuedDirtyChunks,
+            bool dirtySeen,
+            bool canUseDirtyChunks,
+            bool fullChunkRebuild)
         {
             this.totalMs = totalMs;
             this.compositionMs = compositionMs;
@@ -288,6 +304,10 @@ public class VolumeModel : MonoBehaviour
             this.rendererMs = rendererMs;
             this.rendererChunkMs = rendererChunkMs;
             this.rebuiltChunks = rebuiltChunks;
+            this.queuedDirtyChunks = queuedDirtyChunks;
+            this.dirtySeen = dirtySeen;
+            this.canUseDirtyChunks = canUseDirtyChunks;
+            this.fullChunkRebuild = fullChunkRebuild;
         }
     }
 #endif
@@ -644,7 +664,11 @@ public class VolumeModel : MonoBehaviour
             edgeEvaluations,
             renderStats.totalMs,
             renderStats.chunkRebuildMs,
-            renderStats.rebuilt);
+            renderStats.rebuilt,
+            renderStats.queuedDirtyChunks,
+            renderStats.hadDirtyBounds,
+            renderStats.canDoDirtyRebuild,
+            renderStats.fullRebuildRequested);
     }
 
     private string BuildRebuildProfileLog(
@@ -716,7 +740,99 @@ public class VolumeModel : MonoBehaviour
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
             $"normal({Summarize(samples, s => s.surfaceNormalMs)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1})";
+            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1})";
+    }
+
+    public void RunDirtyMoveBenchmark()
+    {
+        VolumeObject target = ResolveDirtyMoveBenchmarkObject();
+        if (target == null)
+        {
+            Debug.LogWarning("Volume dirty move benchmark skipped: assign a Dirty Move Benchmark Object or add at least one VolumeObject.");
+            return;
+        }
+
+        int runs = Mathf.Max(2, dirtyMoveBenchmarkRuns);
+        RebuildProfileSample[] samples = new RebuildProfileSample[runs];
+        Vector3 originalPosition = target.transform.localPosition;
+        Vector3 offset = dirtyMoveBenchmarkOffset;
+        if (offset == Vector3.zero)
+            offset = Vector3.right;
+
+        Vector3 a = originalPosition;
+        Vector3 b = originalPosition + offset;
+        bool previousSuppressRebuildProfileLog = _suppressRebuildProfileLog;
+        VolumeRebuildMode previousRebuildMode = rebuildMode;
+        _suppressRebuildProfileLog = true;
+        rebuildMode = VolumeRebuildMode.Manual;
+
+        try
+        {
+            RebuildModel();
+            Vector3 current = target.transform.localPosition;
+
+            for (int i = 0; i < runs; i++)
+            {
+                Vector3 next = i % 2 == 0 ? b : a;
+                Bounds dirtyBounds = target.EstimateLocalMoveDirtyBounds(current, next);
+                target.transform.localPosition = next;
+                target.SyncEditorTransformCache();
+                MarkDirtyBounds(dirtyBounds);
+                RebuildModel();
+                samples[i] = LastRebuildProfileSample;
+                current = next;
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (restoreDirtyMoveBenchmarkObject && target != null && target.transform.localPosition != originalPosition)
+                {
+                    Bounds restoreDirtyBounds = target.EstimateLocalMoveDirtyBounds(target.transform.localPosition, originalPosition);
+                    target.transform.localPosition = originalPosition;
+                    target.SyncEditorTransformCache();
+                    MarkDirtyBounds(restoreDirtyBounds);
+                    RebuildModel();
+                }
+            }
+            finally
+            {
+                rebuildMode = previousRebuildMode;
+                _suppressRebuildProfileLog = previousSuppressRebuildProfileLog;
+            }
+        }
+
+        Debug.Log(BuildDirtyMoveBenchmarkLog(samples, target.name, offset));
+    }
+
+    private VolumeObject ResolveDirtyMoveBenchmarkObject()
+    {
+        if (dirtyMoveBenchmarkObject != null)
+            return dirtyMoveBenchmarkObject;
+
+        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        if (composer == null)
+            return null;
+
+        composer.objects.RemoveAll(o => o == null);
+        return composer.objects.Count > 0 ? composer.objects[composer.objects.Count - 1] : null;
+    }
+
+    private string BuildDirtyMoveBenchmarkLog(RebuildProfileSample[] samples, string targetName, Vector3 offset)
+    {
+        return
+            $"Volume Dirty Move Benchmark [{GetPipelineDebugLabel()}] target={targetName}, runs={samples.Length}, offset={FormatVector(offset)}, refinementSteps={GetEffectiveEdgeRefinementSteps()}: " +
+            $"model({Summarize(samples, s => s.totalMs)}), " +
+            $"volumeBuild({Summarize(samples, s => s.volumeBuildMs)}), " +
+            $"render({Summarize(samples, s => s.renderMs)}), " +
+            $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
+            $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
+            $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
+            $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
+            $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
+            $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
+            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length})";
     }
 
     private static string Summarize(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, double> selector)
@@ -745,6 +861,18 @@ public class VolumeModel : MonoBehaviour
             sum += selector(samples[i]);
 
         return samples.Length > 0 ? sum / samples.Length : 0d;
+    }
+
+    private static int Count(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, bool> selector)
+    {
+        int count = 0;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            if (selector(samples[i]))
+                count++;
+        }
+
+        return count;
     }
 
     private static string FormatVector(Vector3 value)
@@ -1104,6 +1232,15 @@ public class VolumeModel : MonoBehaviour
         return false;
     }
 
+    public bool ConsumeForceFullChunkRenderOnce()
+    {
+        if (!_forceFullChunkRenderOnce)
+            return false;
+
+        _forceFullChunkRenderOnce = false;
+        return true;
+    }
+
     private void ClearDirtyBounds()
     {
 #if UNITY_EDITOR
@@ -1221,6 +1358,7 @@ public class VolumeModel : MonoBehaviour
 
         _finalizePreviewRebuildQueued = false;
         EditorApplication.update -= FinalizePreviewRebuildIfNeeded;
+        _forceFullChunkRenderOnce = true;
         RestoreFinalizePreviewDirtyBounds();
         RebuildModel();
     }

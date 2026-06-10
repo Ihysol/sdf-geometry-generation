@@ -291,8 +291,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
 
         bool fullRebuildRequested = false;
+        bool forceFullChunkRebuild = model.forceFullChunkRedraw || model.ConsumeForceFullChunkRenderOnce();
 
-        if (model.forceFullChunkRedraw)
+        if (forceFullChunkRebuild)
         {
             QueueAllChunks(bounds.Count);
             fullRebuildRequested = true;
@@ -310,21 +311,6 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         else if (canDoDirtyRebuild)
         {
             bool isFlatOctreeDc = IsFlatOctreeDualContouring(model);
-            bool isVoxelGrid = model.dataStructure == VolumeDataStructure.VoxelGrid;
-            if (!Application.isPlaying && isFlatOctreeDc)
-            {
-                // Keep editor interaction responsive for flat mode:
-                // drop stale pending work and prioritize the latest dirty region.
-                _pendingChunkQueue.Clear();
-                _pendingChunkSet.Clear();
-            }
-            else if (!Application.isPlaying && isVoxelGrid)
-            {
-                // Voxel chunks can be expensive per chunk; avoid stale backlog in editor.
-                _pendingChunkQueue.Clear();
-                _pendingChunkSet.Clear();
-            }
-
             QueueDirtyChunks(bounds, expandedDirtyBounds);
             queuedDirtyChunks = _pendingChunkQueue.Count;
             if (!isFlatOctreeDc &&

@@ -87,3 +87,4 @@ Thumbs.db
 
 # Local generated assets/output
 /GeneratedAssets/
+.aider*

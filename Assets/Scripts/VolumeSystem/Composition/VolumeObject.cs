@@ -619,6 +619,29 @@ public class VolumeObject : MonoBehaviour
         );
     }
 
+    public Bounds EstimateLocalMoveDirtyBounds(Vector3 fromLocalPosition, Vector3 toLocalPosition)
+    {
+        Bounds dirtyBounds = GetEstimatedLocalBoundsForTransform(
+            fromLocalPosition,
+            transform.localRotation,
+            transform.localScale
+        );
+        dirtyBounds.Encapsulate(GetEstimatedLocalBoundsForTransform(
+            toLocalPosition,
+            transform.localRotation,
+            transform.localScale
+        ));
+
+        return dirtyBounds;
+    }
+
+#if UNITY_EDITOR
+    public void SyncEditorTransformCache()
+    {
+        CacheLocalTransform();
+    }
+#endif
+
     private Bounds GetEstimatedLocalBoundsForTransform(Vector3 localPosition, Quaternion localRotation, Vector3 localScale)
     {
         Vector3 halfExtents = GetApproximateShapeHalfExtents();

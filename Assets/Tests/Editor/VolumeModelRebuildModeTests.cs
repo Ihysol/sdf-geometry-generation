@@ -198,4 +198,20 @@ public class VolumeModelRebuildModeTests
             _model.RestorePreviewRebuildContext(previous);
         }
     }
+
+    [Test]
+    public void VolumeObject_EstimatesDirtyBoundsForLocalMove()
+    {
+        VolumeObject volumeObject = _gameObject.AddComponent<VolumeObject>();
+        volumeObject.shapeType = VolumeShapeType.Sphere;
+        volumeObject.sphereRadius = 1f;
+
+        Bounds dirtyBounds = volumeObject.EstimateLocalMoveDirtyBounds(
+            Vector3.zero,
+            new Vector3(2f, 0f, 0f)
+        );
+
+        Assert.That(dirtyBounds.Contains(new Vector3(-1f, 0f, 0f)), Is.True);
+        Assert.That(dirtyBounds.Contains(new Vector3(3f, 0f, 0f)), Is.True);
+    }
 }
