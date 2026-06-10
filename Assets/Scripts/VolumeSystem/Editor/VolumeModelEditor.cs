@@ -666,43 +666,55 @@ public class VolumeModelEditor : Editor
             return;
 
         EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("rebuildBenchmarkRuns"),
-            new GUIContent("Rebuild Runs")
+            serializedObject.FindProperty("benchmarkType"),
+            new GUIContent("Type")
         );
 
-        if (GUILayout.Button("Benchmark Rebuilds", GUILayout.Height(25)))
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("benchmarkRuns"),
+            new GUIContent("Runs")
+        );
+
+        VolumeBenchmarkType benchmarkType = (VolumeBenchmarkType)serializedObject
+            .FindProperty("benchmarkType")
+            .enumValueIndex;
+        if (benchmarkType == VolumeBenchmarkType.DirtyMove)
         {
-            serializedObject.ApplyModifiedProperties();
-
-            model.RunRebuildBenchmark();
-
-            EditorUtility.SetDirty(model);
+            EditorGUILayout.Space(6);
+            EditorGUILayout.LabelField("Dirty Move", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("dirtyMoveBenchmarkObject"),
+                new GUIContent("Move Object")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("dirtyMoveBenchmarkOffset"),
+                new GUIContent("Move Offset")
+            );
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("visualizeDirtyMoveBenchmark"),
+                new GUIContent("Visual Steps")
+            );
+            if (serializedObject.FindProperty("visualizeDirtyMoveBenchmark").boolValue)
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("dirtyMoveBenchmarkStepDelayMs"),
+                    new GUIContent("Step Delay (ms)")
+                );
+            }
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("restoreDirtyMoveBenchmarkObject"),
+                new GUIContent("Restore Object")
+            );
         }
 
-        EditorGUILayout.Space(6);
-        EditorGUILayout.LabelField("Dirty Move", EditorStyles.boldLabel);
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("dirtyMoveBenchmarkObject"),
-            new GUIContent("Move Object")
-        );
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("dirtyMoveBenchmarkOffset"),
-            new GUIContent("Move Offset")
-        );
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("dirtyMoveBenchmarkRuns"),
-            new GUIContent("Move Runs")
-        );
-        EditorGUILayout.PropertyField(
-            serializedObject.FindProperty("restoreDirtyMoveBenchmarkObject"),
-            new GUIContent("Restore Object")
-        );
-
-        if (GUILayout.Button("Benchmark Dirty Move", GUILayout.Height(25)))
+        if (GUILayout.Button("Run Benchmark", GUILayout.Height(25)))
         {
             serializedObject.ApplyModifiedProperties();
 
-            model.RunDirtyMoveBenchmark();
+            if (model.benchmarkType == VolumeBenchmarkType.DirtyMove)
+                model.RunDirtyMoveBenchmark();
+            else
+                model.RunRebuildBenchmark();
 
             EditorUtility.SetDirty(model);
         }

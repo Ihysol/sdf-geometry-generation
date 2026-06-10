@@ -47,6 +47,12 @@ public enum VolumeRebuildMode
     Manual
 }
 
+public enum VolumeBenchmarkType
+{
+    DirtyMove,
+    Rebuild
+}
+
 [ExecuteAlways]
 [DisallowMultipleComponent]
 [RequireComponent(typeof(VolumeSceneComposer))]
@@ -144,8 +150,8 @@ public class VolumeModel : MonoBehaviour
         qefSurfaceWeight = Mathf.Max(0f, qefSurfaceWeight);
         qefEdgeWeight = Mathf.Max(0f, qefEdgeWeight);
         qefCornerWeight = Mathf.Max(0f, qefCornerWeight);
-        rebuildBenchmarkRuns = Mathf.Max(2, rebuildBenchmarkRuns);
-        dirtyMoveBenchmarkRuns = Mathf.Max(2, dirtyMoveBenchmarkRuns);
+        benchmarkRuns = Mathf.Max(2, benchmarkRuns);
+        dirtyMoveBenchmarkStepDelayMs = Mathf.Max(0f, dirtyMoveBenchmarkStepDelayMs);
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -234,14 +240,29 @@ public class VolumeModel : MonoBehaviour
     private bool _hasFinalizePreviewDirtyBounds;
     private Bounds _finalizePreviewDirtyBounds;
     private bool _suppressRebuildProfileLog;
+    public VolumeBenchmarkType benchmarkType = VolumeBenchmarkType.DirtyMove;
     [Min(2)]
-    public int rebuildBenchmarkRuns = 10;
-    [Min(2)]
-    public int dirtyMoveBenchmarkRuns = 10;
+    public int benchmarkRuns = 10;
     public VolumeObject dirtyMoveBenchmarkObject;
     public Vector3 dirtyMoveBenchmarkOffset = Vector3.right;
+    public bool visualizeDirtyMoveBenchmark;
+    [Min(0f)]
+    public float dirtyMoveBenchmarkStepDelayMs = 0f;
     public bool restoreDirtyMoveBenchmarkObject = true;
     public RebuildProfileSample LastRebuildProfileSample { get; private set; }
+
+    private bool _dirtyMoveBenchmarkActive;
+    private VolumeObject _dirtyMoveBenchmarkTarget;
+    private RebuildProfileSample[] _dirtyMoveBenchmarkSamples;
+    private Vector3 _dirtyMoveBenchmarkOriginalPosition;
+    private Vector3 _dirtyMoveBenchmarkCurrentPosition;
+    private Vector3 _dirtyMoveBenchmarkA;
+    private Vector3 _dirtyMoveBenchmarkB;
+    private Vector3 _dirtyMoveBenchmarkActiveOffset;
+    private int _dirtyMoveBenchmarkStep;
+    private double _dirtyMoveBenchmarkNextStepTime;
+    private bool _dirtyMoveBenchmarkPreviousSuppressLog;
+    private VolumeRebuildMode _dirtyMoveBenchmarkPreviousRebuildMode;
 
     public readonly struct RebuildProfileSample
     {
@@ -486,7 +507,7 @@ public class VolumeModel : MonoBehaviour
                         : "svo-full-init";
                 }
 
-                bool canAttemptIncrementalOctreeUpdate = hasDirtyBounds && !usingPreviewDepth;
+                bool canAttemptIncrementalOctreeUpdate = hasDirtyBounds && !usingPreviewDepth && !canUseFlatBuilder;
                 if (canAttemptIncrementalOctreeUpdate)
                 {
                     bool didIncrementalOctreeUpdate = hasInitializedVolume && (dataStructure == VolumeDataStructure.Octree
@@ -540,6 +561,8 @@ public class VolumeModel : MonoBehaviour
                     octreeSampler.MarkDirty();
                     if (canUseFlatBuilder)
                     {
+                        if (hasDirtyBounds && rebuildCause == "unknown")
+                            rebuildCause = "octree-flat-dirty-full";
                         ConfigureFlatOctreeBuilder(activeBuilder);
                         octreeSampler.RebuildFlatOctreeVolume(source);
                         builtFlatOctreeThisRebuild = true;
@@ -705,7 +728,7 @@ public class VolumeModel : MonoBehaviour
 
     public void RunRebuildBenchmark()
     {
-        int runs = Mathf.Max(2, rebuildBenchmarkRuns);
+        int runs = Mathf.Max(2, benchmarkRuns);
         RebuildProfileSample[] samples = new RebuildProfileSample[runs];
         bool previousSuppressRebuildProfileLog = _suppressRebuildProfileLog;
         _suppressRebuildProfileLog = true;
@@ -745,6 +768,12 @@ public class VolumeModel : MonoBehaviour
 
     public void RunDirtyMoveBenchmark()
     {
+        if (visualizeDirtyMoveBenchmark)
+        {
+            StartVisualDirtyMoveBenchmark();
+            return;
+        }
+
         VolumeObject target = ResolveDirtyMoveBenchmarkObject();
         if (target == null)
         {
@@ -752,7 +781,7 @@ public class VolumeModel : MonoBehaviour
             return;
         }
 
-        int runs = Mathf.Max(2, dirtyMoveBenchmarkRuns);
+        int runs = Mathf.Max(2, benchmarkRuns);
         RebuildProfileSample[] samples = new RebuildProfileSample[runs];
         Vector3 originalPosition = target.transform.localPosition;
         Vector3 offset = dirtyMoveBenchmarkOffset;
@@ -774,13 +803,7 @@ public class VolumeModel : MonoBehaviour
             for (int i = 0; i < runs; i++)
             {
                 Vector3 next = i % 2 == 0 ? b : a;
-                Bounds dirtyBounds = target.EstimateLocalMoveDirtyBounds(current, next);
-                target.transform.localPosition = next;
-                target.SyncEditorTransformCache();
-                MarkDirtyBounds(dirtyBounds);
-                RebuildModel();
-                samples[i] = LastRebuildProfileSample;
-                current = next;
+                samples[i] = RunDirtyMoveBenchmarkStep(target, ref current, next);
             }
         }
         finally
@@ -804,6 +827,127 @@ public class VolumeModel : MonoBehaviour
         }
 
         Debug.Log(BuildDirtyMoveBenchmarkLog(samples, target.name, offset));
+    }
+
+    private void StartVisualDirtyMoveBenchmark()
+    {
+        if (_dirtyMoveBenchmarkActive)
+        {
+            Debug.LogWarning("Volume dirty move benchmark is already running.");
+            return;
+        }
+
+        VolumeObject target = ResolveDirtyMoveBenchmarkObject();
+        if (target == null)
+        {
+            Debug.LogWarning("Volume dirty move benchmark skipped: assign a Dirty Move Benchmark Object or add at least one VolumeObject.");
+            return;
+        }
+
+        _dirtyMoveBenchmarkActive = true;
+        _dirtyMoveBenchmarkTarget = target;
+        _dirtyMoveBenchmarkSamples = new RebuildProfileSample[Mathf.Max(2, benchmarkRuns)];
+        _dirtyMoveBenchmarkOriginalPosition = target.transform.localPosition;
+        _dirtyMoveBenchmarkCurrentPosition = _dirtyMoveBenchmarkOriginalPosition;
+        _dirtyMoveBenchmarkActiveOffset = dirtyMoveBenchmarkOffset == Vector3.zero
+            ? Vector3.right
+            : dirtyMoveBenchmarkOffset;
+        _dirtyMoveBenchmarkA = _dirtyMoveBenchmarkOriginalPosition;
+        _dirtyMoveBenchmarkB = _dirtyMoveBenchmarkOriginalPosition + _dirtyMoveBenchmarkActiveOffset;
+        _dirtyMoveBenchmarkStep = 0;
+        _dirtyMoveBenchmarkNextStepTime = EditorApplication.timeSinceStartup;
+        _dirtyMoveBenchmarkPreviousSuppressLog = _suppressRebuildProfileLog;
+        _dirtyMoveBenchmarkPreviousRebuildMode = rebuildMode;
+        _suppressRebuildProfileLog = true;
+        rebuildMode = VolumeRebuildMode.Manual;
+
+        RebuildModel();
+        EditorApplication.update -= RunVisualDirtyMoveBenchmarkStep;
+        EditorApplication.update += RunVisualDirtyMoveBenchmarkStep;
+    }
+
+    private void RunVisualDirtyMoveBenchmarkStep()
+    {
+        if (!_dirtyMoveBenchmarkActive || _dirtyMoveBenchmarkTarget == null)
+        {
+            FinishVisualDirtyMoveBenchmark(cancelled: true);
+            return;
+        }
+
+        if (RenderOutput.LastRenderStats.pending > 0)
+            return;
+
+        if (EditorApplication.timeSinceStartup < _dirtyMoveBenchmarkNextStepTime)
+            return;
+
+        if (_dirtyMoveBenchmarkStep < _dirtyMoveBenchmarkSamples.Length)
+        {
+            Vector3 next = _dirtyMoveBenchmarkStep % 2 == 0
+                ? _dirtyMoveBenchmarkB
+                : _dirtyMoveBenchmarkA;
+            _dirtyMoveBenchmarkSamples[_dirtyMoveBenchmarkStep] = RunDirtyMoveBenchmarkStep(
+                _dirtyMoveBenchmarkTarget,
+                ref _dirtyMoveBenchmarkCurrentPosition,
+                next
+            );
+            _dirtyMoveBenchmarkStep++;
+            _dirtyMoveBenchmarkNextStepTime = EditorApplication.timeSinceStartup +
+                Mathf.Max(0f, dirtyMoveBenchmarkStepDelayMs) / 1000d;
+            SceneView.RepaintAll();
+            return;
+        }
+
+        FinishVisualDirtyMoveBenchmark(cancelled: false);
+    }
+
+    private void FinishVisualDirtyMoveBenchmark(bool cancelled)
+    {
+        EditorApplication.update -= RunVisualDirtyMoveBenchmarkStep;
+
+        try
+        {
+            if (!cancelled &&
+                restoreDirtyMoveBenchmarkObject &&
+                _dirtyMoveBenchmarkTarget != null &&
+                _dirtyMoveBenchmarkTarget.transform.localPosition != _dirtyMoveBenchmarkOriginalPosition)
+            {
+                Vector3 current = _dirtyMoveBenchmarkTarget.transform.localPosition;
+                RunDirtyMoveBenchmarkStep(
+                    _dirtyMoveBenchmarkTarget,
+                    ref current,
+                    _dirtyMoveBenchmarkOriginalPosition
+                );
+            }
+        }
+        finally
+        {
+            rebuildMode = _dirtyMoveBenchmarkPreviousRebuildMode;
+            _suppressRebuildProfileLog = _dirtyMoveBenchmarkPreviousSuppressLog;
+            _dirtyMoveBenchmarkActive = false;
+        }
+
+        if (!cancelled && _dirtyMoveBenchmarkSamples != null && _dirtyMoveBenchmarkTarget != null)
+        {
+            Debug.Log(BuildDirtyMoveBenchmarkLog(
+                _dirtyMoveBenchmarkSamples,
+                _dirtyMoveBenchmarkTarget.name,
+                _dirtyMoveBenchmarkActiveOffset
+            ));
+        }
+
+        _dirtyMoveBenchmarkTarget = null;
+        _dirtyMoveBenchmarkSamples = null;
+    }
+
+    private RebuildProfileSample RunDirtyMoveBenchmarkStep(VolumeObject target, ref Vector3 current, Vector3 next)
+    {
+        Bounds dirtyBounds = target.EstimateLocalMoveDirtyBounds(current, next);
+        target.transform.localPosition = next;
+        target.SyncEditorTransformCache();
+        MarkDirtyBounds(dirtyBounds);
+        RebuildModel();
+        current = next;
+        return LastRebuildProfileSample;
     }
 
     private VolumeObject ResolveDirtyMoveBenchmarkObject()

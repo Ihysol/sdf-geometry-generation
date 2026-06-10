@@ -6,6 +6,9 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     public List<VolumeObject> objects = new();
 
     private SceneCompositeSDF _composite;
+    private SdfSceneSnapshot _snapshot;
+
+    public SdfSceneSnapshot Snapshot => _snapshot;
 
     [ContextMenu("Rebuild Composition")]
     /// <summary>Refreshes the composite SDF from the current object list.</summary>
@@ -16,6 +19,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         RenameChildren();
 
         _composite = new SceneCompositeSDF(transform, objects);
+        _snapshot = new SdfSceneSnapshot(transform, objects);
     }
 
     /// <summary>Samples the composed SDF at a model-local position.</summary>
