@@ -289,6 +289,9 @@ public class VolumeModel : MonoBehaviour
         public readonly int edgeEvaluations;
         public readonly int crossingCacheHits;
         public readonly int crossingCacheMisses;
+        public readonly int persistentCrossingCacheHits;
+        public readonly int persistentCrossingCacheInvalidated;
+        public readonly int persistentCrossingCacheSize;
         public readonly int subdivisionMinDepth;
         public readonly int subdivisionCornerCrossing;
         public readonly int subdivisionCenterMismatch;
@@ -328,6 +331,9 @@ public class VolumeModel : MonoBehaviour
             int edgeEvaluations,
             int crossingCacheHits,
             int crossingCacheMisses,
+            int persistentCrossingCacheHits,
+            int persistentCrossingCacheInvalidated,
+            int persistentCrossingCacheSize,
             int subdivisionMinDepth,
             int subdivisionCornerCrossing,
             int subdivisionCenterMismatch,
@@ -366,6 +372,9 @@ public class VolumeModel : MonoBehaviour
             this.edgeEvaluations = edgeEvaluations;
             this.crossingCacheHits = crossingCacheHits;
             this.crossingCacheMisses = crossingCacheMisses;
+            this.persistentCrossingCacheHits = persistentCrossingCacheHits;
+            this.persistentCrossingCacheInvalidated = persistentCrossingCacheInvalidated;
+            this.persistentCrossingCacheSize = persistentCrossingCacheSize;
             this.subdivisionMinDepth = subdivisionMinDepth;
             this.subdivisionCornerCrossing = subdivisionCornerCrossing;
             this.subdivisionCenterMismatch = subdivisionCenterMismatch;
@@ -617,7 +626,7 @@ public class VolumeModel : MonoBehaviour
                         if (hasDirtyBounds && rebuildCause == "unknown")
                             rebuildCause = "octree-flat-dirty-full";
                         ConfigureFlatOctreeBuilder(activeBuilder);
-                        octreeSampler.RebuildFlatOctreeVolume(source);
+                        octreeSampler.RebuildFlatOctreeVolume(source, hasDirtyBounds, dirtyBounds);
                         builtFlatOctreeThisRebuild = true;
                         rebuildCause += "-flat-builder";
                     }
@@ -717,6 +726,9 @@ public class VolumeModel : MonoBehaviour
         int edgeEvaluations = 0;
         int crossingCacheHits = 0;
         int crossingCacheMisses = 0;
+        int persistentCrossingCacheHits = 0;
+        int persistentCrossingCacheInvalidated = 0;
+        int persistentCrossingCacheSize = 0;
         int subdivisionMinDepth = 0;
         int subdivisionCornerCrossing = 0;
         int subdivisionCenterMismatch = 0;
@@ -747,6 +759,9 @@ public class VolumeModel : MonoBehaviour
             edgeEvaluations = stats.edgeRefinementEvaluations;
             crossingCacheHits = stats.crossingCacheHits;
             crossingCacheMisses = stats.crossingCacheMisses;
+            persistentCrossingCacheHits = stats.persistentCrossingCacheHits;
+            persistentCrossingCacheInvalidated = stats.persistentCrossingCacheInvalidated;
+            persistentCrossingCacheSize = stats.persistentCrossingCacheSize;
             subdivisionMinDepth = stats.subdivisionMinDepth;
             subdivisionCornerCrossing = stats.subdivisionCornerCrossing;
             subdivisionCenterMismatch = stats.subdivisionCenterMismatch;
@@ -780,6 +795,9 @@ public class VolumeModel : MonoBehaviour
             edgeEvaluations,
             crossingCacheHits,
             crossingCacheMisses,
+            persistentCrossingCacheHits,
+            persistentCrossingCacheInvalidated,
+            persistentCrossingCacheSize,
             subdivisionMinDepth,
             subdivisionCornerCrossing,
             subdivisionCenterMismatch,
@@ -863,12 +881,13 @@ public class VolumeModel : MonoBehaviour
             $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
             $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
+            $"createLayout({Summarize(samples, s => s.flatCreateLayoutMs)}), " +
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
             $"normal({Summarize(samples, s => s.surfaceNormalMs)}), " +
             $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}), " +
+            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
             $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}), " +
@@ -1121,11 +1140,12 @@ public class VolumeModel : MonoBehaviour
             $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
             $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
+            $"createLayout({Summarize(samples, s => s.flatCreateLayoutMs)}), " +
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
             $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}), " +
+            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
             $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length}), " +
@@ -1147,8 +1167,10 @@ public class VolumeModel : MonoBehaviour
         double median = values.Length % 2 == 0
             ? (values[values.Length / 2 - 1] + values[values.Length / 2]) * 0.5d
             : values[values.Length / 2];
+        int p95Index = Mathf.Clamp(Mathf.CeilToInt(values.Length * 0.95f) - 1, 0, values.Length - 1);
+        double p95 = values[p95Index];
 
-        return $"min={values[0]:F2} ms, med={median:F2} ms, avg={sum / values.Length:F2} ms, max={values[values.Length - 1]:F2} ms";
+        return $"min={values[0]:F2} ms, med={median:F2} ms, avg={sum / values.Length:F2} ms, p95={p95:F2} ms, max={values[values.Length - 1]:F2} ms";
     }
 
     private static string BuildWorstSampleLog(RebuildProfileSample[] samples)
@@ -1158,10 +1180,10 @@ public class VolumeModel : MonoBehaviour
 
         return
             $"worst(index={index}, total={sample.totalMs:F2} ms, volumeBuild={sample.volumeBuildMs:F2} ms, render={sample.renderMs:F2} ms, " +
-            $"recursive={sample.flatRecursiveMs:F2} ms, runtimeCache={sample.flatRuntimeCacheMs:F2} ms, crossing={sample.surfaceCrossingMs:F2} ms, " +
+            $"recursive={sample.flatRecursiveMs:F2} ms, createLayout={sample.flatCreateLayoutMs:F2} ms, runtimeCache={sample.flatRuntimeCacheMs:F2} ms, crossing={sample.surfaceCrossingMs:F2} ms, " +
             $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, bounds={FormatVector(sample.buildBoundsSize)}, " +
             $"rebuilt={sample.rebuiltChunks}, queuedDirty={sample.queuedDirtyChunks}, source={sample.sourceEvaluations}, cornerMiss={sample.cornerCacheMisses}, center={sample.centerEvaluations}, edge={sample.edgeEvaluations}, " +
-            $"cornerHit={sample.cornerCacheHits}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, " +
+            $"cornerHit={sample.cornerCacheHits}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, persistentCrossingHit={sample.persistentCrossingCacheHits}, crossingInvalidated={sample.persistentCrossingCacheInvalidated}, crossingCacheSize={sample.persistentCrossingCacheSize}, " +
             $"subdivision(minDepth={sample.subdivisionMinDepth}, crossing={sample.subdivisionCornerCrossing}, centerMismatch={sample.subdivisionCenterMismatch}, distance={sample.subdivisionDistanceThreshold}), " +
             $"exclusive(minDepth={sample.subdivisionOnlyMinDepth}, crossing={sample.subdivisionOnlyCornerCrossing}, centerMismatch={sample.subdivisionOnlyCenterMismatch}, distance={sample.subdivisionOnlyDistanceThreshold}, mixed={sample.subdivisionMixedReasons}), " +
             $"dirtySeen={sample.dirtySeen}, canDirty={sample.canUseDirtyChunks}, full={sample.fullChunkRebuild})";

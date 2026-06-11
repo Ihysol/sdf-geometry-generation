@@ -30,6 +30,11 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
 
     public void RebuildFlatOctreeVolume(IScalarFieldSource source)
     {
+        RebuildFlatOctreeVolume(source, hasDirtyBounds: false, default);
+    }
+
+    public void RebuildFlatOctreeVolume(IScalarFieldSource source, bool hasDirtyBounds, Bounds dirtyBounds)
+    {
         if (source == null)
         {
             Debug.LogWarning("OctreeVolumeSampler: No source assigned.");
@@ -39,6 +44,7 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
 
         flatBuilder.center = center;
         flatBuilder.size = extent;
+        flatBuilder.PreparePersistentCrossingCache(hasDirtyBounds, dirtyBounds);
 
         Volume = flatBuilder.Build(source);
         IsDirty = false;

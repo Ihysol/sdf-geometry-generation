@@ -24,6 +24,9 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int edgeRefinementEvaluations;
         public readonly int crossingCacheHits;
         public readonly int crossingCacheMisses;
+        public readonly int persistentCrossingCacheHits;
+        public readonly int persistentCrossingCacheInvalidated;
+        public readonly int persistentCrossingCacheSize;
         public readonly int subdivisionMinDepth;
         public readonly int subdivisionCornerCrossing;
         public readonly int subdivisionCenterMismatch;
@@ -55,6 +58,9 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int edgeRefinementEvaluations,
             int crossingCacheHits,
             int crossingCacheMisses,
+            int persistentCrossingCacheHits,
+            int persistentCrossingCacheInvalidated,
+            int persistentCrossingCacheSize,
             int subdivisionMinDepth,
             int subdivisionCornerCrossing,
             int subdivisionCenterMismatch,
@@ -85,6 +91,9 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.edgeRefinementEvaluations = edgeRefinementEvaluations;
             this.crossingCacheHits = crossingCacheHits;
             this.crossingCacheMisses = crossingCacheMisses;
+            this.persistentCrossingCacheHits = persistentCrossingCacheHits;
+            this.persistentCrossingCacheInvalidated = persistentCrossingCacheInvalidated;
+            this.persistentCrossingCacheSize = persistentCrossingCacheSize;
             this.subdivisionMinDepth = subdivisionMinDepth;
             this.subdivisionCornerCrossing = subdivisionCornerCrossing;
             this.subdivisionCenterMismatch = subdivisionCenterMismatch;
@@ -199,13 +208,34 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private const int InitialNodeCapacity = 32 * 1024;
     private const int InitialFallbackCornerCapacity = 1024;
     private const int InitialAverageCrossingCapacity = 64 * 1024;
+
+    private readonly struct CrossingCacheEntry
+    {
+        public readonly Vector3 Crossing;
+        public readonly Bounds EdgeBounds;
+
+        public CrossingCacheEntry(Vector3 crossing, Bounds edgeBounds)
+        {
+            Crossing = crossing;
+            EdgeBounds = edgeBounds;
+        }
+    }
+
     private readonly List<NodeRecord> _nodes = new(InitialNodeCapacity);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
-    private readonly Dictionary<OctreeHermiteEdgeKey, Vector3> _averageCrossingCache = new(InitialAverageCrossingCapacity);
+    private readonly Dictionary<OctreeHermiteEdgeKey, CrossingCacheEntry> _averageCrossingCache = new(InitialAverageCrossingCapacity);
+    private readonly List<OctreeHermiteEdgeKey> _crossingCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly FlatOctreeLayout _layout = new();
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
     private int _cornerSampleGridSide;
+    private Vector3 _crossingCacheBuildCenter;
+    private Vector3 _crossingCacheBuildSize;
+    private int _crossingCacheMaxDepth = -1;
+    private int _crossingCacheRefinementSteps = -1;
+    private bool _hasPreparedCrossingCache;
+    private bool _hasCrossingCacheDirtyBounds;
+    private Bounds _crossingCacheDirtyBounds;
     private int _sourceEvaluations;
     private int _cornerCacheHits;
     private int _cornerCacheMisses;
@@ -213,6 +243,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _edgeRefinementEvaluations;
     private int _crossingCacheHits;
     private int _crossingCacheMisses;
+    private int _persistentCrossingCacheHits;
+    private int _persistentCrossingCacheInvalidated;
     private int _surfaceLeaves;
     private int _subdivisionMinDepth;
     private int _subdivisionCornerCrossing;
@@ -238,6 +270,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
     }
 
+    public void PreparePersistentCrossingCache(bool hasDirtyBounds, Bounds dirtyBounds)
+    {
+        _hasPreparedCrossingCache = true;
+        _hasCrossingCacheDirtyBounds = hasDirtyBounds;
+        _crossingCacheDirtyBounds = dirtyBounds;
+    }
+
     public override OctreeVolume Build(IScalarFieldSource source)
     {
         Stopwatch totalStopwatch = Stopwatch.StartNew();
@@ -252,6 +291,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         const int gc2Before = 0;
 #endif
         ResetState();
+        PrepareCrossingCacheForBuild();
         PrepareCornerSampleCache();
 
         Bounds buildBounds = Bounds;
@@ -288,7 +328,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, createLayout={LastBuildStats.createLayoutMs:F2} ms, runtimeCache={LastBuildStats.runtimeCacheMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms, surfaceCrossing={LastBuildStats.surfaceCrossingMs:F2} ms, surfaceNormal={LastBuildStats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
                 $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}), " +
-                $"crossingCache(hit={LastBuildStats.crossingCacheHits}, miss={LastBuildStats.crossingCacheMisses}), " +
+                $"crossingCache(hit={LastBuildStats.crossingCacheHits}, miss={LastBuildStats.crossingCacheMisses}, persistentHit={LastBuildStats.persistentCrossingCacheHits}, invalidated={LastBuildStats.persistentCrossingCacheInvalidated}, size={LastBuildStats.persistentCrossingCacheSize}), " +
                 $"subdivision(minDepth={LastBuildStats.subdivisionMinDepth}, crossing={LastBuildStats.subdivisionCornerCrossing}, centerMismatch={LastBuildStats.subdivisionCenterMismatch}, distance={LastBuildStats.subdivisionDistanceThreshold}), " +
                 $"exclusive(minDepth={LastBuildStats.subdivisionOnlyMinDepth}, crossing={LastBuildStats.subdivisionOnlyCornerCrossing}, centerMismatch={LastBuildStats.subdivisionOnlyCenterMismatch}, distance={LastBuildStats.subdivisionOnlyDistanceThreshold}, mixed={LastBuildStats.subdivisionMixedReasons}), " +
                 $"gc(gen0={LastBuildStats.gcGen0Delta}, gen1={LastBuildStats.gcGen1Delta}, gen2={LastBuildStats.gcGen2Delta})"
@@ -545,17 +585,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         ref int count)
     {
         OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
-        if (_averageCrossingCache.TryGetValue(key, out Vector3 crossing))
+        if (_averageCrossingCache.TryGetValue(key, out CrossingCacheEntry entry))
         {
             _crossingCacheHits++;
-        }
-        else
-        {
-            _crossingCacheMisses++;
-            crossing = RefineEdgeIntersection(source, pa, pb, va, vb, 0f);
-            _averageCrossingCache[key] = crossing;
+            _persistentCrossingCacheHits++;
+            sum += entry.Crossing;
+            count++;
+            return;
         }
 
+        _crossingCacheMisses++;
+        Vector3 crossing = RefineEdgeIntersection(source, pa, pb, va, vb, 0f);
+        _averageCrossingCache[key] = new CrossingCacheEntry(crossing, CreateEdgeBounds(pa, pb));
         sum += crossing;
         count++;
     }
@@ -569,29 +610,32 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (Mathf.Abs(fb) < 1e-8f)
             return pb;
 
-        float t = Mathf.Clamp01(fa / (fa - fb));
-        Vector3 best = Vector3.Lerp(pa, pb, t);
         Vector3 a = pa;
         Vector3 b = pb;
         float fA = fa;
+        float fB = fb;
+        float t = Mathf.Clamp01(fA / (fA - fB));
+        Vector3 best = Vector3.Lerp(a, b, t);
 
         for (int i = 0; i < Mathf.Max(0, edgeRefinementSteps); i++)
         {
-            Vector3 mid = (a + b) * 0.5f;
-            float fM = EvaluateEdgeRefinement(source, mid) - isoLevel;
-            best = mid;
+            t = Mathf.Clamp01(fA / (fA - fB));
+            Vector3 p = Vector3.Lerp(a, b, t);
+            float fP = EvaluateEdgeRefinement(source, p) - isoLevel;
+            best = p;
 
-            if (Mathf.Abs(fM) < 1e-6f)
+            if (Mathf.Abs(fP) < 1e-6f)
                 break;
 
-            if ((fA <= 0f && fM > 0f) || (fA > 0f && fM <= 0f))
+            if ((fA <= 0f && fP > 0f) || (fA > 0f && fP <= 0f))
             {
-                b = mid;
+                b = p;
+                fB = fP;
             }
             else
             {
-                a = mid;
-                fA = fM;
+                a = p;
+                fA = fP;
             }
         }
 
@@ -831,10 +875,66 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return (a <= 0f && b > 0f) || (a > 0f && b <= 0f);
     }
 
+    private void PrepareCrossingCacheForBuild()
+    {
+        bool clearCache =
+            !_hasPreparedCrossingCache ||
+            !_hasCrossingCacheDirtyBounds ||
+            _crossingCacheBuildCenter != center ||
+            _crossingCacheBuildSize != size ||
+            _crossingCacheMaxDepth != maxDepth ||
+            _crossingCacheRefinementSteps != edgeRefinementSteps;
+
+        if (clearCache)
+        {
+            _averageCrossingCache.Clear();
+        }
+        else
+        {
+            Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
+            float epsilonPadding = Bounds.size.magnitude * 1e-5f;
+            expandedDirtyBounds.Expand(epsilonPadding);
+            InvalidateCrossingCache(expandedDirtyBounds);
+        }
+
+        _crossingCacheBuildCenter = center;
+        _crossingCacheBuildSize = size;
+        _crossingCacheMaxDepth = maxDepth;
+        _crossingCacheRefinementSteps = edgeRefinementSteps;
+        _hasPreparedCrossingCache = false;
+    }
+
+    private void InvalidateCrossingCache(Bounds dirtyBounds)
+    {
+        if (_averageCrossingCache.Count == 0)
+            return;
+
+        _crossingCacheRemovalBuffer.Clear();
+        foreach (KeyValuePair<OctreeHermiteEdgeKey, CrossingCacheEntry> pair in _averageCrossingCache)
+        {
+            if (pair.Value.EdgeBounds.Intersects(dirtyBounds))
+                _crossingCacheRemovalBuffer.Add(pair.Key);
+        }
+
+        for (int i = 0; i < _crossingCacheRemovalBuffer.Count; i++)
+            _averageCrossingCache.Remove(_crossingCacheRemovalBuffer[i]);
+
+        _persistentCrossingCacheInvalidated = _crossingCacheRemovalBuffer.Count;
+        _crossingCacheRemovalBuffer.Clear();
+    }
+
+    private static Bounds CreateEdgeBounds(Vector3 a, Vector3 b)
+    {
+        Vector3 min = Vector3.Min(a, b);
+        Vector3 max = Vector3.Max(a, b);
+        Bounds bounds = new Bounds((min + max) * 0.5f, max - min);
+        bounds.Expand(1e-5f);
+        return bounds;
+    }
+
     private void ResetState()
     {
         _nodes.Clear();
-        _averageCrossingCache.Clear();
         _sourceEvaluations = 0;
         _cornerCacheHits = 0;
         _cornerCacheMisses = 0;
@@ -842,6 +942,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _edgeRefinementEvaluations = 0;
         _crossingCacheHits = 0;
         _crossingCacheMisses = 0;
+        _persistentCrossingCacheHits = 0;
+        _persistentCrossingCacheInvalidated = 0;
         _surfaceLeaves = 0;
         _subdivisionMinDepth = 0;
         _subdivisionCornerCrossing = 0;
@@ -901,6 +1003,9 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _edgeRefinementEvaluations,
             _crossingCacheHits,
             _crossingCacheMisses,
+            _persistentCrossingCacheHits,
+            _persistentCrossingCacheInvalidated,
+            _averageCrossingCache.Count,
             _subdivisionMinDepth,
             _subdivisionCornerCrossing,
             _subdivisionCenterMismatch,
