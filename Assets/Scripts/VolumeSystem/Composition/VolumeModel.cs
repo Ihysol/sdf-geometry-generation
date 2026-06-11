@@ -50,6 +50,7 @@ public enum VolumeRebuildMode
 public enum VolumeBenchmarkType
 {
     DirtyMove,
+    DirtyMoveSweep,
     Rebuild
 }
 
@@ -244,7 +245,7 @@ public class VolumeModel : MonoBehaviour
     [Min(2)]
     public int benchmarkRuns = 10;
     public VolumeObject dirtyMoveBenchmarkObject;
-    public Vector3 dirtyMoveBenchmarkOffset = Vector3.right;
+    public Vector3 dirtyMoveBenchmarkOffset = Vector3.back;
     public bool visualizeDirtyMoveBenchmark;
     [Min(0f)]
     public float dirtyMoveBenchmarkStepDelayMs = 0f;
@@ -259,6 +260,7 @@ public class VolumeModel : MonoBehaviour
     private Vector3 _dirtyMoveBenchmarkA;
     private Vector3 _dirtyMoveBenchmarkB;
     private Vector3 _dirtyMoveBenchmarkActiveOffset;
+    private int _dirtyMoveBenchmarkLogicalRuns;
     private int _dirtyMoveBenchmarkStep;
     private double _dirtyMoveBenchmarkNextStepTime;
     private bool _dirtyMoveBenchmarkPreviousSuppressLog;
@@ -781,12 +783,13 @@ public class VolumeModel : MonoBehaviour
             return;
         }
 
-        int runs = Mathf.Max(2, benchmarkRuns);
-        RebuildProfileSample[] samples = new RebuildProfileSample[runs];
+        int logicalRuns = Mathf.Max(2, benchmarkRuns);
+        int sampleCount = GetDirtyMoveBenchmarkSampleCount(logicalRuns);
+        RebuildProfileSample[] samples = new RebuildProfileSample[sampleCount];
         Vector3 originalPosition = target.transform.localPosition;
         Vector3 offset = dirtyMoveBenchmarkOffset;
         if (offset == Vector3.zero)
-            offset = Vector3.right;
+            offset = Vector3.back;
 
         Vector3 a = originalPosition;
         Vector3 b = originalPosition + offset;
@@ -800,9 +803,9 @@ public class VolumeModel : MonoBehaviour
             RebuildModel();
             Vector3 current = target.transform.localPosition;
 
-            for (int i = 0; i < runs; i++)
+            for (int i = 0; i < sampleCount; i++)
             {
-                Vector3 next = i % 2 == 0 ? b : a;
+                Vector3 next = GetDirtyMoveBenchmarkTargetPosition(i, logicalRuns, a, b);
                 samples[i] = RunDirtyMoveBenchmarkStep(target, ref current, next);
             }
         }
@@ -846,11 +849,12 @@ public class VolumeModel : MonoBehaviour
 
         _dirtyMoveBenchmarkActive = true;
         _dirtyMoveBenchmarkTarget = target;
-        _dirtyMoveBenchmarkSamples = new RebuildProfileSample[Mathf.Max(2, benchmarkRuns)];
+        _dirtyMoveBenchmarkLogicalRuns = Mathf.Max(2, benchmarkRuns);
+        _dirtyMoveBenchmarkSamples = new RebuildProfileSample[GetDirtyMoveBenchmarkSampleCount(_dirtyMoveBenchmarkLogicalRuns)];
         _dirtyMoveBenchmarkOriginalPosition = target.transform.localPosition;
         _dirtyMoveBenchmarkCurrentPosition = _dirtyMoveBenchmarkOriginalPosition;
         _dirtyMoveBenchmarkActiveOffset = dirtyMoveBenchmarkOffset == Vector3.zero
-            ? Vector3.right
+            ? Vector3.back
             : dirtyMoveBenchmarkOffset;
         _dirtyMoveBenchmarkA = _dirtyMoveBenchmarkOriginalPosition;
         _dirtyMoveBenchmarkB = _dirtyMoveBenchmarkOriginalPosition + _dirtyMoveBenchmarkActiveOffset;
@@ -882,9 +886,12 @@ public class VolumeModel : MonoBehaviour
 
         if (_dirtyMoveBenchmarkStep < _dirtyMoveBenchmarkSamples.Length)
         {
-            Vector3 next = _dirtyMoveBenchmarkStep % 2 == 0
-                ? _dirtyMoveBenchmarkB
-                : _dirtyMoveBenchmarkA;
+            Vector3 next = GetDirtyMoveBenchmarkTargetPosition(
+                _dirtyMoveBenchmarkStep,
+                _dirtyMoveBenchmarkLogicalRuns,
+                _dirtyMoveBenchmarkA,
+                _dirtyMoveBenchmarkB
+            );
             _dirtyMoveBenchmarkSamples[_dirtyMoveBenchmarkStep] = RunDirtyMoveBenchmarkStep(
                 _dirtyMoveBenchmarkTarget,
                 ref _dirtyMoveBenchmarkCurrentPosition,
@@ -937,6 +944,33 @@ public class VolumeModel : MonoBehaviour
 
         _dirtyMoveBenchmarkTarget = null;
         _dirtyMoveBenchmarkSamples = null;
+    }
+
+    private Vector3 GetDirtyMoveBenchmarkTargetPosition(int step, int runs, Vector3 a, Vector3 b)
+    {
+        if (benchmarkType == VolumeBenchmarkType.DirtyMove)
+            return step % 2 == 0 ? b : a;
+
+        if (benchmarkType == VolumeBenchmarkType.DirtyMoveSweep)
+        {
+            if (step % 2 == 1)
+                return a;
+
+            int sweepStep = step / 2;
+            float sweepT = (sweepStep + 1f) / Mathf.Max(1, runs);
+            return Vector3.LerpUnclamped(a, b, sweepT);
+        }
+
+        float t = (step + 1f) / Mathf.Max(1, runs);
+        return Vector3.LerpUnclamped(a, b, t);
+    }
+
+    private int GetDirtyMoveBenchmarkSampleCount(int logicalRuns)
+    {
+        if (benchmarkType == VolumeBenchmarkType.DirtyMoveSweep)
+            return Mathf.Max(1, logicalRuns) * 2;
+
+        return Mathf.Max(1, logicalRuns);
     }
 
     private RebuildProfileSample RunDirtyMoveBenchmarkStep(VolumeObject target, ref Vector3 current, Vector3 next)

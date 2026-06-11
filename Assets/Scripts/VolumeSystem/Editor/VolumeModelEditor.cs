@@ -678,7 +678,10 @@ public class VolumeModelEditor : Editor
         VolumeBenchmarkType benchmarkType = (VolumeBenchmarkType)serializedObject
             .FindProperty("benchmarkType")
             .enumValueIndex;
-        if (benchmarkType == VolumeBenchmarkType.DirtyMove)
+        bool isDirtyMoveBenchmark =
+            benchmarkType == VolumeBenchmarkType.DirtyMove ||
+            benchmarkType == VolumeBenchmarkType.DirtyMoveSweep;
+        if (isDirtyMoveBenchmark)
         {
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("Dirty Move", EditorStyles.boldLabel);
@@ -711,7 +714,8 @@ public class VolumeModelEditor : Editor
         {
             serializedObject.ApplyModifiedProperties();
 
-            if (model.benchmarkType == VolumeBenchmarkType.DirtyMove)
+            if (model.benchmarkType == VolumeBenchmarkType.DirtyMove ||
+                model.benchmarkType == VolumeBenchmarkType.DirtyMoveSweep)
                 model.RunDirtyMoveBenchmark();
             else
                 model.RunRebuildBenchmark();
