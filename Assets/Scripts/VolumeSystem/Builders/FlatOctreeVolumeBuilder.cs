@@ -24,6 +24,15 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int edgeRefinementEvaluations;
         public readonly int crossingCacheHits;
         public readonly int crossingCacheMisses;
+        public readonly int subdivisionMinDepth;
+        public readonly int subdivisionCornerCrossing;
+        public readonly int subdivisionCenterMismatch;
+        public readonly int subdivisionDistanceThreshold;
+        public readonly int subdivisionOnlyMinDepth;
+        public readonly int subdivisionOnlyCornerCrossing;
+        public readonly int subdivisionOnlyCenterMismatch;
+        public readonly int subdivisionOnlyDistanceThreshold;
+        public readonly int subdivisionMixedReasons;
         public readonly int gcGen0Delta;
         public readonly int gcGen1Delta;
         public readonly int gcGen2Delta;
@@ -46,6 +55,15 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int edgeRefinementEvaluations,
             int crossingCacheHits,
             int crossingCacheMisses,
+            int subdivisionMinDepth,
+            int subdivisionCornerCrossing,
+            int subdivisionCenterMismatch,
+            int subdivisionDistanceThreshold,
+            int subdivisionOnlyMinDepth,
+            int subdivisionOnlyCornerCrossing,
+            int subdivisionOnlyCenterMismatch,
+            int subdivisionOnlyDistanceThreshold,
+            int subdivisionMixedReasons,
             int gcGen0Delta,
             int gcGen1Delta,
             int gcGen2Delta)
@@ -67,6 +85,15 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.edgeRefinementEvaluations = edgeRefinementEvaluations;
             this.crossingCacheHits = crossingCacheHits;
             this.crossingCacheMisses = crossingCacheMisses;
+            this.subdivisionMinDepth = subdivisionMinDepth;
+            this.subdivisionCornerCrossing = subdivisionCornerCrossing;
+            this.subdivisionCenterMismatch = subdivisionCenterMismatch;
+            this.subdivisionDistanceThreshold = subdivisionDistanceThreshold;
+            this.subdivisionOnlyMinDepth = subdivisionOnlyMinDepth;
+            this.subdivisionOnlyCornerCrossing = subdivisionOnlyCornerCrossing;
+            this.subdivisionOnlyCenterMismatch = subdivisionOnlyCenterMismatch;
+            this.subdivisionOnlyDistanceThreshold = subdivisionOnlyDistanceThreshold;
+            this.subdivisionMixedReasons = subdivisionMixedReasons;
             this.gcGen0Delta = gcGen0Delta;
             this.gcGen1Delta = gcGen1Delta;
             this.gcGen2Delta = gcGen2Delta;
@@ -187,6 +214,15 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _crossingCacheHits;
     private int _crossingCacheMisses;
     private int _surfaceLeaves;
+    private int _subdivisionMinDepth;
+    private int _subdivisionCornerCrossing;
+    private int _subdivisionCenterMismatch;
+    private int _subdivisionDistanceThreshold;
+    private int _subdivisionOnlyMinDepth;
+    private int _subdivisionOnlyCornerCrossing;
+    private int _subdivisionOnlyCenterMismatch;
+    private int _subdivisionOnlyDistanceThreshold;
+    private int _subdivisionMixedReasons;
     private long _surfaceVertexTicks;
     private long _surfaceCrossingTicks;
     private long _surfaceNormalTicks;
@@ -253,6 +289,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
                 $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}), " +
                 $"crossingCache(hit={LastBuildStats.crossingCacheHits}, miss={LastBuildStats.crossingCacheMisses}), " +
+                $"subdivision(minDepth={LastBuildStats.subdivisionMinDepth}, crossing={LastBuildStats.subdivisionCornerCrossing}, centerMismatch={LastBuildStats.subdivisionCenterMismatch}, distance={LastBuildStats.subdivisionDistanceThreshold}), " +
+                $"exclusive(minDepth={LastBuildStats.subdivisionOnlyMinDepth}, crossing={LastBuildStats.subdivisionOnlyCornerCrossing}, centerMismatch={LastBuildStats.subdivisionOnlyCenterMismatch}, distance={LastBuildStats.subdivisionOnlyDistanceThreshold}, mixed={LastBuildStats.subdivisionMixedReasons}), " +
                 $"gc(gen0={LastBuildStats.gcGen0Delta}, gen1={LastBuildStats.gcGen1Delta}, gen2={LastBuildStats.gcGen2Delta})"
             );
         }
@@ -275,7 +313,6 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     {
         int nodeIndex = _nodes.Count;
         CornerSamples corners = SampleCorners(source, bounds, origin, cellSize);
-        float centerValue = EvaluateCenter(source, bounds.center, origin, cellSize);
 
         bool cornerHasNegative = false;
         bool cornerHasPositive = false;
@@ -288,15 +325,47 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
 
         bool cornerContainsSurface = cornerHasNegative && cornerHasPositive;
-        bool centerDiffersFromCorners =
-            (centerValue < 0f && cornerHasPositive) ||
-            (centerValue >= 0f && cornerHasNegative);
-        bool couldContainSurface = Mathf.Abs(centerValue) <= bounds.extents.magnitude;
-        bool shouldSubdivide =
-            depth < minDepth ||
-            cornerContainsSurface ||
-            centerDiffersFromCorners ||
-            couldContainSurface;
+        bool canSubdivide = depth < maxDepth;
+        bool forcedSubdivide = depth < minDepth || cornerContainsSurface;
+        bool needsCenterDecision = canSubdivide && !forcedSubdivide;
+        bool centerDiffersFromCorners = false;
+        bool couldContainSurface = false;
+        if (needsCenterDecision)
+        {
+            float centerValue = EvaluateCenter(source, bounds.center, origin, cellSize);
+            centerDiffersFromCorners =
+                (centerValue < 0f && cornerHasPositive) ||
+                (centerValue >= 0f && cornerHasNegative);
+            couldContainSurface = Mathf.Abs(centerValue) <= bounds.extents.magnitude;
+        }
+        bool minDepthReason = depth < minDepth;
+        bool cornerCrossingReason = cornerContainsSurface;
+        bool centerMismatchReason = centerDiffersFromCorners;
+        bool distanceThresholdReason = couldContainSurface;
+        int subdivisionReasons = 0;
+        if (minDepthReason)
+        {
+            _subdivisionMinDepth++;
+            subdivisionReasons |= 1;
+        }
+        if (cornerCrossingReason)
+        {
+            _subdivisionCornerCrossing++;
+            subdivisionReasons |= 2;
+        }
+        if (centerMismatchReason)
+        {
+            _subdivisionCenterMismatch++;
+            subdivisionReasons |= 4;
+        }
+        if (distanceThresholdReason)
+        {
+            _subdivisionDistanceThreshold++;
+            subdivisionReasons |= 8;
+        }
+        CountExclusiveSubdivisionReason(subdivisionReasons);
+
+        bool shouldSubdivide = subdivisionReasons != 0;
 
         NodeRecord record = new NodeRecord
         {
@@ -774,9 +843,33 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _crossingCacheHits = 0;
         _crossingCacheMisses = 0;
         _surfaceLeaves = 0;
+        _subdivisionMinDepth = 0;
+        _subdivisionCornerCrossing = 0;
+        _subdivisionCenterMismatch = 0;
+        _subdivisionDistanceThreshold = 0;
+        _subdivisionOnlyMinDepth = 0;
+        _subdivisionOnlyCornerCrossing = 0;
+        _subdivisionOnlyCenterMismatch = 0;
+        _subdivisionOnlyDistanceThreshold = 0;
+        _subdivisionMixedReasons = 0;
         _surfaceVertexTicks = 0;
         _surfaceCrossingTicks = 0;
         _surfaceNormalTicks = 0;
+    }
+
+    private void CountExclusiveSubdivisionReason(int subdivisionReasons)
+    {
+        switch (subdivisionReasons)
+        {
+            case 0: break;
+            case 1: _subdivisionOnlyMinDepth++; break;
+            case 2: _subdivisionOnlyCornerCrossing++; break;
+            case 4: _subdivisionOnlyCenterMismatch++; break;
+            case 8: _subdivisionOnlyDistanceThreshold++; break;
+            default:
+                _subdivisionMixedReasons++;
+                break;
+        }
     }
 
     private void CaptureBuildStats(
@@ -808,6 +901,15 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _edgeRefinementEvaluations,
             _crossingCacheHits,
             _crossingCacheMisses,
+            _subdivisionMinDepth,
+            _subdivisionCornerCrossing,
+            _subdivisionCenterMismatch,
+            _subdivisionDistanceThreshold,
+            _subdivisionOnlyMinDepth,
+            _subdivisionOnlyCornerCrossing,
+            _subdivisionOnlyCenterMismatch,
+            _subdivisionOnlyDistanceThreshold,
+            _subdivisionMixedReasons,
             gcGen0Delta,
             gcGen1Delta,
             gcGen2Delta

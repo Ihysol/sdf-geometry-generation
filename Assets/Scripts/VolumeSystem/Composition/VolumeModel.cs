@@ -289,6 +289,15 @@ public class VolumeModel : MonoBehaviour
         public readonly int edgeEvaluations;
         public readonly int crossingCacheHits;
         public readonly int crossingCacheMisses;
+        public readonly int subdivisionMinDepth;
+        public readonly int subdivisionCornerCrossing;
+        public readonly int subdivisionCenterMismatch;
+        public readonly int subdivisionDistanceThreshold;
+        public readonly int subdivisionOnlyMinDepth;
+        public readonly int subdivisionOnlyCornerCrossing;
+        public readonly int subdivisionOnlyCenterMismatch;
+        public readonly int subdivisionOnlyDistanceThreshold;
+        public readonly int subdivisionMixedReasons;
         public readonly double rendererMs;
         public readonly double rendererChunkMs;
         public readonly int rebuiltChunks;
@@ -319,6 +328,15 @@ public class VolumeModel : MonoBehaviour
             int edgeEvaluations,
             int crossingCacheHits,
             int crossingCacheMisses,
+            int subdivisionMinDepth,
+            int subdivisionCornerCrossing,
+            int subdivisionCenterMismatch,
+            int subdivisionDistanceThreshold,
+            int subdivisionOnlyMinDepth,
+            int subdivisionOnlyCornerCrossing,
+            int subdivisionOnlyCenterMismatch,
+            int subdivisionOnlyDistanceThreshold,
+            int subdivisionMixedReasons,
             double rendererMs,
             double rendererChunkMs,
             int rebuiltChunks,
@@ -348,6 +366,15 @@ public class VolumeModel : MonoBehaviour
             this.edgeEvaluations = edgeEvaluations;
             this.crossingCacheHits = crossingCacheHits;
             this.crossingCacheMisses = crossingCacheMisses;
+            this.subdivisionMinDepth = subdivisionMinDepth;
+            this.subdivisionCornerCrossing = subdivisionCornerCrossing;
+            this.subdivisionCenterMismatch = subdivisionCenterMismatch;
+            this.subdivisionDistanceThreshold = subdivisionDistanceThreshold;
+            this.subdivisionOnlyMinDepth = subdivisionOnlyMinDepth;
+            this.subdivisionOnlyCornerCrossing = subdivisionOnlyCornerCrossing;
+            this.subdivisionOnlyCenterMismatch = subdivisionOnlyCenterMismatch;
+            this.subdivisionOnlyDistanceThreshold = subdivisionOnlyDistanceThreshold;
+            this.subdivisionMixedReasons = subdivisionMixedReasons;
             this.rendererMs = rendererMs;
             this.rendererChunkMs = rendererChunkMs;
             this.rebuiltChunks = rebuiltChunks;
@@ -690,6 +717,15 @@ public class VolumeModel : MonoBehaviour
         int edgeEvaluations = 0;
         int crossingCacheHits = 0;
         int crossingCacheMisses = 0;
+        int subdivisionMinDepth = 0;
+        int subdivisionCornerCrossing = 0;
+        int subdivisionCenterMismatch = 0;
+        int subdivisionDistanceThreshold = 0;
+        int subdivisionOnlyMinDepth = 0;
+        int subdivisionOnlyCornerCrossing = 0;
+        int subdivisionOnlyCenterMismatch = 0;
+        int subdivisionOnlyDistanceThreshold = 0;
+        int subdivisionMixedReasons = 0;
 
         if (includeFlatBuildStats)
         {
@@ -711,6 +747,15 @@ public class VolumeModel : MonoBehaviour
             edgeEvaluations = stats.edgeRefinementEvaluations;
             crossingCacheHits = stats.crossingCacheHits;
             crossingCacheMisses = stats.crossingCacheMisses;
+            subdivisionMinDepth = stats.subdivisionMinDepth;
+            subdivisionCornerCrossing = stats.subdivisionCornerCrossing;
+            subdivisionCenterMismatch = stats.subdivisionCenterMismatch;
+            subdivisionDistanceThreshold = stats.subdivisionDistanceThreshold;
+            subdivisionOnlyMinDepth = stats.subdivisionOnlyMinDepth;
+            subdivisionOnlyCornerCrossing = stats.subdivisionOnlyCornerCrossing;
+            subdivisionOnlyCenterMismatch = stats.subdivisionOnlyCenterMismatch;
+            subdivisionOnlyDistanceThreshold = stats.subdivisionOnlyDistanceThreshold;
+            subdivisionMixedReasons = stats.subdivisionMixedReasons;
         }
 
         return new RebuildProfileSample(
@@ -735,6 +780,15 @@ public class VolumeModel : MonoBehaviour
             edgeEvaluations,
             crossingCacheHits,
             crossingCacheMisses,
+            subdivisionMinDepth,
+            subdivisionCornerCrossing,
+            subdivisionCenterMismatch,
+            subdivisionDistanceThreshold,
+            subdivisionOnlyMinDepth,
+            subdivisionOnlyCornerCrossing,
+            subdivisionOnlyCenterMismatch,
+            subdivisionOnlyDistanceThreshold,
+            subdivisionMixedReasons,
             renderStats.totalMs,
             renderStats.chunkRebuildMs,
             renderStats.rebuilt,
@@ -815,6 +869,8 @@ public class VolumeModel : MonoBehaviour
             $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
             $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}), " +
+            $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
+            $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}), " +
             BuildWorstSampleLog(samples);
     }
@@ -1070,6 +1126,8 @@ public class VolumeModel : MonoBehaviour
             $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
             $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}), " +
+            $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
+            $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length}), " +
             BuildWorstSampleLog(samples);
     }
@@ -1104,6 +1162,8 @@ public class VolumeModel : MonoBehaviour
             $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, bounds={FormatVector(sample.buildBoundsSize)}, " +
             $"rebuilt={sample.rebuiltChunks}, queuedDirty={sample.queuedDirtyChunks}, source={sample.sourceEvaluations}, cornerMiss={sample.cornerCacheMisses}, center={sample.centerEvaluations}, edge={sample.edgeEvaluations}, " +
             $"cornerHit={sample.cornerCacheHits}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, " +
+            $"subdivision(minDepth={sample.subdivisionMinDepth}, crossing={sample.subdivisionCornerCrossing}, centerMismatch={sample.subdivisionCenterMismatch}, distance={sample.subdivisionDistanceThreshold}), " +
+            $"exclusive(minDepth={sample.subdivisionOnlyMinDepth}, crossing={sample.subdivisionOnlyCornerCrossing}, centerMismatch={sample.subdivisionOnlyCenterMismatch}, distance={sample.subdivisionOnlyDistanceThreshold}, mixed={sample.subdivisionMixedReasons}), " +
             $"dirtySeen={sample.dirtySeen}, canDirty={sample.canUseDirtyChunks}, full={sample.fullChunkRebuild})";
     }
 
