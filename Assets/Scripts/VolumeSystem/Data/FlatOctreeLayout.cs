@@ -14,6 +14,7 @@ public sealed class FlatOctreeLayout
     public byte[] ChildMask;
     public byte[] Flags;
     public int[] SurfaceLeafIndices { get; private set; }
+    public int SurfaceLeafCount { get; private set; }
     public int[] SubtreeSize { get; private set; }
     public int[] ChildIndexByOctant { get; private set; }
     public int[] LeafByCellCoord { get; private set; }
@@ -65,19 +66,21 @@ public sealed class FlatOctreeLayout
                 surfaceLeafCount++;
         }
 
-        int[] surfaceLeaves = new int[surfaceLeafCount];
+        int[] surfaceLeaves = EnsureIntArray(SurfaceLeafIndices, surfaceLeafCount);
         int surfaceLeafWrite = 0;
 
-        int[] subtreeSize = new int[Count];
-        int[] childIndexByOctant = new int[Count * 8];
-        for (int i = 0; i < childIndexByOctant.Length; i++)
+        int[] subtreeSize = EnsureIntArray(SubtreeSize, Count);
+        System.Array.Clear(subtreeSize, 0, Count);
+
+        int childIndexCount = Count * 8;
+        int[] childIndexByOctant = EnsureIntArray(ChildIndexByOctant, childIndexCount);
+        for (int i = 0; i < childIndexCount; i++)
             childIndexByOctant[i] = -1;
 
         ComputeSubtreeSize(0, subtreeSize, childIndexByOctant);
         bool hasDenseLeafLookup = BuildDenseLeafLookup(out int[] leafByCellCoord, out Vector3Int leafLookupGridSize);
-        Dictionary<Vector3Int, int> leafExactByCoord = hasDenseLeafLookup
-            ? new Dictionary<Vector3Int, int>(0)
-            : new Dictionary<Vector3Int, int>(leafCount);
+        Dictionary<Vector3Int, int> leafExactByCoord = LeafExactByCoord ?? new Dictionary<Vector3Int, int>(leafCount);
+        leafExactByCoord.Clear();
 
         for (int i = 0; i < Count; i++)
         {
@@ -91,14 +94,23 @@ public sealed class FlatOctreeLayout
         }
 
         SurfaceLeafIndices = surfaceLeaves;
+        SurfaceLeafCount = surfaceLeafCount;
         SubtreeSize = subtreeSize;
         ChildIndexByOctant = childIndexByOctant;
         LeafByCellCoord = leafByCellCoord;
         LeafLookupGridSize = leafLookupGridSize;
         LeafExactByCoord = leafExactByCoord;
-        ResolvedLeafByCoord = new Dictionary<Vector3Int, int>();
-        MissingLeafCoords = new HashSet<Vector3Int>();
+        ResolvedLeafByCoord ??= new Dictionary<Vector3Int, int>();
+        ResolvedLeafByCoord.Clear();
+        MissingLeafCoords ??= new HashSet<Vector3Int>();
+        MissingLeafCoords.Clear();
         _runtimeCacheReady = true;
+    }
+
+    public void InvalidateRuntimeCache()
+    {
+        _runtimeCacheReady = false;
+        SurfaceLeafCount = 0;
     }
 
     public bool TryGetContainingLeafIndex(Vector3Int coord, out int nodeIndex)
@@ -221,8 +233,9 @@ public sealed class FlatOctreeLayout
             return false;
         }
 
-        leafByCellCoord = new int[(int)entryCount];
-        for (int i = 0; i < leafByCellCoord.Length; i++)
+        int required = (int)entryCount;
+        leafByCellCoord = EnsureIntArray(LeafByCellCoord, required);
+        for (int i = 0; i < required; i++)
             leafByCellCoord[i] = -1;
 
         for (int i = 0; i < Count; i++)
@@ -246,5 +259,15 @@ public sealed class FlatOctreeLayout
         }
 
         return true;
+    }
+
+    private static int[] EnsureIntArray(int[] array, int required)
+    {
+        if (required <= 0)
+            return System.Array.Empty<int>();
+
+        return array == null || array.Length < required
+            ? new int[required]
+            : array;
     }
 }

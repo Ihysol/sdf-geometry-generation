@@ -137,7 +137,8 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
     {
         bool hasOwnedBounds = _ownedGridBounds.Count > 0;
         int[] surfaceLeafIndices = _layout.SurfaceLeafIndices;
-        for (int si = 0; si < surfaceLeafIndices.Length; si++)
+        int surfaceLeafCount = _layout.SurfaceLeafCount;
+        for (int si = 0; si < surfaceLeafCount; si++)
         {
             int nodeIndex = surfaceLeafIndices[si];
             if (hasOwnedBounds && !NodeMayTouchOwnedBounds(nodeIndex))

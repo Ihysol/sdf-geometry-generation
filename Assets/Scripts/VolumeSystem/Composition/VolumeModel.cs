@@ -279,8 +279,16 @@ public class VolumeModel : MonoBehaviour
         public readonly double surfaceVertexMs;
         public readonly double surfaceCrossingMs;
         public readonly double surfaceNormalMs;
+        public readonly int totalNodes;
+        public readonly int surfaceLeaves;
+        public readonly Vector3 buildBoundsSize;
         public readonly int sourceEvaluations;
+        public readonly int cornerCacheHits;
+        public readonly int cornerCacheMisses;
+        public readonly int centerEvaluations;
         public readonly int edgeEvaluations;
+        public readonly int crossingCacheHits;
+        public readonly int crossingCacheMisses;
         public readonly double rendererMs;
         public readonly double rendererChunkMs;
         public readonly int rebuiltChunks;
@@ -301,8 +309,16 @@ public class VolumeModel : MonoBehaviour
             double surfaceVertexMs,
             double surfaceCrossingMs,
             double surfaceNormalMs,
+            int totalNodes,
+            int surfaceLeaves,
+            Vector3 buildBoundsSize,
             int sourceEvaluations,
+            int cornerCacheHits,
+            int cornerCacheMisses,
+            int centerEvaluations,
             int edgeEvaluations,
+            int crossingCacheHits,
+            int crossingCacheMisses,
             double rendererMs,
             double rendererChunkMs,
             int rebuiltChunks,
@@ -322,8 +338,16 @@ public class VolumeModel : MonoBehaviour
             this.surfaceVertexMs = surfaceVertexMs;
             this.surfaceCrossingMs = surfaceCrossingMs;
             this.surfaceNormalMs = surfaceNormalMs;
+            this.totalNodes = totalNodes;
+            this.surfaceLeaves = surfaceLeaves;
+            this.buildBoundsSize = buildBoundsSize;
             this.sourceEvaluations = sourceEvaluations;
+            this.cornerCacheHits = cornerCacheHits;
+            this.cornerCacheMisses = cornerCacheMisses;
+            this.centerEvaluations = centerEvaluations;
             this.edgeEvaluations = edgeEvaluations;
+            this.crossingCacheHits = crossingCacheHits;
+            this.crossingCacheMisses = crossingCacheMisses;
             this.rendererMs = rendererMs;
             this.rendererChunkMs = rendererChunkMs;
             this.rebuiltChunks = rebuiltChunks;
@@ -656,8 +680,16 @@ public class VolumeModel : MonoBehaviour
         double surfaceVertexMs = 0d;
         double surfaceCrossingMs = 0d;
         double surfaceNormalMs = 0d;
+        int totalNodes = 0;
+        int surfaceLeaves = 0;
+        Vector3 buildBoundsSize = Vector3.zero;
         int sourceEvaluations = 0;
+        int cornerCacheHits = 0;
+        int cornerCacheMisses = 0;
+        int centerEvaluations = 0;
         int edgeEvaluations = 0;
+        int crossingCacheHits = 0;
+        int crossingCacheMisses = 0;
 
         if (includeFlatBuildStats)
         {
@@ -669,8 +701,16 @@ public class VolumeModel : MonoBehaviour
             surfaceVertexMs = stats.surfaceVertexMs;
             surfaceCrossingMs = stats.surfaceCrossingMs;
             surfaceNormalMs = stats.surfaceNormalMs;
+            totalNodes = stats.totalNodes;
+            surfaceLeaves = stats.surfaceLeaves;
+            buildBoundsSize = stats.buildBoundsSize;
             sourceEvaluations = stats.sourceEvaluations;
+            cornerCacheHits = stats.cornerCacheHits;
+            cornerCacheMisses = stats.cornerCacheMisses;
+            centerEvaluations = stats.centerEvaluations;
             edgeEvaluations = stats.edgeRefinementEvaluations;
+            crossingCacheHits = stats.crossingCacheHits;
+            crossingCacheMisses = stats.crossingCacheMisses;
         }
 
         return new RebuildProfileSample(
@@ -685,8 +725,16 @@ public class VolumeModel : MonoBehaviour
             surfaceVertexMs,
             surfaceCrossingMs,
             surfaceNormalMs,
+            totalNodes,
+            surfaceLeaves,
+            buildBoundsSize,
             sourceEvaluations,
+            cornerCacheHits,
+            cornerCacheMisses,
+            centerEvaluations,
             edgeEvaluations,
+            crossingCacheHits,
+            crossingCacheMisses,
             renderStats.totalMs,
             renderStats.chunkRebuildMs,
             renderStats.rebuilt,
@@ -764,8 +812,11 @@ public class VolumeModel : MonoBehaviour
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
             $"normal({Summarize(samples, s => s.surfaceNormalMs)}), " +
-            $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1})";
+            $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
+            $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
+            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}), " +
+            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}), " +
+            BuildWorstSampleLog(samples);
     }
 
     public void RunDirtyMoveBenchmark()
@@ -829,7 +880,7 @@ public class VolumeModel : MonoBehaviour
             }
         }
 
-        Debug.Log(BuildDirtyMoveBenchmarkLog(samples, target.name, offset));
+        Debug.Log(BuildDirtyMoveBenchmarkLog(samples, target.name, offset, logicalRuns, visual: false));
     }
 
     private void StartVisualDirtyMoveBenchmark()
@@ -938,7 +989,9 @@ public class VolumeModel : MonoBehaviour
             Debug.Log(BuildDirtyMoveBenchmarkLog(
                 _dirtyMoveBenchmarkSamples,
                 _dirtyMoveBenchmarkTarget.name,
-                _dirtyMoveBenchmarkActiveOffset
+                _dirtyMoveBenchmarkActiveOffset,
+                _dirtyMoveBenchmarkLogicalRuns,
+                visual: true
             ));
         }
 
@@ -997,10 +1050,15 @@ public class VolumeModel : MonoBehaviour
         return composer.objects.Count > 0 ? composer.objects[composer.objects.Count - 1] : null;
     }
 
-    private string BuildDirtyMoveBenchmarkLog(RebuildProfileSample[] samples, string targetName, Vector3 offset)
+    private string BuildDirtyMoveBenchmarkLog(
+        RebuildProfileSample[] samples,
+        string targetName,
+        Vector3 offset,
+        int logicalRuns,
+        bool visual)
     {
         return
-            $"Volume Dirty Move Benchmark [{GetPipelineDebugLabel()}] target={targetName}, runs={samples.Length}, offset={FormatVector(offset)}, refinementSteps={GetEffectiveEdgeRefinementSteps()}: " +
+            $"Volume Dirty Move Benchmark [{GetPipelineDebugLabel()}] type={benchmarkType}, target={targetName}, logicalRuns={logicalRuns}, samples={samples.Length}, visual={visual}, restore={restoreDirtyMoveBenchmarkObject}, offset={FormatVector(offset)}, refinementSteps={GetEffectiveEdgeRefinementSteps()}: " +
             $"model({Summarize(samples, s => s.totalMs)}), " +
             $"volumeBuild({Summarize(samples, s => s.volumeBuildMs)}), " +
             $"render({Summarize(samples, s => s.renderMs)}), " +
@@ -1009,8 +1067,11 @@ public class VolumeModel : MonoBehaviour
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
-            $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length})";
+            $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
+            $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
+            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}), " +
+            $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length}), " +
+            BuildWorstSampleLog(samples);
     }
 
     private static string Summarize(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, double> selector)
@@ -1030,6 +1091,37 @@ public class VolumeModel : MonoBehaviour
             : values[values.Length / 2];
 
         return $"min={values[0]:F2} ms, med={median:F2} ms, avg={sum / values.Length:F2} ms, max={values[values.Length - 1]:F2} ms";
+    }
+
+    private static string BuildWorstSampleLog(RebuildProfileSample[] samples)
+    {
+        int index = FindMaxSampleIndex(samples, s => s.totalMs);
+        RebuildProfileSample sample = samples[index];
+
+        return
+            $"worst(index={index}, total={sample.totalMs:F2} ms, volumeBuild={sample.volumeBuildMs:F2} ms, render={sample.renderMs:F2} ms, " +
+            $"recursive={sample.flatRecursiveMs:F2} ms, runtimeCache={sample.flatRuntimeCacheMs:F2} ms, crossing={sample.surfaceCrossingMs:F2} ms, " +
+            $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, bounds={FormatVector(sample.buildBoundsSize)}, " +
+            $"rebuilt={sample.rebuiltChunks}, queuedDirty={sample.queuedDirtyChunks}, source={sample.sourceEvaluations}, cornerMiss={sample.cornerCacheMisses}, center={sample.centerEvaluations}, edge={sample.edgeEvaluations}, " +
+            $"cornerHit={sample.cornerCacheHits}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, " +
+            $"dirtySeen={sample.dirtySeen}, canDirty={sample.canUseDirtyChunks}, full={sample.fullChunkRebuild})";
+    }
+
+    private static int FindMaxSampleIndex(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, double> selector)
+    {
+        int bestIndex = 0;
+        double bestValue = selector(samples[0]);
+        for (int i = 1; i < samples.Length; i++)
+        {
+            double value = selector(samples[i]);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
     }
 
     private static double AverageInt(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, int> selector)

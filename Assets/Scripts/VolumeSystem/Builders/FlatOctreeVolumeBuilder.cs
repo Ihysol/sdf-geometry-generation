@@ -16,6 +16,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly double surfaceNormalMs;
         public readonly int totalNodes;
         public readonly int surfaceLeaves;
+        public readonly Vector3 buildBoundsSize;
         public readonly int sourceEvaluations;
         public readonly int cornerCacheHits;
         public readonly int cornerCacheMisses;
@@ -37,6 +38,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             double surfaceNormalMs,
             int totalNodes,
             int surfaceLeaves,
+            Vector3 buildBoundsSize,
             int sourceEvaluations,
             int cornerCacheHits,
             int cornerCacheMisses,
@@ -57,6 +59,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.surfaceNormalMs = surfaceNormalMs;
             this.totalNodes = totalNodes;
             this.surfaceLeaves = surfaceLeaves;
+            this.buildBoundsSize = buildBoundsSize;
             this.sourceEvaluations = sourceEvaluations;
             this.cornerCacheHits = cornerCacheHits;
             this.cornerCacheMisses = cornerCacheMisses;
@@ -172,6 +175,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private readonly List<NodeRecord> _nodes = new(InitialNodeCapacity);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<OctreeHermiteEdgeKey, Vector3> _averageCrossingCache = new(InitialAverageCrossingCapacity);
+    private readonly FlatOctreeLayout _layout = new();
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
     private int _cornerSampleGridSide;
@@ -235,6 +239,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             recursiveStopwatch.Elapsed.TotalMilliseconds,
             createLayoutMs,
             runtimeCacheMs,
+            buildBounds.size,
             System.GC.CollectionCount(0) - gc0Before,
             System.GC.CollectionCount(1) - gc1Before,
             System.GC.CollectionCount(2) - gc2Before);
@@ -384,19 +389,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 cornerValues8[cornerBase + c] = n.Corners[c];
         }
 
-        return new FlatOctreeLayout
-        {
-            Centers = centers,
-            Sizes = sizes,
-            SurfaceVertices = surfaceVertices,
-            SurfaceNormals = surfaceNormals,
-            Coords = coords,
-            NodeSizeInCells = nodeSizeInCells,
-            CornerValues8 = cornerValues8,
-            FirstChildIndex = firstChildIndex,
-            ChildMask = childMask,
-            Flags = flags
-        };
+        _layout.Centers = centers;
+        _layout.Sizes = sizes;
+        _layout.SurfaceVertices = surfaceVertices;
+        _layout.SurfaceNormals = surfaceNormals;
+        _layout.Coords = coords;
+        _layout.NodeSizeInCells = nodeSizeInCells;
+        _layout.CornerValues8 = cornerValues8;
+        _layout.FirstChildIndex = firstChildIndex;
+        _layout.ChildMask = childMask;
+        _layout.Flags = flags;
+        _layout.InvalidateRuntimeCache();
+        return _layout;
     }
 
     private CornerSamples SampleCorners(IScalarFieldSource source, Bounds bounds, Vector3 origin, Vector3 cellSize)
@@ -780,6 +784,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         double recursiveBuildMs,
         double createLayoutMs,
         double runtimeCacheMs,
+        Vector3 buildBoundsSize,
         int gcGen0Delta,
         int gcGen1Delta,
         int gcGen2Delta)
@@ -795,6 +800,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _surfaceNormalTicks * 1000d / Stopwatch.Frequency,
             _nodes.Count,
             _surfaceLeaves,
+            buildBoundsSize,
             _sourceEvaluations,
             _cornerCacheHits,
             _cornerCacheMisses,
