@@ -469,16 +469,16 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private FlatOctreeLayout CreateLayout()
     {
         int count = _nodes.Count;
-        Vector3[] centers = new Vector3[count];
-        Vector3[] sizes = new Vector3[count];
-        Vector3[] surfaceVertices = new Vector3[count];
-        Vector3[] surfaceNormals = new Vector3[count];
-        Vector3Int[] coords = new Vector3Int[count];
-        Vector3Int[] nodeSizeInCells = new Vector3Int[count];
-        float[] cornerValues8 = new float[count * 8];
-        int[] firstChildIndex = new int[count];
-        byte[] childMask = new byte[count];
-        byte[] flags = new byte[count];
+        Vector3[] centers = EnsureVector3Array(_layout.Centers, count);
+        Vector3[] sizes = EnsureVector3Array(_layout.Sizes, count);
+        Vector3[] surfaceVertices = EnsureVector3Array(_layout.SurfaceVertices, count);
+        Vector3[] surfaceNormals = EnsureVector3Array(_layout.SurfaceNormals, count);
+        Vector3Int[] coords = EnsureVector3IntArray(_layout.Coords, count);
+        Vector3Int[] nodeSizeInCells = EnsureVector3IntArray(_layout.NodeSizeInCells, count);
+        float[] cornerValues8 = EnsureFloatArray(_layout.CornerValues8, count * 8);
+        int[] firstChildIndex = EnsureIntArray(_layout.FirstChildIndex, count);
+        byte[] childMask = EnsureByteArray(_layout.ChildMask, count);
+        byte[] flags = EnsureByteArray(_layout.Flags, count);
 
         for (int i = 0; i < count; i++)
         {
@@ -508,8 +508,33 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _layout.FirstChildIndex = firstChildIndex;
         _layout.ChildMask = childMask;
         _layout.Flags = flags;
-        _layout.InvalidateRuntimeCache();
+        _layout.SetCount(count);
         return _layout;
+    }
+
+    private static Vector3[] EnsureVector3Array(Vector3[] array, int required)
+    {
+        return array == null || array.Length < required ? new Vector3[required] : array;
+    }
+
+    private static Vector3Int[] EnsureVector3IntArray(Vector3Int[] array, int required)
+    {
+        return array == null || array.Length < required ? new Vector3Int[required] : array;
+    }
+
+    private static float[] EnsureFloatArray(float[] array, int required)
+    {
+        return array == null || array.Length < required ? new float[required] : array;
+    }
+
+    private static int[] EnsureIntArray(int[] array, int required)
+    {
+        return array == null || array.Length < required ? new int[required] : array;
+    }
+
+    private static byte[] EnsureByteArray(byte[] array, int required)
+    {
+        return array == null || array.Length < required ? new byte[required] : array;
     }
 
     private CornerSamples SampleCorners(IScalarFieldSource source, Bounds bounds, Vector3 origin, Vector3 cellSize)

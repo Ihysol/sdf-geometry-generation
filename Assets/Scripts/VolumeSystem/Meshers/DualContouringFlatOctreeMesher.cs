@@ -380,10 +380,12 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
 
     private void EnsureLayoutNormals(IScalarFieldSource source)
     {
-        if (_layout.SurfaceNormals != null && _layout.SurfaceNormals.Length == _layout.Count)
+        if (_layout.SurfaceNormals != null && _layout.SurfaceNormals.Length >= _layout.Count)
             return;
 
-        Vector3[] normals = new Vector3[_layout.Count];
+        Vector3[] normals = _layout.SurfaceNormals != null && _layout.SurfaceNormals.Length >= _layout.Count
+            ? _layout.SurfaceNormals
+            : new Vector3[_layout.Count];
         if (source == null)
         {
             for (int i = 0; i < normals.Length; i++)

@@ -23,7 +23,7 @@ public sealed class FlatOctreeLayout
     public Dictionary<Vector3Int, int> ResolvedLeafByCoord { get; private set; }
     public HashSet<Vector3Int> MissingLeafCoords { get; private set; }
     private bool _runtimeCacheReady;
-    public int Count => Centers != null ? Centers.Length : 0;
+    public int Count { get; private set; }
 
     public const byte FlagLeaf = 1 << 0;
     public const byte FlagSurface = 1 << 1;
@@ -33,21 +33,28 @@ public sealed class FlatOctreeLayout
         Centers != null &&
         Sizes != null &&
         SurfaceVertices != null &&
-        (SurfaceNormals == null || SurfaceNormals.Length == Count) &&
+        (SurfaceNormals == null || SurfaceNormals.Length >= Count) &&
         Coords != null &&
         NodeSizeInCells != null &&
         CornerValues8 != null &&
         FirstChildIndex != null &&
         ChildMask != null &&
         Flags != null &&
-        Sizes.Length == Count &&
-        SurfaceVertices.Length == Count &&
-        Coords.Length == Count &&
-        NodeSizeInCells.Length == Count &&
-        CornerValues8.Length == Count * 8 &&
-        FirstChildIndex.Length == Count &&
-        ChildMask.Length == Count &&
-        Flags.Length == Count;
+        Centers.Length >= Count &&
+        Sizes.Length >= Count &&
+        SurfaceVertices.Length >= Count &&
+        Coords.Length >= Count &&
+        NodeSizeInCells.Length >= Count &&
+        CornerValues8.Length >= Count * 8 &&
+        FirstChildIndex.Length >= Count &&
+        ChildMask.Length >= Count &&
+        Flags.Length >= Count;
+
+    public void SetCount(int count)
+    {
+        Count = Mathf.Max(0, count);
+        InvalidateRuntimeCache();
+    }
 
     public void EnsureRuntimeCache()
     {

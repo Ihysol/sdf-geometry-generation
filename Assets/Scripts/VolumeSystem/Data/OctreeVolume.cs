@@ -194,6 +194,7 @@ public class OctreeVolume : IVolumeData, IChunkLayoutVolume, IFlatAdaptiveVolume
             ChildMask = childMask,
             Flags = flags
         };
+        _flatLayout.SetCount(write);
 
         return _flatLayout;
     }
