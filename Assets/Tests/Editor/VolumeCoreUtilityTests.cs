@@ -95,4 +95,16 @@ public class VolumeCoreUtilityTests
 
         Assert.That(FlatOctreeVolumeBuilder.CrossingEdgeOverlapsGridRange(edge, dirtyMin, dirtyMax), Is.False);
     }
+
+    [Test]
+    public void EdgeRefinementResidual_AcceptsSmallIsoError()
+    {
+        Assert.That(EdgeRefinementUtility.ResidualIsAcceptable(5e-5f), Is.True);
+    }
+
+    [Test]
+    public void EdgeRefinementResidual_RejectsLargerIsoError()
+    {
+        Assert.That(EdgeRefinementUtility.ResidualIsAcceptable(2e-4f), Is.False);
+    }
 }

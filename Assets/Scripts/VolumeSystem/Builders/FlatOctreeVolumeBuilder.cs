@@ -646,7 +646,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             float fP = EvaluateEdgeRefinement(source, p) - isoLevel;
             best = p;
 
-            if (Mathf.Abs(fP) < 1e-6f)
+            if (EdgeRefinementUtility.ResidualIsAcceptable(fP))
                 break;
 
             if ((fA <= 0f && fP > 0f) || (fA > 0f && fP <= 0f))
