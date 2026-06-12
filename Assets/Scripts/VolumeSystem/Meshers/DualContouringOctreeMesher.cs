@@ -36,9 +36,9 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
     private int _cornerSampleGridSide;
-    private readonly Dictionary<Vector3, float> _gradientSampleCache = new();
-    private readonly Dictionary<HermiteEdgeKey, Vector3> _averageCrossingCache = new();
-    private readonly Dictionary<HermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
+    private readonly Dictionary<QuantizedVector3Key, float> _gradientSampleCache = new();
+    private readonly Dictionary<OctreeHermiteEdgeKey, Vector3> _averageCrossingCache = new();
+    private readonly Dictionary<OctreeHermiteEdgeKey, HermiteSample> _hermiteSampleCache = new();
     private OctreeVolume _sampleCacheVolume;
     private float _sampleCacheIsoLevel;
     private int _sampleCacheRefinementSteps;
@@ -53,6 +53,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
 
     private Vector3 _origin;
     private Vector3 _cellSize;
+    private float _gradientSampleQuantum = 1e-6f;
     private Vector3Int _gridMin;
     private Vector3Int _gridMax;
     public System.Collections.Generic.List<Bounds> ownedBoundsList = null;
@@ -88,46 +89,6 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
             Point = point;
             Normal = normal;
             Weight = weight;
-        }
-    }
-
-    private readonly struct HermiteEdgeKey
-    {
-        public readonly Vector3Int A;
-        public readonly Vector3Int B;
-
-        public HermiteEdgeKey(Vector3Int a, Vector3Int b)
-        {
-            if (LexicographicLessOrEqual(a, b))
-            {
-                A = a;
-                B = b;
-            }
-            else
-            {
-                A = b;
-                B = a;
-            }
-        }
-
-        public override int GetHashCode()
-        {
-            return (A.GetHashCode() * 397) ^ B.GetHashCode();
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (obj is not HermiteEdgeKey other)
-                return false;
-
-            return A == other.A && B == other.B;
-        }
-
-        private static bool LexicographicLessOrEqual(Vector3Int x, Vector3Int y)
-        {
-            if (x.x != y.x) return x.x < y.x;
-            if (x.y != y.y) return x.y < y.y;
-            return x.z <= y.z;
         }
     }
 
@@ -428,6 +389,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         }
 
         PrepareCornerSampleCache(volume);
+        _gradientSampleQuantum = QuantizedVector3Key.GetQuantum(volume.CellSize);
         _gradientSampleCache.Clear();
         _averageCrossingCache.Clear();
         _hermiteSampleCache.Clear();
@@ -1012,7 +974,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         ref Vector3 sum,
         ref int count)
     {
-        HermiteEdgeKey key = new HermiteEdgeKey(ca, cb);
+        OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
         if (!_averageCrossingCache.TryGetValue(key, out Vector3 crossing))
         {
             crossing = RefineEdgeIntersection(source, pa, pb, va, vb, isoLevel);
@@ -1207,7 +1169,7 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
         Vector3Int cb,
         float isoLevel)
     {
-        HermiteEdgeKey key = new HermiteEdgeKey(ca, cb);
+        OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
         if (_hermiteSampleCache.TryGetValue(key, out HermiteSample cached))
             return cached;
 
@@ -1364,11 +1326,12 @@ public class DualContouringOctreeMesher : IVolumeMesher<OctreeVolume>
 
     private float EvaluateGradientCached(IScalarFieldSource source, Vector3 position)
     {
-        if (_gradientSampleCache.TryGetValue(position, out float cached))
+        QuantizedVector3Key key = QuantizedVector3Key.FromPosition(position, _origin, _gradientSampleQuantum);
+        if (_gradientSampleCache.TryGetValue(key, out float cached))
             return cached;
 
         float value = source.Evaluate(position);
-        _gradientSampleCache[position] = value;
+        _gradientSampleCache[key] = value;
         return value;
     }
 

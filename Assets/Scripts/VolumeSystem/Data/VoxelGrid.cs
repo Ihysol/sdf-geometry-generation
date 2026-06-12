@@ -38,16 +38,46 @@ public class VoxelGrid : IVolumeData, IChunkLayoutVolume, IFlatDenseVolumeData
         return x + GridSize.x * (y + GridSize.y * z);
     }
 
+    public bool IsInBounds(int x, int y, int z)
+    {
+        return x >= 0 && x < GridSize.x &&
+               y >= 0 && y < GridSize.y &&
+               z >= 0 && z < GridSize.z;
+    }
+
     /// <summary>Reads a scalar value at the given grid coordinate.</summary>
     public float GetValue(int x, int y, int z)
     {
+        ValidateCoordinates(x, y, z);
         return Values[GetIndex(x, y, z)];
     }
 
     /// <summary>Writes a scalar value at the given grid coordinate.</summary>
     public void SetValue(int x, int y, int z, float value)
     {
+        ValidateCoordinates(x, y, z);
         Values[GetIndex(x, y, z)] = value;
+    }
+
+    public bool TryGetValue(int x, int y, int z, out float value)
+    {
+        if (!IsInBounds(x, y, z))
+        {
+            value = default;
+            return false;
+        }
+
+        value = Values[GetIndex(x, y, z)];
+        return true;
+    }
+
+    public bool TrySetValue(int x, int y, int z, float value)
+    {
+        if (!IsInBounds(x, y, z))
+            return false;
+
+        Values[GetIndex(x, y, z)] = value;
+        return true;
     }
 
     /// <summary>Returns the world position for a grid coordinate.</summary>
@@ -88,5 +118,16 @@ public class VoxelGrid : IVolumeData, IChunkLayoutVolume, IFlatDenseVolumeData
 
                     output.Add(new Bounds(center, chunkSize));
                 }
+    }
+
+    private void ValidateCoordinates(int x, int y, int z)
+    {
+        if (IsInBounds(x, y, z))
+            return;
+
+        throw new System.ArgumentOutOfRangeException(
+            "coordinates",
+            $"Grid coordinate ({x}, {y}, {z}) is outside voxel grid size {GridSize}."
+        );
     }
 }

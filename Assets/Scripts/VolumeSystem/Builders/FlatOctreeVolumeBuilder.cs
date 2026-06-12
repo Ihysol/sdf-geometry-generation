@@ -212,12 +212,10 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private readonly struct CrossingCacheEntry
     {
         public readonly Vector3 Crossing;
-        public readonly Bounds EdgeBounds;
 
-        public CrossingCacheEntry(Vector3 crossing, Bounds edgeBounds)
+        public CrossingCacheEntry(Vector3 crossing)
         {
             Crossing = crossing;
-            EdgeBounds = edgeBounds;
         }
     }
 
@@ -291,12 +289,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         const int gc2Before = 0;
 #endif
         ResetState();
-        PrepareCrossingCacheForBuild();
-        PrepareCornerSampleCache();
-
         Bounds buildBounds = Bounds;
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        PrepareCrossingCacheForBuild(origin, cellSize);
+        PrepareCornerSampleCache();
 
         BuildNode(source, buildBounds, 0, origin, cellSize);
 
@@ -621,7 +618,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         _crossingCacheMisses++;
         Vector3 crossing = RefineEdgeIntersection(source, pa, pb, va, vb, 0f);
-        _averageCrossingCache[key] = new CrossingCacheEntry(crossing, CreateEdgeBounds(pa, pb));
+        _averageCrossingCache[key] = new CrossingCacheEntry(crossing);
         sum += crossing;
         count++;
     }
@@ -900,7 +897,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return (a <= 0f && b > 0f) || (a > 0f && b <= 0f);
     }
 
-    private void PrepareCrossingCacheForBuild()
+    private void PrepareCrossingCacheForBuild(Vector3 origin, Vector3 cellSize)
     {
         bool clearCache =
             !_hasPreparedCrossingCache ||
@@ -919,7 +916,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
             float epsilonPadding = Bounds.size.magnitude * 1e-5f;
             expandedDirtyBounds.Expand(epsilonPadding);
-            InvalidateCrossingCache(expandedDirtyBounds);
+            InvalidateCrossingCache(expandedDirtyBounds, origin, cellSize);
         }
 
         _crossingCacheBuildCenter = center;
@@ -929,15 +926,16 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _hasPreparedCrossingCache = false;
     }
 
-    private void InvalidateCrossingCache(Bounds dirtyBounds)
+    private void InvalidateCrossingCache(Bounds dirtyBounds, Vector3 origin, Vector3 cellSize)
     {
         if (_averageCrossingCache.Count == 0)
             return;
 
+        GetDirtyGridRange(dirtyBounds, origin, cellSize, out Vector3Int dirtyMin, out Vector3Int dirtyMax);
         _crossingCacheRemovalBuffer.Clear();
         foreach (KeyValuePair<OctreeHermiteEdgeKey, CrossingCacheEntry> pair in _averageCrossingCache)
         {
-            if (pair.Value.EdgeBounds.Intersects(dirtyBounds))
+            if (CrossingEdgeOverlapsGridRange(pair.Key, dirtyMin, dirtyMax))
                 _crossingCacheRemovalBuffer.Add(pair.Key);
         }
 
@@ -948,13 +946,40 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _crossingCacheRemovalBuffer.Clear();
     }
 
-    private static Bounds CreateEdgeBounds(Vector3 a, Vector3 b)
+    public static bool CrossingEdgeOverlapsGridRange(
+        OctreeHermiteEdgeKey edge,
+        Vector3Int dirtyMin,
+        Vector3Int dirtyMax)
     {
-        Vector3 min = Vector3.Min(a, b);
-        Vector3 max = Vector3.Max(a, b);
-        Bounds bounds = new Bounds((min + max) * 0.5f, max - min);
-        bounds.Expand(1e-5f);
-        return bounds;
+        int minX = Mathf.Min(edge.A.x, edge.B.x);
+        int minY = Mathf.Min(edge.A.y, edge.B.y);
+        int minZ = Mathf.Min(edge.A.z, edge.B.z);
+        int maxX = Mathf.Max(edge.A.x, edge.B.x);
+        int maxY = Mathf.Max(edge.A.y, edge.B.y);
+        int maxZ = Mathf.Max(edge.A.z, edge.B.z);
+
+        return minX <= dirtyMax.x && maxX >= dirtyMin.x &&
+               minY <= dirtyMax.y && maxY >= dirtyMin.y &&
+               minZ <= dirtyMax.z && maxZ >= dirtyMin.z;
+    }
+
+    private static void GetDirtyGridRange(
+        Bounds dirtyBounds,
+        Vector3 origin,
+        Vector3 cellSize,
+        out Vector3Int dirtyMin,
+        out Vector3Int dirtyMax)
+    {
+        Vector3 min = dirtyBounds.min;
+        Vector3 max = dirtyBounds.max;
+        dirtyMin = new Vector3Int(
+            Mathf.FloorToInt((min.x - origin.x) / cellSize.x),
+            Mathf.FloorToInt((min.y - origin.y) / cellSize.y),
+            Mathf.FloorToInt((min.z - origin.z) / cellSize.z));
+        dirtyMax = new Vector3Int(
+            Mathf.CeilToInt((max.x - origin.x) / cellSize.x),
+            Mathf.CeilToInt((max.y - origin.y) / cellSize.y),
+            Mathf.CeilToInt((max.z - origin.z) / cellSize.z));
     }
 
     private void ResetState()

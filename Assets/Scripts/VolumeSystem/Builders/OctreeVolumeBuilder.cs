@@ -262,9 +262,11 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
     private int _cornerSampleGridSide;
-    private readonly Dictionary<Vector3, float> _gradientSampleCache = new();
+    private readonly Dictionary<QuantizedVector3Key, float> _gradientSampleCache = new();
     private readonly Dictionary<OctreeHermiteEdgeKey, Vector3> _averageCrossingCache = new();
     private readonly Dictionary<OctreeHermiteEdgeKey, OctreeHermiteSample> _hermiteSampleCache = new();
+    private Vector3 _gradientSampleOrigin;
+    private float _gradientSampleQuantum = 1e-6f;
 
     /// <summary>Builds an adaptive octree by recursively sampling the scalar field.</summary>
     public override OctreeVolume Build(IScalarFieldSource source)
@@ -283,6 +285,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        PrepareGradientSampleCache(origin, cellSize);
 
         OctreeNode root = BuildNode(
             source,
@@ -342,6 +345,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Bounds buildBounds = Bounds;
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        PrepareGradientSampleCache(origin, cellSize);
 
         if (existing.Bounds.center != buildBounds.center ||
             existing.Bounds.size != buildBounds.size ||
@@ -1229,6 +1233,12 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
     }
 
+    private void PrepareGradientSampleCache(Vector3 origin, Vector3 cellSize)
+    {
+        _gradientSampleOrigin = origin;
+        _gradientSampleQuantum = QuantizedVector3Key.GetQuantum(cellSize);
+    }
+
     private bool TryGetCornerSample(Vector3Int gridCoord, out float value)
     {
         if (TryGetDenseCornerSampleIndex(gridCoord, out int index))
@@ -1296,7 +1306,8 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
     private float EvaluateGradient(IScalarFieldSource source, Vector3 position)
     {
-        if (_gradientSampleCache.TryGetValue(position, out float cached))
+        QuantizedVector3Key key = QuantizedVector3Key.FromPosition(position, _gradientSampleOrigin, _gradientSampleQuantum);
+        if (_gradientSampleCache.TryGetValue(key, out float cached))
         {
             _gradientCacheHits++;
             return cached;
@@ -1305,7 +1316,7 @@ public class OctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _gradientCacheMisses++;
         _gradientEvaluations++;
         float value = EvaluateSource(source, position);
-        _gradientSampleCache[position] = value;
+        _gradientSampleCache[key] = value;
         return value;
     }
 
