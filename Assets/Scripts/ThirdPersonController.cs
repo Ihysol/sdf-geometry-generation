@@ -19,17 +19,21 @@ public class ThirdPersonController : MonoBehaviour
     [SerializeField] float cameraDistance = 10f;
     [SerializeField] float cameraHeightOffset = 2.5f;
     [SerializeField] float lookSensitivity = 2f;
+    [Tooltip("How fast the camera orbits. Lower = smoother, higher = snappier")]
+    [SerializeField] float cameraTurnSpeed = 8f;
     [SerializeField] float minVerticalAngle = -60f;
     [SerializeField] float maxVerticalAngle = 75f;
 
-    Rigidbody rigidbody;
+    Rigidbody body;
     CapsuleCollider capsule;
     Vector2 moveInput;
     bool jumpPressed;
     bool isRunning;
     bool isGrounded;
-    float cameraYaw;
-    float cameraPitch;
+    float targetYaw;
+    float targetPitch;
+    float currentYaw;
+    float currentPitch;
     bool cursorLocked;
     bool inputBound;
 
@@ -41,10 +45,10 @@ public class ThirdPersonController : MonoBehaviour
 
     void Awake()
     {
-        rigidbody = GetComponent<Rigidbody>();
+        body = GetComponent<Rigidbody>();
         capsule = GetComponent<CapsuleCollider>();
-        rigidbody.freezeRotation = true;
-        rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
+        body.freezeRotation = true;
+        body.interpolation = RigidbodyInterpolation.Interpolate;
 
         if (orbitCamera == null)
         {
@@ -55,9 +59,11 @@ public class ThirdPersonController : MonoBehaviour
         {
             Vector3 toCamera = orbitCamera.position - transform.position;
             toCamera.y = 0f;
-            cameraYaw = Mathf.Atan2(toCamera.x, toCamera.z) * Mathf.Rad2Deg;
-            cameraPitch = Mathf.Asin((orbitCamera.position.y - transform.position.y - cameraHeightOffset) / (cameraDistance * 0.5f + 0.001f)) * Mathf.Rad2Deg;
-            cameraPitch = Mathf.Clamp(cameraPitch, minVerticalAngle, maxVerticalAngle);
+            targetYaw = Mathf.Atan2(toCamera.x, toCamera.z) * Mathf.Rad2Deg;
+            currentYaw = targetYaw;
+            targetPitch = Mathf.Asin((orbitCamera.position.y - transform.position.y - cameraHeightOffset) / (cameraDistance * 0.5f + 0.001f)) * Mathf.Rad2Deg;
+            targetPitch = Mathf.Clamp(targetPitch, minVerticalAngle, maxVerticalAngle);
+            currentPitch = targetPitch;
         }
     }
 
@@ -153,9 +159,9 @@ public class ThirdPersonController : MonoBehaviour
 
     void ApplyLook(Vector2 delta)
     {
-        cameraYaw += delta.x * lookSensitivity;
-        cameraPitch -= delta.y * lookSensitivity;
-        cameraPitch = Mathf.Clamp(cameraPitch, minVerticalAngle, maxVerticalAngle);
+        targetYaw += delta.x * lookSensitivity;
+        targetPitch -= delta.y * lookSensitivity;
+        targetPitch = Mathf.Clamp(targetPitch, minVerticalAngle, maxVerticalAngle);
     }
 
     void Update()
@@ -167,6 +173,9 @@ public class ThirdPersonController : MonoBehaviour
             Cursor.visible = false;
             return;
         }
+
+        currentYaw = Mathf.LerpAngle(currentYaw, targetYaw, cameraTurnSpeed * Time.deltaTime);
+        currentPitch = Mathf.Lerp(currentPitch, targetPitch, cameraTurnSpeed * Time.deltaTime);
 
         UpdateCameraPosition();
         isGrounded = CheckGrounded();
@@ -182,11 +191,11 @@ public class ThirdPersonController : MonoBehaviour
     {
         if (orbitCamera == null) return;
 
-        float targetX = transform.position.x + Mathf.Sin(Mathf.Deg2Rad * cameraYaw) * cameraDistance;
-        float targetZ = transform.position.z + Mathf.Cos(Mathf.Deg2Rad * cameraYaw) * cameraDistance;
-        float targetY = transform.position.y + cameraHeightOffset + Mathf.Sin(Mathf.Deg2Rad * cameraPitch) * cameraDistance * 0.5f;
+        float camX = transform.position.x + Mathf.Sin(Mathf.Deg2Rad * currentYaw) * cameraDistance;
+        float camZ = transform.position.z + Mathf.Cos(Mathf.Deg2Rad * currentYaw) * cameraDistance;
+        float camY = transform.position.y + cameraHeightOffset + Mathf.Sin(Mathf.Deg2Rad * currentPitch) * cameraDistance * 0.5f;
 
-        Vector3 targetPosition = new Vector3(targetX, targetY, targetZ);
+        Vector3 targetPosition = new Vector3(camX, camY, camZ);
         orbitCamera.position = targetPosition;
         orbitCamera.LookAt(transform.position + Vector3.up * cameraHeightOffset);
     }
@@ -197,14 +206,14 @@ public class ThirdPersonController : MonoBehaviour
 
         float currentSpeed = moveSpeed * (isRunning ? runMultiplier : 1f);
 
-        Vector3 cameraForward = new Vector3(Mathf.Sin(Mathf.Deg2Rad * cameraYaw), 0f, Mathf.Cos(Mathf.Deg2Rad * cameraYaw));
+        Vector3 cameraForward = new Vector3(Mathf.Sin(Mathf.Deg2Rad * currentYaw), 0f, Mathf.Cos(Mathf.Deg2Rad * currentYaw));
         Vector3 cameraRight = Vector3.Cross(Vector3.up, cameraForward);
 
         Vector3 moveDirection = (-cameraForward * moveInput.y - cameraRight * moveInput.x).normalized;
 
-        rigidbody.linearVelocity = new Vector3(
+        body.linearVelocity = new Vector3(
             moveDirection.x * currentSpeed,
-            rigidbody.linearVelocity.y,
+            body.linearVelocity.y,
             moveDirection.z * currentSpeed
         );
 
@@ -216,7 +225,7 @@ public class ThirdPersonController : MonoBehaviour
     void HandleJump()
     {
         if (!jumpPressed || !isGrounded) return;
-        rigidbody.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+        body.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
         jumpPressed = false;
     }
 

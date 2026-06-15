@@ -223,12 +223,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<OctreeHermiteEdgeKey, CrossingCacheEntry> _averageCrossingCache = new(InitialAverageCrossingCapacity);
     private readonly List<OctreeHermiteEdgeKey> _crossingCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
+    private readonly List<Vector3Int> _cornerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly FlatOctreeLayout _layout = new();
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
     private int _cornerSampleGridSide;
+    private Vector3 _cornerCacheBuildCenter;
+    private Vector3 _cornerCacheBuildSize;
+    private float _cornerCacheBoundsPadding;
+    private int _cornerCacheMaxDepth = -1;
     private Vector3 _crossingCacheBuildCenter;
     private Vector3 _crossingCacheBuildSize;
+    private float _crossingCacheBoundsPadding;
     private int _crossingCacheMaxDepth = -1;
     private int _crossingCacheRefinementSteps = -1;
     private bool _hasPreparedCrossingCache;
@@ -292,8 +298,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Bounds buildBounds = Bounds;
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        PrepareCornerSampleCacheForBuild(origin, cellSize);
         PrepareCrossingCacheForBuild(origin, cellSize);
-        PrepareCornerSampleCache();
 
         BuildNode(source, buildBounds, 0, origin, cellSize);
 
@@ -803,22 +809,29 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return source.Evaluate(position);
     }
 
-    private void PrepareCornerSampleCache()
+    private void PrepareCornerSampleCacheForBuild(Vector3 origin, Vector3 cellSize)
     {
-        _cornerSampleCacheFallback.Clear();
         int side = (1 << maxDepth) + 1;
         long entries = (long)side * side * side;
-        if (entries > 0 && entries <= MaxDenseCornerCacheEntries)
+        bool useDenseCache = entries > 0 && entries <= MaxDenseCornerCacheEntries;
+        bool cacheShapeChanged =
+            _cornerCacheBuildCenter != center ||
+            _cornerCacheBuildSize != size ||
+            !Mathf.Approximately(_cornerCacheBoundsPadding, boundsPadding) ||
+            _cornerCacheMaxDepth != maxDepth;
+        bool clearCache =
+            !_hasPreparedCrossingCache ||
+            !_hasCrossingCacheDirtyBounds ||
+            cacheShapeChanged;
+
+        if (useDenseCache)
         {
             int count = (int)entries;
             if (_cornerSampleValues == null || _cornerSampleValues.Length != count)
             {
                 _cornerSampleValues = new float[count];
                 _cornerSampleStates = new byte[count];
-            }
-            else
-            {
-                System.Array.Clear(_cornerSampleStates, 0, _cornerSampleStates.Length);
+                clearCache = true;
             }
             _cornerSampleGridSide = side;
         }
@@ -828,6 +841,79 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _cornerSampleStates = null;
             _cornerSampleGridSide = 0;
         }
+
+        if (clearCache)
+        {
+            ClearCornerSampleCache();
+        }
+        else
+        {
+            Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
+            float epsilonPadding = Bounds.size.magnitude * 1e-5f;
+            expandedDirtyBounds.Expand(epsilonPadding);
+            InvalidateCornerSampleCache(expandedDirtyBounds, origin, cellSize);
+        }
+
+        _cornerCacheBuildCenter = center;
+        _cornerCacheBuildSize = size;
+        _cornerCacheBoundsPadding = boundsPadding;
+        _cornerCacheMaxDepth = maxDepth;
+    }
+
+    private void ClearCornerSampleCache()
+    {
+        if (_cornerSampleStates != null)
+            System.Array.Clear(_cornerSampleStates, 0, _cornerSampleStates.Length);
+
+        _cornerSampleCacheFallback.Clear();
+    }
+
+    private void InvalidateCornerSampleCache(Bounds dirtyBounds, Vector3 origin, Vector3 cellSize)
+    {
+        GetDirtyGridRange(dirtyBounds, origin, cellSize, out Vector3Int dirtyMin, out Vector3Int dirtyMax);
+
+        if (_cornerSampleStates != null)
+        {
+            int minX = Mathf.Clamp(dirtyMin.x, 0, _cornerSampleGridSide - 1);
+            int minY = Mathf.Clamp(dirtyMin.y, 0, _cornerSampleGridSide - 1);
+            int minZ = Mathf.Clamp(dirtyMin.z, 0, _cornerSampleGridSide - 1);
+            int maxX = Mathf.Clamp(dirtyMax.x, 0, _cornerSampleGridSide - 1);
+            int maxY = Mathf.Clamp(dirtyMax.y, 0, _cornerSampleGridSide - 1);
+            int maxZ = Mathf.Clamp(dirtyMax.z, 0, _cornerSampleGridSide - 1);
+
+            if (minX <= maxX && minY <= maxY && minZ <= maxZ)
+            {
+                for (int z = minZ; z <= maxZ; z++)
+                {
+                    for (int y = minY; y <= maxY; y++)
+                    {
+                        int rowStart = _cornerSampleGridSide * (y + _cornerSampleGridSide * z);
+                        for (int x = minX; x <= maxX; x++)
+                        {
+                            Vector3Int coord = new Vector3Int(x, y, z);
+                            if (CornerCoordOverlapsBounds(coord, dirtyBounds, origin, cellSize))
+                                _cornerSampleStates[x + rowStart] = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (_cornerSampleCacheFallback.Count == 0)
+            return;
+
+        _cornerCacheRemovalBuffer.Clear();
+        foreach (KeyValuePair<Vector3Int, float> pair in _cornerSampleCacheFallback)
+        {
+            if (CornerCoordOverlapsGridRange(pair.Key, dirtyMin, dirtyMax) &&
+                CornerCoordOverlapsBounds(pair.Key, dirtyBounds, origin, cellSize))
+                _cornerCacheRemovalBuffer.Add(pair.Key);
+        }
+
+        for (int i = 0; i < _cornerCacheRemovalBuffer.Count; i++)
+            _cornerSampleCacheFallback.Remove(_cornerCacheRemovalBuffer[i]);
+
+        _cornerCacheRemovalBuffer.Clear();
     }
 
     private bool TryGetCornerSample(Vector3Int gridCoord, out float value)
@@ -904,6 +990,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             !_hasCrossingCacheDirtyBounds ||
             _crossingCacheBuildCenter != center ||
             _crossingCacheBuildSize != size ||
+            !Mathf.Approximately(_crossingCacheBoundsPadding, boundsPadding) ||
             _crossingCacheMaxDepth != maxDepth ||
             _crossingCacheRefinementSteps != edgeRefinementSteps;
 
@@ -921,6 +1008,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         _crossingCacheBuildCenter = center;
         _crossingCacheBuildSize = size;
+        _crossingCacheBoundsPadding = boundsPadding;
         _crossingCacheMaxDepth = maxDepth;
         _crossingCacheRefinementSteps = edgeRefinementSteps;
         _hasPreparedCrossingCache = false;
@@ -931,11 +1019,10 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (_averageCrossingCache.Count == 0)
             return;
 
-        GetDirtyGridRange(dirtyBounds, origin, cellSize, out Vector3Int dirtyMin, out Vector3Int dirtyMax);
         _crossingCacheRemovalBuffer.Clear();
         foreach (KeyValuePair<OctreeHermiteEdgeKey, CrossingCacheEntry> pair in _averageCrossingCache)
         {
-            if (CrossingEdgeOverlapsGridRange(pair.Key, dirtyMin, dirtyMax))
+            if (CrossingEdgeOverlapsBounds(pair.Key, dirtyBounds, origin, cellSize))
                 _crossingCacheRemovalBuffer.Add(pair.Key);
         }
 
@@ -946,21 +1033,57 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _crossingCacheRemovalBuffer.Clear();
     }
 
-    public static bool CrossingEdgeOverlapsGridRange(
+    public static bool CrossingEdgeOverlapsBounds(
         OctreeHermiteEdgeKey edge,
-        Vector3Int dirtyMin,
-        Vector3Int dirtyMax)
+        Bounds dirtyBounds,
+        Vector3 origin,
+        Vector3 cellSize)
     {
-        int minX = Mathf.Min(edge.A.x, edge.B.x);
-        int minY = Mathf.Min(edge.A.y, edge.B.y);
-        int minZ = Mathf.Min(edge.A.z, edge.B.z);
-        int maxX = Mathf.Max(edge.A.x, edge.B.x);
-        int maxY = Mathf.Max(edge.A.y, edge.B.y);
-        int maxZ = Mathf.Max(edge.A.z, edge.B.z);
+        Vector3 a = GridCoordToPosition(edge.A, origin, cellSize);
+        Vector3 b = GridCoordToPosition(edge.B, origin, cellSize);
+
+        float minX = Mathf.Min(a.x, b.x);
+        float minY = Mathf.Min(a.y, b.y);
+        float minZ = Mathf.Min(a.z, b.z);
+        float maxX = Mathf.Max(a.x, b.x);
+        float maxY = Mathf.Max(a.y, b.y);
+        float maxZ = Mathf.Max(a.z, b.z);
+        Vector3 dirtyMin = dirtyBounds.min;
+        Vector3 dirtyMax = dirtyBounds.max;
 
         return minX <= dirtyMax.x && maxX >= dirtyMin.x &&
                minY <= dirtyMax.y && maxY >= dirtyMin.y &&
                minZ <= dirtyMax.z && maxZ >= dirtyMin.z;
+    }
+
+    private static Vector3 GridCoordToPosition(Vector3Int coord, Vector3 origin, Vector3 cellSize)
+    {
+        return new Vector3(
+            origin.x + coord.x * cellSize.x,
+            origin.y + coord.y * cellSize.y,
+            origin.z + coord.z * cellSize.z);
+    }
+
+    public static bool CornerCoordOverlapsBounds(
+        Vector3Int coord,
+        Bounds dirtyBounds,
+        Vector3 origin,
+        Vector3 cellSize)
+    {
+        Vector3 position = GridCoordToPosition(coord, origin, cellSize);
+        Vector3 dirtyMin = dirtyBounds.min;
+        Vector3 dirtyMax = dirtyBounds.max;
+
+        return position.x >= dirtyMin.x && position.x <= dirtyMax.x &&
+               position.y >= dirtyMin.y && position.y <= dirtyMax.y &&
+               position.z >= dirtyMin.z && position.z <= dirtyMax.z;
+    }
+
+    private static bool CornerCoordOverlapsGridRange(Vector3Int coord, Vector3Int dirtyMin, Vector3Int dirtyMax)
+    {
+        return coord.x >= dirtyMin.x && coord.x <= dirtyMax.x &&
+               coord.y >= dirtyMin.y && coord.y <= dirtyMax.y &&
+               coord.z >= dirtyMin.z && coord.z <= dirtyMax.z;
     }
 
     private static void GetDirtyGridRange(

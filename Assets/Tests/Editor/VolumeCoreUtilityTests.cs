@@ -73,27 +73,68 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
-    public void FlatOctreeCrossingInvalidation_UsesInclusiveGridEdgeOverlap()
+    public void FlatOctreeCrossingInvalidation_UsesPreciseWorldBounds()
     {
         OctreeHermiteEdgeKey edge = new OctreeHermiteEdgeKey(
-            new Vector3Int(4, 5, 6),
-            new Vector3Int(5, 5, 6));
-        Vector3Int dirtyMin = new Vector3Int(5, 4, 6);
-        Vector3Int dirtyMax = new Vector3Int(8, 8, 8);
+            new Vector3Int(4, 6, 5),
+            new Vector3Int(6, 6, 5));
+        Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5.2f, 5f), new Vector3(0.2f, 0.2f, 0.2f));
 
-        Assert.That(FlatOctreeVolumeBuilder.CrossingEdgeOverlapsGridRange(edge, dirtyMin, dirtyMax), Is.True);
+        Assert.That(FlatOctreeVolumeBuilder.CrossingEdgeOverlapsBounds(edge, dirtyBounds, Vector3.zero, Vector3.one), Is.False);
     }
 
     [Test]
-    public void FlatOctreeCrossingInvalidation_SkipsEdgesOutsideGridRange()
+    public void FlatOctreeCrossingInvalidation_InvalidatesEdgeIntersectingWorldBounds()
     {
         OctreeHermiteEdgeKey edge = new OctreeHermiteEdgeKey(
-            new Vector3Int(1, 1, 1),
-            new Vector3Int(2, 1, 1));
-        Vector3Int dirtyMin = new Vector3Int(5, 5, 5);
-        Vector3Int dirtyMax = new Vector3Int(8, 8, 8);
+            new Vector3Int(4, 5, 5),
+            new Vector3Int(6, 5, 5));
+        Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5f, 5f), new Vector3(0.2f, 0.2f, 0.2f));
 
-        Assert.That(FlatOctreeVolumeBuilder.CrossingEdgeOverlapsGridRange(edge, dirtyMin, dirtyMax), Is.False);
+        Assert.That(FlatOctreeVolumeBuilder.CrossingEdgeOverlapsBounds(edge, dirtyBounds, Vector3.zero, Vector3.one), Is.True);
+    }
+
+    [Test]
+    public void FlatOctreeCornerInvalidation_InvalidatesCornerInsideWorldBounds()
+    {
+        Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5f, 5f), new Vector3(0.5f, 0.5f, 0.5f));
+
+        Assert.That(FlatOctreeVolumeBuilder.CornerCoordOverlapsBounds(new Vector3Int(5, 5, 5), dirtyBounds, Vector3.zero, Vector3.one), Is.True);
+    }
+
+    [Test]
+    public void FlatOctreeCornerInvalidation_KeepsCornerOutsideWorldBounds()
+    {
+        Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5f, 5f), new Vector3(0.5f, 0.5f, 0.5f));
+
+        Assert.That(FlatOctreeVolumeBuilder.CornerCoordOverlapsBounds(new Vector3Int(5, 6, 5), dirtyBounds, Vector3.zero, Vector3.one), Is.False);
+    }
+
+    [Test]
+    public void FlatOctreePersistentCornerCache_ReusesCornersOutsideDirtyBounds()
+    {
+        FlatOctreeVolumeBuilder builder = new FlatOctreeVolumeBuilder
+        {
+            center = Vector3.zero,
+            size = Vector3.one * 2f,
+            boundsPadding = 0f,
+            minDepth = 1,
+            maxDepth = 3,
+            edgeRefinementSteps = 0,
+            suppressBuildLog = true
+        };
+        CountingSphereSource source = new CountingSphereSource(0.75f);
+
+        builder.Build(source);
+        int initialMisses = builder.LastBuildStats.cornerCacheMisses;
+
+        builder.PreparePersistentCrossingCache(
+            hasDirtyBounds: true,
+            dirtyBounds: new Bounds(Vector3.one * 10f, Vector3.one * 0.1f));
+        builder.Build(source);
+
+        Assert.That(initialMisses, Is.GreaterThan(0));
+        Assert.That(builder.LastBuildStats.cornerCacheMisses, Is.EqualTo(0));
     }
 
     [Test]
@@ -106,5 +147,20 @@ public class VolumeCoreUtilityTests
     public void EdgeRefinementResidual_RejectsLargerIsoError()
     {
         Assert.That(EdgeRefinementUtility.ResidualIsAcceptable(2e-4f), Is.False);
+    }
+
+    private sealed class CountingSphereSource : IScalarFieldSource
+    {
+        private readonly float _radius;
+
+        public CountingSphereSource(float radius)
+        {
+            _radius = radius;
+        }
+
+        public float Evaluate(Vector3 worldPosition)
+        {
+            return worldPosition.magnitude - _radius;
+        }
     }
 }
