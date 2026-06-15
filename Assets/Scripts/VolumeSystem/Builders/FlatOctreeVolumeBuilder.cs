@@ -219,11 +219,25 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
     }
 
+    private readonly struct CenterCacheEntry
+    {
+        public readonly Vector3 Position;
+        public readonly float Value;
+
+        public CenterCacheEntry(Vector3 position, float value)
+        {
+            Position = position;
+            Value = value;
+        }
+    }
+
     private readonly List<NodeRecord> _nodes = new(InitialNodeCapacity);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
+    private readonly Dictionary<QuantizedVector3Key, CenterCacheEntry> _centerSampleCache = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<OctreeHermiteEdgeKey, CrossingCacheEntry> _averageCrossingCache = new(InitialAverageCrossingCapacity);
     private readonly List<OctreeHermiteEdgeKey> _crossingCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly List<Vector3Int> _cornerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
+    private readonly List<QuantizedVector3Key> _centerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly FlatOctreeLayout _layout = new();
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
@@ -232,6 +246,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private Vector3 _cornerCacheBuildSize;
     private float _cornerCacheBoundsPadding;
     private int _cornerCacheMaxDepth = -1;
+    private Vector3 _centerCacheBuildCenter;
+    private Vector3 _centerCacheBuildSize;
+    private float _centerCacheBoundsPadding;
+    private int _centerCacheMaxDepth = -1;
+    private float _centerCacheQuantum = 1e-6f;
     private Vector3 _crossingCacheBuildCenter;
     private Vector3 _crossingCacheBuildSize;
     private float _crossingCacheBoundsPadding;
@@ -299,6 +318,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
         PrepareCornerSampleCacheForBuild(origin, cellSize);
+        PrepareCenterSampleCacheForBuild(origin, cellSize);
         PrepareCrossingCacheForBuild(origin, cellSize);
 
         BuildNode(source, buildBounds, 0, origin, cellSize);
@@ -794,7 +814,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             return cached;
         }
 
-        return EvaluateSource(source, position);
+        QuantizedVector3Key key = QuantizedVector3Key.FromPosition(position, origin, _centerCacheQuantum);
+        if (_centerSampleCache.TryGetValue(key, out CenterCacheEntry entry))
+            return entry.Value;
+
+        float value = EvaluateSource(source, position);
+        _centerSampleCache[key] = new CenterCacheEntry(position, value);
+        return value;
     }
 
     private float EvaluateEdgeRefinement(IScalarFieldSource source, Vector3 position)
@@ -858,6 +884,55 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _cornerCacheBuildSize = size;
         _cornerCacheBoundsPadding = boundsPadding;
         _cornerCacheMaxDepth = maxDepth;
+    }
+
+    private void PrepareCenterSampleCacheForBuild(Vector3 origin, Vector3 cellSize)
+    {
+        bool cacheShapeChanged =
+            _centerCacheBuildCenter != center ||
+            _centerCacheBuildSize != size ||
+            !Mathf.Approximately(_centerCacheBoundsPadding, boundsPadding) ||
+            _centerCacheMaxDepth != maxDepth;
+        bool clearCache =
+            !_hasPreparedCrossingCache ||
+            !_hasCrossingCacheDirtyBounds ||
+            cacheShapeChanged;
+
+        _centerCacheQuantum = QuantizedVector3Key.GetQuantum(cellSize);
+        if (clearCache)
+        {
+            _centerSampleCache.Clear();
+        }
+        else
+        {
+            Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
+            float epsilonPadding = Bounds.size.magnitude * 1e-5f;
+            expandedDirtyBounds.Expand(epsilonPadding);
+            InvalidateCenterSampleCache(expandedDirtyBounds);
+        }
+
+        _centerCacheBuildCenter = center;
+        _centerCacheBuildSize = size;
+        _centerCacheBoundsPadding = boundsPadding;
+        _centerCacheMaxDepth = maxDepth;
+    }
+
+    private void InvalidateCenterSampleCache(Bounds dirtyBounds)
+    {
+        if (_centerSampleCache.Count == 0)
+            return;
+
+        _centerCacheRemovalBuffer.Clear();
+        foreach (KeyValuePair<QuantizedVector3Key, CenterCacheEntry> pair in _centerSampleCache)
+        {
+            if (dirtyBounds.Contains(pair.Value.Position))
+                _centerCacheRemovalBuffer.Add(pair.Key);
+        }
+
+        for (int i = 0; i < _centerCacheRemovalBuffer.Count; i++)
+            _centerSampleCache.Remove(_centerCacheRemovalBuffer[i]);
+
+        _centerCacheRemovalBuffer.Clear();
     }
 
     private void ClearCornerSampleCache()

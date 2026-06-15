@@ -138,6 +138,35 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreePersistentCenterCache_ReusesCentersOutsideDirtyBounds()
+    {
+        FlatOctreeVolumeBuilder builder = new FlatOctreeVolumeBuilder
+        {
+            center = Vector3.zero,
+            size = Vector3.one * 2f,
+            boundsPadding = 0f,
+            minDepth = 1,
+            maxDepth = 3,
+            edgeRefinementSteps = 0,
+            suppressBuildLog = true
+        };
+        CountingSphereSource source = new CountingSphereSource(0.75f);
+
+        builder.Build(source);
+        int initialCenterEvaluations = builder.LastBuildStats.centerEvaluations;
+
+        source.ResetCount();
+        builder.PreparePersistentCrossingCache(
+            hasDirtyBounds: true,
+            dirtyBounds: new Bounds(Vector3.one * 10f, Vector3.one * 0.1f));
+        builder.Build(source);
+
+        Assert.That(initialCenterEvaluations, Is.GreaterThan(0));
+        Assert.That(builder.LastBuildStats.centerEvaluations, Is.GreaterThan(0));
+        Assert.That(source.EvaluateCount, Is.EqualTo(0));
+    }
+
+    [Test]
     public void EdgeRefinementResidual_AcceptsSmallIsoError()
     {
         Assert.That(EdgeRefinementUtility.ResidualIsAcceptable(5e-5f), Is.True);
@@ -153,6 +182,8 @@ public class VolumeCoreUtilityTests
     {
         private readonly float _radius;
 
+        public int EvaluateCount { get; private set; }
+
         public CountingSphereSource(float radius)
         {
             _radius = radius;
@@ -160,7 +191,13 @@ public class VolumeCoreUtilityTests
 
         public float Evaluate(Vector3 worldPosition)
         {
+            EvaluateCount++;
             return worldPosition.magnitude - _radius;
+        }
+
+        public void ResetCount()
+        {
+            EvaluateCount = 0;
         }
     }
 }
