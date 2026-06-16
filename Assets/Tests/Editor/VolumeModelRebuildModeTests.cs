@@ -214,4 +214,5 @@ public class VolumeModelRebuildModeTests
         Assert.That(dirtyBounds.Contains(new Vector3(-1f, 0f, 0f)), Is.True);
         Assert.That(dirtyBounds.Contains(new Vector3(3f, 0f, 0f)), Is.True);
     }
+
 }

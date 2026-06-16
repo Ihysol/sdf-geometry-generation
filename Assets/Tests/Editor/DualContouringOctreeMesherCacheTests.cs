@@ -112,4 +112,26 @@ public class DualContouringOctreeMesherCacheTests
         Assert.That(normalCount, Is.EqualTo(vertexCount));
         Assert.That(indexCount, Is.GreaterThan(0));
     }
+
+    [Test]
+    public void FlatOctreeBuilder_ReusesParentCornerSamplesForChildren()
+    {
+        CountingSphereSource source = new CountingSphereSource();
+        FlatOctreeVolumeBuilder builder = new FlatOctreeVolumeBuilder
+        {
+            center = Vector3.zero,
+            size = Vector3.one * 2f,
+            boundsPadding = 0f,
+            minDepth = 1,
+            maxDepth = 4,
+            suppressBuildLog = true,
+            edgeRefinementSteps = 0
+        };
+
+        builder.Build(source);
+        FlatOctreeVolumeBuilder.BuildStats stats = builder.LastBuildStats;
+
+        Assert.That(stats.cornerCacheMisses, Is.GreaterThan(0));
+        Assert.That(stats.cornerCacheHits, Is.LessThan(stats.cornerCacheMisses * 8));
+    }
 }

@@ -20,7 +20,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int sourceEvaluations;
         public readonly int cornerCacheHits;
         public readonly int cornerCacheMisses;
+        public readonly int persistentCornerCacheInvalidated;
+        public readonly int persistentCornerCacheSize;
         public readonly int centerEvaluations;
+        public readonly int centerCacheHits;
+        public readonly int centerCacheMisses;
+        public readonly int persistentCenterCacheInvalidated;
+        public readonly int persistentCenterCacheSize;
         public readonly int edgeRefinementEvaluations;
         public readonly int crossingCacheHits;
         public readonly int crossingCacheMisses;
@@ -54,7 +60,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int sourceEvaluations,
             int cornerCacheHits,
             int cornerCacheMisses,
+            int persistentCornerCacheInvalidated,
+            int persistentCornerCacheSize,
             int centerEvaluations,
+            int centerCacheHits,
+            int centerCacheMisses,
+            int persistentCenterCacheInvalidated,
+            int persistentCenterCacheSize,
             int edgeRefinementEvaluations,
             int crossingCacheHits,
             int crossingCacheMisses,
@@ -87,7 +99,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.sourceEvaluations = sourceEvaluations;
             this.cornerCacheHits = cornerCacheHits;
             this.cornerCacheMisses = cornerCacheMisses;
+            this.persistentCornerCacheInvalidated = persistentCornerCacheInvalidated;
+            this.persistentCornerCacheSize = persistentCornerCacheSize;
             this.centerEvaluations = centerEvaluations;
+            this.centerCacheHits = centerCacheHits;
+            this.centerCacheMisses = centerCacheMisses;
+            this.persistentCenterCacheInvalidated = persistentCenterCacheInvalidated;
+            this.persistentCenterCacheSize = persistentCenterCacheSize;
             this.edgeRefinementEvaluations = edgeRefinementEvaluations;
             this.crossingCacheHits = crossingCacheHits;
             this.crossingCacheMisses = crossingCacheMisses;
@@ -123,6 +141,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     public bool suppressBuildLog = false;
     [HideInInspector]
     public int edgeRefinementSteps = 3;
+    [HideInInspector]
+    public float sampleCacheDirtyPaddingCells = 0f;
 
     private readonly struct Edge
     {
@@ -238,6 +258,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private readonly List<OctreeHermiteEdgeKey> _crossingCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly List<Vector3Int> _cornerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly List<QuantizedVector3Key> _centerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
+    private readonly float[] _childCornerSampleScratch = new float[27];
     private readonly FlatOctreeLayout _layout = new();
     private float[] _cornerSampleValues;
     private byte[] _cornerSampleStates;
@@ -262,7 +283,12 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _sourceEvaluations;
     private int _cornerCacheHits;
     private int _cornerCacheMisses;
+    private int _persistentCornerCacheInvalidated;
+    private int _cornerCacheSize;
     private int _centerEvaluations;
+    private int _centerCacheHits;
+    private int _centerCacheMisses;
+    private int _persistentCenterCacheInvalidated;
     private int _edgeRefinementEvaluations;
     private int _crossingCacheHits;
     private int _crossingCacheMisses;
@@ -321,7 +347,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         PrepareCenterSampleCacheForBuild(origin, cellSize);
         PrepareCrossingCacheForBuild(origin, cellSize);
 
-        BuildNode(source, buildBounds, 0, origin, cellSize);
+        BuildNode(source, buildBounds.center, buildBounds.size, 0, origin, cellSize, false, default);
 
         recursiveStopwatch.Stop();
         Stopwatch phaseStopwatch = Stopwatch.StartNew();
@@ -350,7 +376,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 $"Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
                 $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, createLayout={LastBuildStats.createLayoutMs:F2} ms, runtimeCache={LastBuildStats.runtimeCacheMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms, surfaceCrossing={LastBuildStats.surfaceCrossingMs:F2} ms, surfaceNormal={LastBuildStats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
-                $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}), " +
+                $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}, invalidated={LastBuildStats.persistentCornerCacheInvalidated}, size={LastBuildStats.persistentCornerCacheSize}), " +
+                $"centerCache(hit={LastBuildStats.centerCacheHits}, miss={LastBuildStats.centerCacheMisses}, invalidated={LastBuildStats.persistentCenterCacheInvalidated}, size={LastBuildStats.persistentCenterCacheSize}), " +
                 $"crossingCache(hit={LastBuildStats.crossingCacheHits}, miss={LastBuildStats.crossingCacheMisses}, persistentHit={LastBuildStats.persistentCrossingCacheHits}, invalidated={LastBuildStats.persistentCrossingCacheInvalidated}, size={LastBuildStats.persistentCrossingCacheSize}), " +
                 $"subdivision(minDepth={LastBuildStats.subdivisionMinDepth}, crossing={LastBuildStats.subdivisionCornerCrossing}, centerMismatch={LastBuildStats.subdivisionCenterMismatch}, distance={LastBuildStats.subdivisionDistanceThreshold}), " +
                 $"exclusive(minDepth={LastBuildStats.subdivisionOnlyMinDepth}, crossing={LastBuildStats.subdivisionOnlyCornerCrossing}, centerMismatch={LastBuildStats.subdivisionOnlyCenterMismatch}, distance={LastBuildStats.subdivisionOnlyDistanceThreshold}, mixed={LastBuildStats.subdivisionMixedReasons}), " +
@@ -372,10 +399,23 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         );
     }
 
-    private int BuildNode(IScalarFieldSource source, Bounds bounds, int depth, Vector3 origin, Vector3 cellSize)
+    private int BuildNode(
+        IScalarFieldSource source,
+        Vector3 nodeCenter,
+        Vector3 nodeSize,
+        int depth,
+        Vector3 origin,
+        Vector3 cellSize,
+        bool hasKnownCorners,
+        CornerSamples knownCorners)
     {
         int nodeIndex = _nodes.Count;
-        CornerSamples corners = SampleCorners(source, bounds, origin, cellSize);
+        Vector3 halfSize = nodeSize * 0.5f;
+        Vector3 min = nodeCenter - halfSize;
+        Vector3 max = nodeCenter + halfSize;
+        CornerSamples corners = hasKnownCorners
+            ? knownCorners
+            : SampleCorners(source, min, max, origin, cellSize);
 
         bool cornerHasNegative = false;
         bool cornerHasPositive = false;
@@ -395,11 +435,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         bool couldContainSurface = false;
         if (needsCenterDecision)
         {
-            float centerValue = EvaluateCenter(source, bounds.center, origin, cellSize);
+            float centerValue = EvaluateCenter(source, nodeCenter, origin, cellSize);
             centerDiffersFromCorners =
                 (centerValue < 0f && cornerHasPositive) ||
                 (centerValue >= 0f && cornerHasNegative);
-            couldContainSurface = Mathf.Abs(centerValue) <= bounds.extents.magnitude;
+            couldContainSurface = Mathf.Abs(centerValue) <= halfSize.magnitude;
         }
         bool minDepthReason = depth < minDepth;
         bool cornerCrossingReason = cornerContainsSurface;
@@ -432,10 +472,10 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         NodeRecord record = new NodeRecord
         {
-            Center = bounds.center,
-            Size = bounds.size,
-            Coord = GetCoord(bounds, origin, cellSize),
-            SizeInCells = GetSizeInCells(bounds, cellSize),
+            Center = nodeCenter,
+            Size = nodeSize,
+            Coord = GetCoord(nodeCenter, origin, cellSize),
+            SizeInCells = GetSizeInCells(nodeSize, cellSize),
             FirstChildIndex = -1,
             ChildMask = 0,
             Corners = corners
@@ -456,7 +496,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             {
                 record.Flags |= FlatOctreeLayout.FlagSurface;
                 long surfaceVertexStart = Stopwatch.GetTimestamp();
-                EstimateSurfaceVertexAndNormal(source, bounds, corners, origin, cellSize, out record.SurfaceVertex, out record.SurfaceNormal);
+                EstimateSurfaceVertexAndNormal(source, nodeCenter, nodeSize, min, max, corners, origin, cellSize, out record.SurfaceVertex, out record.SurfaceNormal);
                 _surfaceVertexTicks += Stopwatch.GetTimestamp() - surfaceVertexStart;
                 _surfaceLeaves++;
             }
@@ -464,10 +504,25 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             return nodeIndex;
         }
 
-        Vector3 childSize = bounds.size * 0.5f;
-        Vector3 min = bounds.min;
+        Vector3 childSize = nodeSize * 0.5f;
         int childWriteStart = _nodes.Count;
         byte childMask = 0;
+        BuildChildCornerSamples(
+            source,
+            nodeCenter,
+            min,
+            max,
+            corners,
+            origin,
+            cellSize,
+            out CornerSamples child000,
+            out CornerSamples child001,
+            out CornerSamples child010,
+            out CornerSamples child011,
+            out CornerSamples child100,
+            out CornerSamples child101,
+            out CornerSamples child110,
+            out CornerSamples child111);
 
         for (int x = 0; x < 2; x++)
         for (int y = 0; y < 2; y++)
@@ -479,7 +534,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 (y + 0.5f) * childSize.y,
                 (z + 0.5f) * childSize.z
             );
-            BuildNode(source, new Bounds(childCenter, childSize), depth + 1, origin, cellSize);
+            CornerSamples childCorners = childOctant switch
+            {
+                0 => child000,
+                1 => child001,
+                2 => child010,
+                3 => child011,
+                4 => child100,
+                5 => child101,
+                6 => child110,
+                _ => child111
+            };
+            BuildNode(source, childCenter, childSize, depth + 1, origin, cellSize, true, childCorners);
             childMask |= (byte)(1 << childOctant);
         }
 
@@ -487,6 +553,103 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         record.ChildMask = childMask;
         _nodes[nodeIndex] = record;
         return nodeIndex;
+    }
+
+    private void BuildChildCornerSamples(
+        IScalarFieldSource source,
+        Vector3 center,
+        Vector3 min,
+        Vector3 max,
+        CornerSamples parentCorners,
+        Vector3 origin,
+        Vector3 cellSize,
+        out CornerSamples child000,
+        out CornerSamples child001,
+        out CornerSamples child010,
+        out CornerSamples child011,
+        out CornerSamples child100,
+        out CornerSamples child101,
+        out CornerSamples child110,
+        out CornerSamples child111)
+    {
+        Vector3 mid = center;
+        Vector3Int minCoord = WorldToGridVertex(min.x, min.y, min.z, origin, cellSize);
+        Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
+        Vector3Int midCoord = new Vector3Int(
+            (minCoord.x + maxCoord.x) / 2,
+            (minCoord.y + maxCoord.y) / 2,
+            (minCoord.z + maxCoord.z) / 2);
+
+        float[] samples = _childCornerSampleScratch;
+        samples[Grid3Index(0, 0, 0)] = parentCorners[0];
+        samples[Grid3Index(2, 0, 0)] = parentCorners[1];
+        samples[Grid3Index(2, 2, 0)] = parentCorners[2];
+        samples[Grid3Index(0, 2, 0)] = parentCorners[3];
+        samples[Grid3Index(0, 0, 2)] = parentCorners[4];
+        samples[Grid3Index(2, 0, 2)] = parentCorners[5];
+        samples[Grid3Index(2, 2, 2)] = parentCorners[6];
+        samples[Grid3Index(0, 2, 2)] = parentCorners[7];
+
+        for (int z = 0; z < 3; z++)
+        for (int y = 0; y < 3; y++)
+        for (int x = 0; x < 3; x++)
+        {
+            if ((x == 0 || x == 2) && (y == 0 || y == 2) && (z == 0 || z == 2))
+                continue;
+
+            Vector3Int coord = GetGrid3Coord(x, y, z, minCoord, midCoord, maxCoord);
+            Vector3 position = GetGrid3Position(x, y, z, min, mid, max);
+            samples[Grid3Index(x, y, z)] = EvaluateCornerCached(source, coord, position);
+        }
+
+        child000 = BuildChildCornersFromGrid3(samples, 0, 0, 0);
+        child001 = BuildChildCornersFromGrid3(samples, 0, 0, 1);
+        child010 = BuildChildCornersFromGrid3(samples, 0, 1, 0);
+        child011 = BuildChildCornersFromGrid3(samples, 0, 1, 1);
+        child100 = BuildChildCornersFromGrid3(samples, 1, 0, 0);
+        child101 = BuildChildCornersFromGrid3(samples, 1, 0, 1);
+        child110 = BuildChildCornersFromGrid3(samples, 1, 1, 0);
+        child111 = BuildChildCornersFromGrid3(samples, 1, 1, 1);
+    }
+
+    private static CornerSamples BuildChildCornersFromGrid3(float[] samples, int x, int y, int z)
+    {
+        return new CornerSamples(
+            samples[Grid3Index(x, y, z)],
+            samples[Grid3Index(x + 1, y, z)],
+            samples[Grid3Index(x + 1, y + 1, z)],
+            samples[Grid3Index(x, y + 1, z)],
+            samples[Grid3Index(x, y, z + 1)],
+            samples[Grid3Index(x + 1, y, z + 1)],
+            samples[Grid3Index(x + 1, y + 1, z + 1)],
+            samples[Grid3Index(x, y + 1, z + 1)]);
+    }
+
+    private static int Grid3Index(int x, int y, int z)
+    {
+        return x + 3 * (y + 3 * z);
+    }
+
+    private static Vector3Int GetGrid3Coord(
+        int x,
+        int y,
+        int z,
+        Vector3Int min,
+        Vector3Int mid,
+        Vector3Int max)
+    {
+        return new Vector3Int(
+            x == 0 ? min.x : x == 1 ? mid.x : max.x,
+            y == 0 ? min.y : y == 1 ? mid.y : max.y,
+            z == 0 ? min.z : z == 1 ? mid.z : max.z);
+    }
+
+    private static Vector3 GetGrid3Position(int x, int y, int z, Vector3 min, Vector3 mid, Vector3 max)
+    {
+        return new Vector3(
+            x == 0 ? min.x : x == 1 ? mid.x : max.x,
+            y == 0 ? min.y : y == 1 ? mid.y : max.y,
+            z == 0 ? min.z : z == 1 ? mid.z : max.z);
     }
 
     private FlatOctreeLayout CreateLayout()
@@ -560,10 +723,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return array == null || array.Length < required ? new byte[required] : array;
     }
 
-    private CornerSamples SampleCorners(IScalarFieldSource source, Bounds bounds, Vector3 origin, Vector3 cellSize)
+    private CornerSamples SampleCorners(IScalarFieldSource source, Vector3 min, Vector3 max, Vector3 origin, Vector3 cellSize)
     {
-        Vector3 min = bounds.min;
-        Vector3 max = bounds.max;
         Vector3Int minCoord = WorldToGridVertex(min.x, min.y, min.z, origin, cellSize);
         Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
 
@@ -581,15 +742,16 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
     private void EstimateSurfaceVertexAndNormal(
         IScalarFieldSource source,
-        Bounds bounds,
+        Vector3 center,
+        Vector3 size,
+        Vector3 min,
+        Vector3 max,
         CornerSamples cornerValues,
         Vector3 origin,
         Vector3 cellSize,
         out Vector3 surfaceVertex,
         out Vector3 surfaceNormal)
     {
-        Vector3 min = bounds.min;
-        Vector3 max = bounds.max;
         Vector3Int minCoord = WorldToGridVertex(min.x, min.y, min.z, origin, cellSize);
         Vector3Int maxCoord = WorldToGridVertex(max.x, max.y, max.z, origin, cellSize);
         Vector3 sum = Vector3.zero;
@@ -612,12 +774,12 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
 
         surfaceVertex = count == 0
-            ? SnapToGridNearBoundary(bounds.center, origin, cellSize)
+            ? SnapToGridNearBoundary(center, origin, cellSize)
             : SnapToGridNearBoundary(sum / count, origin, cellSize);
 
         _surfaceCrossingTicks += Stopwatch.GetTimestamp() - crossingStart;
         long normalStart = Stopwatch.GetTimestamp();
-        surfaceNormal = EstimateCornerNormal(cornerValues, bounds.size);
+        surfaceNormal = EstimateCornerNormal(cornerValues, size);
         _surfaceNormalTicks += Stopwatch.GetTimestamp() - normalStart;
     }
 
@@ -714,9 +876,9 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return Vector3.up;
     }
 
-    private Vector3Int GetCoord(Bounds bounds, Vector3 origin, Vector3 cellSize)
+    private Vector3Int GetCoord(Vector3 center, Vector3 origin, Vector3 cellSize)
     {
-        Vector3 local = bounds.center - origin;
+        Vector3 local = center - origin;
         return new Vector3Int(
             Mathf.RoundToInt(local.x / cellSize.x - 0.5f),
             Mathf.RoundToInt(local.y / cellSize.y - 0.5f),
@@ -724,12 +886,12 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         );
     }
 
-    private Vector3Int GetSizeInCells(Bounds bounds, Vector3 cellSize)
+    private Vector3Int GetSizeInCells(Vector3 size, Vector3 cellSize)
     {
         return new Vector3Int(
-            Mathf.Max(1, Mathf.RoundToInt(bounds.size.x / cellSize.x)),
-            Mathf.Max(1, Mathf.RoundToInt(bounds.size.y / cellSize.y)),
-            Mathf.Max(1, Mathf.RoundToInt(bounds.size.z / cellSize.z))
+            Mathf.Max(1, Mathf.RoundToInt(size.x / cellSize.x)),
+            Mathf.Max(1, Mathf.RoundToInt(size.y / cellSize.y)),
+            Mathf.Max(1, Mathf.RoundToInt(size.z / cellSize.z))
         );
     }
 
@@ -811,13 +973,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (TryGetGridVertex(position, origin, cellSize, out Vector3Int gridCoord) &&
             TryGetCornerSample(gridCoord, out float cached))
         {
+            _centerCacheHits++;
             return cached;
         }
 
         QuantizedVector3Key key = QuantizedVector3Key.FromPosition(position, origin, _centerCacheQuantum);
         if (_centerSampleCache.TryGetValue(key, out CenterCacheEntry entry))
+        {
+            _centerCacheHits++;
             return entry.Value;
+        }
 
+        _centerCacheMisses++;
         float value = EvaluateSource(source, position);
         _centerSampleCache[key] = new CenterCacheEntry(position, value);
         return value;
@@ -874,10 +1041,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
         else
         {
-            Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
-            float epsilonPadding = Bounds.size.magnitude * 1e-5f;
-            expandedDirtyBounds.Expand(epsilonPadding);
-            InvalidateCornerSampleCache(expandedDirtyBounds, origin, cellSize);
+            InvalidateCornerSampleCacheForDirtyRegions(origin, cellSize);
         }
 
         _cornerCacheBuildCenter = center;
@@ -902,13 +1066,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (clearCache)
         {
             _centerSampleCache.Clear();
+            _persistentCenterCacheInvalidated = 0;
         }
         else
         {
-            Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
-            float epsilonPadding = Bounds.size.magnitude * 1e-5f;
-            expandedDirtyBounds.Expand(epsilonPadding);
-            InvalidateCenterSampleCache(expandedDirtyBounds);
+            InvalidateCenterSampleCacheForDirtyRegions(cellSize);
         }
 
         _centerCacheBuildCenter = center;
@@ -932,7 +1094,17 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         for (int i = 0; i < _centerCacheRemovalBuffer.Count; i++)
             _centerSampleCache.Remove(_centerCacheRemovalBuffer[i]);
 
+        _persistentCenterCacheInvalidated += _centerCacheRemovalBuffer.Count;
         _centerCacheRemovalBuffer.Clear();
+    }
+
+    private void InvalidateCenterSampleCacheForDirtyRegions(Vector3 cellSize)
+    {
+        Bounds expandedDirtyBounds = ExpandBoundsByCellPadding(
+            _crossingCacheDirtyBounds,
+            cellSize,
+            sampleCacheDirtyPaddingCells);
+        InvalidateCenterSampleCache(expandedDirtyBounds);
     }
 
     private void ClearCornerSampleCache()
@@ -941,6 +1113,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             System.Array.Clear(_cornerSampleStates, 0, _cornerSampleStates.Length);
 
         _cornerSampleCacheFallback.Clear();
+        _cornerCacheSize = 0;
+        _persistentCornerCacheInvalidated = 0;
     }
 
     private void InvalidateCornerSampleCache(Bounds dirtyBounds, Vector3 origin, Vector3 cellSize)
@@ -966,8 +1140,14 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                         for (int x = minX; x <= maxX; x++)
                         {
                             Vector3Int coord = new Vector3Int(x, y, z);
-                            if (CornerCoordOverlapsBounds(coord, dirtyBounds, origin, cellSize))
-                                _cornerSampleStates[x + rowStart] = 0;
+                            int index = x + rowStart;
+                            if (_cornerSampleStates[index] != 0 &&
+                                CornerCoordOverlapsBounds(coord, dirtyBounds, origin, cellSize))
+                            {
+                                _cornerSampleStates[index] = 0;
+                                _cornerCacheSize--;
+                                _persistentCornerCacheInvalidated++;
+                            }
                         }
                     }
                 }
@@ -988,7 +1168,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         for (int i = 0; i < _cornerCacheRemovalBuffer.Count; i++)
             _cornerSampleCacheFallback.Remove(_cornerCacheRemovalBuffer[i]);
 
+        _cornerCacheSize -= _cornerCacheRemovalBuffer.Count;
+        _persistentCornerCacheInvalidated += _cornerCacheRemovalBuffer.Count;
         _cornerCacheRemovalBuffer.Clear();
+    }
+
+    private void InvalidateCornerSampleCacheForDirtyRegions(Vector3 origin, Vector3 cellSize)
+    {
+        Bounds expandedDirtyBounds = ExpandBoundsByCellPadding(
+            _crossingCacheDirtyBounds,
+            cellSize,
+            sampleCacheDirtyPaddingCells);
+        InvalidateCornerSampleCache(expandedDirtyBounds, origin, cellSize);
     }
 
     private bool TryGetCornerSample(Vector3Int gridCoord, out float value)
@@ -1014,10 +1205,14 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         {
             int index = DenseCornerIndex(gridCoord);
             _cornerSampleValues[index] = value;
+            if (_cornerSampleStates[index] == 0)
+                _cornerCacheSize++;
             _cornerSampleStates[index] = 1;
             return;
         }
 
+        if (!_cornerSampleCacheFallback.ContainsKey(gridCoord))
+            _cornerCacheSize++;
         _cornerSampleCacheFallback[gridCoord] = value;
     }
 
@@ -1075,10 +1270,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
         else
         {
-            Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
-            float epsilonPadding = Bounds.size.magnitude * 1e-5f;
-            expandedDirtyBounds.Expand(epsilonPadding);
-            InvalidateCrossingCache(expandedDirtyBounds, origin, cellSize);
+            InvalidateCrossingCacheForDirtyRegions(origin, cellSize);
         }
 
         _crossingCacheBuildCenter = center;
@@ -1104,8 +1296,16 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         for (int i = 0; i < _crossingCacheRemovalBuffer.Count; i++)
             _averageCrossingCache.Remove(_crossingCacheRemovalBuffer[i]);
 
-        _persistentCrossingCacheInvalidated = _crossingCacheRemovalBuffer.Count;
+        _persistentCrossingCacheInvalidated += _crossingCacheRemovalBuffer.Count;
         _crossingCacheRemovalBuffer.Clear();
+    }
+
+    private void InvalidateCrossingCacheForDirtyRegions(Vector3 origin, Vector3 cellSize)
+    {
+        Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
+        float epsilonPadding = Bounds.size.magnitude * 1e-5f;
+        expandedDirtyBounds.Expand(epsilonPadding);
+        InvalidateCrossingCache(expandedDirtyBounds, origin, cellSize);
     }
 
     public static bool CrossingEdgeOverlapsBounds(
@@ -1154,6 +1354,21 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                position.z >= dirtyMin.z && position.z <= dirtyMax.z;
     }
 
+    public static Bounds ExpandBoundsByCellPadding(Bounds bounds, Vector3 cellSize, float paddingCells)
+    {
+        float padding = Mathf.Max(0f, paddingCells) * MaxAbsComponent(cellSize);
+        if (padding <= 0f)
+            return bounds;
+
+        bounds.Expand(padding * 2f);
+        return bounds;
+    }
+
+    private static float MaxAbsComponent(Vector3 value)
+    {
+        return Mathf.Max(Mathf.Abs(value.x), Mathf.Abs(value.y), Mathf.Abs(value.z));
+    }
+
     private static bool CornerCoordOverlapsGridRange(Vector3Int coord, Vector3Int dirtyMin, Vector3Int dirtyMax)
     {
         return coord.x >= dirtyMin.x && coord.x <= dirtyMax.x &&
@@ -1186,7 +1401,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _sourceEvaluations = 0;
         _cornerCacheHits = 0;
         _cornerCacheMisses = 0;
+        _persistentCornerCacheInvalidated = 0;
         _centerEvaluations = 0;
+        _centerCacheHits = 0;
+        _centerCacheMisses = 0;
+        _persistentCenterCacheInvalidated = 0;
         _edgeRefinementEvaluations = 0;
         _crossingCacheHits = 0;
         _crossingCacheMisses = 0;
@@ -1247,7 +1466,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _sourceEvaluations,
             _cornerCacheHits,
             _cornerCacheMisses,
+            _persistentCornerCacheInvalidated,
+            _cornerCacheSize,
             _centerEvaluations,
+            _centerCacheHits,
+            _centerCacheMisses,
+            _persistentCenterCacheInvalidated,
+            _centerSampleCache.Count,
             _edgeRefinementEvaluations,
             _crossingCacheHits,
             _crossingCacheMisses,

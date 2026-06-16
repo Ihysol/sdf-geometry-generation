@@ -285,7 +285,13 @@ public class VolumeModel : MonoBehaviour
         public readonly int sourceEvaluations;
         public readonly int cornerCacheHits;
         public readonly int cornerCacheMisses;
+        public readonly int persistentCornerCacheInvalidated;
+        public readonly int persistentCornerCacheSize;
         public readonly int centerEvaluations;
+        public readonly int centerCacheHits;
+        public readonly int centerCacheMisses;
+        public readonly int persistentCenterCacheInvalidated;
+        public readonly int persistentCenterCacheSize;
         public readonly int edgeEvaluations;
         public readonly int crossingCacheHits;
         public readonly int crossingCacheMisses;
@@ -327,7 +333,13 @@ public class VolumeModel : MonoBehaviour
             int sourceEvaluations,
             int cornerCacheHits,
             int cornerCacheMisses,
+            int persistentCornerCacheInvalidated,
+            int persistentCornerCacheSize,
             int centerEvaluations,
+            int centerCacheHits,
+            int centerCacheMisses,
+            int persistentCenterCacheInvalidated,
+            int persistentCenterCacheSize,
             int edgeEvaluations,
             int crossingCacheHits,
             int crossingCacheMisses,
@@ -368,7 +380,13 @@ public class VolumeModel : MonoBehaviour
             this.sourceEvaluations = sourceEvaluations;
             this.cornerCacheHits = cornerCacheHits;
             this.cornerCacheMisses = cornerCacheMisses;
+            this.persistentCornerCacheInvalidated = persistentCornerCacheInvalidated;
+            this.persistentCornerCacheSize = persistentCornerCacheSize;
             this.centerEvaluations = centerEvaluations;
+            this.centerCacheHits = centerCacheHits;
+            this.centerCacheMisses = centerCacheMisses;
+            this.persistentCenterCacheInvalidated = persistentCenterCacheInvalidated;
+            this.persistentCenterCacheSize = persistentCenterCacheSize;
             this.edgeEvaluations = edgeEvaluations;
             this.crossingCacheHits = crossingCacheHits;
             this.crossingCacheMisses = crossingCacheMisses;
@@ -722,7 +740,13 @@ public class VolumeModel : MonoBehaviour
         int sourceEvaluations = 0;
         int cornerCacheHits = 0;
         int cornerCacheMisses = 0;
+        int persistentCornerCacheInvalidated = 0;
+        int persistentCornerCacheSize = 0;
         int centerEvaluations = 0;
+        int centerCacheHits = 0;
+        int centerCacheMisses = 0;
+        int persistentCenterCacheInvalidated = 0;
+        int persistentCenterCacheSize = 0;
         int edgeEvaluations = 0;
         int crossingCacheHits = 0;
         int crossingCacheMisses = 0;
@@ -755,7 +779,13 @@ public class VolumeModel : MonoBehaviour
             sourceEvaluations = stats.sourceEvaluations;
             cornerCacheHits = stats.cornerCacheHits;
             cornerCacheMisses = stats.cornerCacheMisses;
+            persistentCornerCacheInvalidated = stats.persistentCornerCacheInvalidated;
+            persistentCornerCacheSize = stats.persistentCornerCacheSize;
             centerEvaluations = stats.centerEvaluations;
+            centerCacheHits = stats.centerCacheHits;
+            centerCacheMisses = stats.centerCacheMisses;
+            persistentCenterCacheInvalidated = stats.persistentCenterCacheInvalidated;
+            persistentCenterCacheSize = stats.persistentCenterCacheSize;
             edgeEvaluations = stats.edgeRefinementEvaluations;
             crossingCacheHits = stats.crossingCacheHits;
             crossingCacheMisses = stats.crossingCacheMisses;
@@ -791,7 +821,13 @@ public class VolumeModel : MonoBehaviour
             sourceEvaluations,
             cornerCacheHits,
             cornerCacheMisses,
+            persistentCornerCacheInvalidated,
+            persistentCornerCacheSize,
             centerEvaluations,
+            centerCacheHits,
+            centerCacheMisses,
+            persistentCenterCacheInvalidated,
+            persistentCenterCacheSize,
             edgeEvaluations,
             crossingCacheHits,
             crossingCacheMisses,
@@ -841,7 +877,7 @@ public class VolumeModel : MonoBehaviour
                 $", flatBuild(total={stats.totalMs:F2} ms, recursive={stats.recursiveBuildMs:F2} ms, createLayout={stats.createLayoutMs:F2} ms, runtimeCache={stats.runtimeCacheMs:F2} ms), " +
                 $"surface(vertex={stats.surfaceVertexMs:F2} ms, crossing={stats.surfaceCrossingMs:F2} ms, normal={stats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={stats.sourceEvaluations}, cornerMiss={stats.cornerCacheMisses}, center={stats.centerEvaluations}, edge={stats.edgeRefinementEvaluations}), " +
-                $"cache(cornerHit={stats.cornerCacheHits}, cornerMiss={stats.cornerCacheMisses}, crossingHit={stats.crossingCacheHits}, crossingMiss={stats.crossingCacheMisses}), " +
+                $"cache(cornerHit={stats.cornerCacheHits}, cornerMiss={stats.cornerCacheMisses}, cornerInvalidated={stats.persistentCornerCacheInvalidated}, cornerSize={stats.persistentCornerCacheSize}, centerHit={stats.centerCacheHits}, centerMiss={stats.centerCacheMisses}, centerInvalidated={stats.persistentCenterCacheInvalidated}, centerSize={stats.persistentCenterCacheSize}, crossingHit={stats.crossingCacheHits}, crossingMiss={stats.crossingCacheMisses}), " +
                 $"gc(gen0={stats.gcGen0Delta}, gen1={stats.gcGen1Delta}, gen2={stats.gcGen2Delta})";
         }
 
@@ -887,7 +923,7 @@ public class VolumeModel : MonoBehaviour
             $"normal({Summarize(samples, s => s.surfaceNormalMs)}), " +
             $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
+            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCornerInvalidated={AverageInt(samples, s => s.persistentCornerCacheInvalidated):F0}, avgCornerCacheSize={AverageInt(samples, s => s.persistentCornerCacheSize):F0}, avgCenterHit={AverageInt(samples, s => s.centerCacheHits):F0}, avgCenterMiss={AverageInt(samples, s => s.centerCacheMisses):F0}, avgCenterInvalidated={AverageInt(samples, s => s.persistentCenterCacheInvalidated):F0}, avgCenterCacheSize={AverageInt(samples, s => s.persistentCenterCacheSize):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
             $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}), " +
@@ -1145,7 +1181,7 @@ public class VolumeModel : MonoBehaviour
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
             $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
-            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
+            $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCornerInvalidated={AverageInt(samples, s => s.persistentCornerCacheInvalidated):F0}, avgCornerCacheSize={AverageInt(samples, s => s.persistentCornerCacheSize):F0}, avgCenterHit={AverageInt(samples, s => s.centerCacheHits):F0}, avgCenterMiss={AverageInt(samples, s => s.centerCacheMisses):F0}, avgCenterInvalidated={AverageInt(samples, s => s.persistentCenterCacheInvalidated):F0}, avgCenterCacheSize={AverageInt(samples, s => s.persistentCenterCacheSize):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
             $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length}), " +
@@ -1183,7 +1219,7 @@ public class VolumeModel : MonoBehaviour
             $"recursive={sample.flatRecursiveMs:F2} ms, createLayout={sample.flatCreateLayoutMs:F2} ms, runtimeCache={sample.flatRuntimeCacheMs:F2} ms, crossing={sample.surfaceCrossingMs:F2} ms, " +
             $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, bounds={FormatVector(sample.buildBoundsSize)}, " +
             $"rebuilt={sample.rebuiltChunks}, queuedDirty={sample.queuedDirtyChunks}, source={sample.sourceEvaluations}, cornerMiss={sample.cornerCacheMisses}, center={sample.centerEvaluations}, edge={sample.edgeEvaluations}, " +
-            $"cornerHit={sample.cornerCacheHits}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, persistentCrossingHit={sample.persistentCrossingCacheHits}, crossingInvalidated={sample.persistentCrossingCacheInvalidated}, crossingCacheSize={sample.persistentCrossingCacheSize}, " +
+            $"cornerHit={sample.cornerCacheHits}, cornerInvalidated={sample.persistentCornerCacheInvalidated}, cornerCacheSize={sample.persistentCornerCacheSize}, centerHit={sample.centerCacheHits}, centerMiss={sample.centerCacheMisses}, centerInvalidated={sample.persistentCenterCacheInvalidated}, centerCacheSize={sample.persistentCenterCacheSize}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, persistentCrossingHit={sample.persistentCrossingCacheHits}, crossingInvalidated={sample.persistentCrossingCacheInvalidated}, crossingCacheSize={sample.persistentCrossingCacheSize}, " +
             $"subdivision(minDepth={sample.subdivisionMinDepth}, crossing={sample.subdivisionCornerCrossing}, centerMismatch={sample.subdivisionCenterMismatch}, distance={sample.subdivisionDistanceThreshold}), " +
             $"exclusive(minDepth={sample.subdivisionOnlyMinDepth}, crossing={sample.subdivisionOnlyCornerCrossing}, centerMismatch={sample.subdivisionOnlyCenterMismatch}, distance={sample.subdivisionOnlyDistanceThreshold}, mixed={sample.subdivisionMixedReasons}), " +
             $"dirtySeen={sample.dirtySeen}, canDirty={sample.canUseDirtyChunks}, full={sample.fullChunkRebuild})";
@@ -1320,7 +1356,7 @@ public class VolumeModel : MonoBehaviour
         target.maxDepth = sourceBuilder.maxDepth;
         target.minDepth = sourceBuilder.minDepth;
         target.suppressBuildLog = sourceBuilder.suppressBuildLog;
-        target.edgeRefinementSteps = sourceBuilder.edgeRefinementSteps;
+        target.edgeRefinementSteps = GetEffectiveEdgeRefinementSteps();
     }
 
     /// <summary>Returns the currently active sampled volume data.</summary>

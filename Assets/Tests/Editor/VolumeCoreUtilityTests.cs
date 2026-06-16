@@ -111,6 +111,26 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreeSampleCachePadding_DefaultDoesNotExpandDirtyBounds()
+    {
+        Bounds dirtyBounds = new Bounds(Vector3.zero, Vector3.one);
+
+        Bounds expanded = FlatOctreeVolumeBuilder.ExpandBoundsByCellPadding(dirtyBounds, Vector3.one, 0f);
+
+        Assert.That(expanded.size, Is.EqualTo(dirtyBounds.size));
+    }
+
+    [Test]
+    public void FlatOctreeSampleCachePadding_ExpandsByCellSizeWhenConfigured()
+    {
+        Bounds dirtyBounds = new Bounds(Vector3.zero, Vector3.one);
+
+        Bounds expanded = FlatOctreeVolumeBuilder.ExpandBoundsByCellPadding(dirtyBounds, Vector3.one * 0.5f, 2f);
+
+        Assert.That(expanded.size, Is.EqualTo(Vector3.one * 3f));
+    }
+
+    [Test]
     public void FlatOctreePersistentCornerCache_ReusesCornersOutsideDirtyBounds()
     {
         FlatOctreeVolumeBuilder builder = new FlatOctreeVolumeBuilder

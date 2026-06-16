@@ -73,4 +73,5 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         if (model != null)
             model.RebuildModel();
     }
+
 }
