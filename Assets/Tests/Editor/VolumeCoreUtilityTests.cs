@@ -131,6 +131,30 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreeLayout_DenseLeafLookupResolvesCellsInsideLargeLeaf()
+    {
+        FlatOctreeLayout layout = new FlatOctreeLayout
+        {
+            Centers = new[] { Vector3.zero },
+            Sizes = new[] { Vector3.one * 4f },
+            SurfaceVertices = new[] { Vector3.zero },
+            SurfaceNormals = new[] { Vector3.up },
+            Coords = new[] { Vector3Int.zero },
+            NodeSizeInCells = new[] { new Vector3Int(4, 4, 4) },
+            CornerValues8 = new float[8],
+            FirstChildIndex = new[] { -1 },
+            ChildMask = new byte[1],
+            Flags = new[] { FlatOctreeLayout.FlagLeaf }
+        };
+        layout.SetCount(1);
+
+        layout.EnsureRuntimeCache();
+
+        Assert.That(layout.TryGetContainingLeafIndex(new Vector3Int(3, 2, 1), out int nodeIndex), Is.True);
+        Assert.That(nodeIndex, Is.EqualTo(0));
+    }
+
+    [Test]
     public void FlatOctreePersistentCornerCache_ReusesCornersOutsideDirtyBounds()
     {
         FlatOctreeVolumeBuilder builder = new FlatOctreeVolumeBuilder

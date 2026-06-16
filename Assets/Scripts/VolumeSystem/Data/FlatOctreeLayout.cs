@@ -242,8 +242,10 @@ public sealed class FlatOctreeLayout
 
         int required = (int)entryCount;
         leafByCellCoord = EnsureIntArray(LeafByCellCoord, required);
-        for (int i = 0; i < required; i++)
-            leafByCellCoord[i] = -1;
+        FillIntRange(leafByCellCoord, 0, required, -1);
+
+        int rowStride = gridSize.x;
+        int sliceStride = gridSize.x * gridSize.y;
 
         for (int i = 0; i < Count; i++)
         {
@@ -252,20 +254,32 @@ public sealed class FlatOctreeLayout
 
             Vector3Int coord = Coords[i];
             Vector3Int size = GetNodeSizeInCells(i);
+            int xStart = Mathf.Max(0, coord.x);
+            int yStart = Mathf.Max(0, coord.y);
+            int zStart = Mathf.Max(0, coord.z);
             int xMax = Mathf.Min(gridSize.x, coord.x + size.x);
             int yMax = Mathf.Min(gridSize.y, coord.y + size.y);
             int zMax = Mathf.Min(gridSize.z, coord.z + size.z);
+            int xCount = xMax - xStart;
+            if (xCount <= 0 || yStart >= yMax || zStart >= zMax)
+                continue;
 
-            for (int z = Mathf.Max(0, coord.z); z < zMax; z++)
-            for (int y = Mathf.Max(0, coord.y); y < yMax; y++)
-            for (int x = Mathf.Max(0, coord.x); x < xMax; x++)
+            for (int z = zStart; z < zMax; z++)
+            for (int y = yStart; y < yMax; y++)
             {
-                int index = x + gridSize.x * (y + gridSize.y * z);
-                leafByCellCoord[index] = i;
+                int rowStart = xStart + rowStride * y + sliceStride * z;
+                FillIntRange(leafByCellCoord, rowStart, xCount, i);
             }
         }
 
         return true;
+    }
+
+    private static void FillIntRange(int[] array, int start, int count, int value)
+    {
+        int end = start + count;
+        for (int i = start; i < end; i++)
+            array[i] = value;
     }
 
     private static int[] EnsureIntArray(int[] array, int required)

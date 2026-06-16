@@ -60,6 +60,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private readonly List<Bounds> _lastChunkBounds = new();
     private readonly Queue<int> _pendingChunkQueue = new();
     private readonly HashSet<int> _pendingChunkSet = new();
+    private readonly List<int> _dirtyChunkScratch = new();
+    private readonly List<int> _neighborFrontierScratch = new();
+    private readonly List<int> _neighborNextFrontierScratch = new();
     private VolumeModel _activeChunkModel;
     private VolumeSceneComposer _activeChunkComposer;
     private readonly List<Bounds> _activeChunkBounds = new();
@@ -557,7 +560,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
     private void QueueDirtyChunks(List<Bounds> bounds, Bounds dirtyBounds)
     {
-        List<int> dirtyIndices = new();
+        _dirtyChunkScratch.Clear();
 
         if (_pendingChunkQueue.Count == 0 && _pendingChunkSet.Count == 0)
         {
@@ -565,7 +568,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             {
                 if (!bounds[i].Intersects(dirtyBounds))
                     continue;
-                dirtyIndices.Add(i);
+                _dirtyChunkScratch.Add(i);
             }
         }
         else
@@ -578,24 +581,24 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 if (_pendingChunkSet.Contains(i))
                     continue;
 
-                dirtyIndices.Add(i);
+                _dirtyChunkScratch.Add(i);
             }
         }
 
-        if (dirtyIndices.Count == 0)
+        if (_dirtyChunkScratch.Count == 0)
             return;
 
         Vector3 dirtyCenter = dirtyBounds.center;
-        dirtyIndices.Sort((a, b) =>
+        _dirtyChunkScratch.Sort((a, b) =>
         {
             float da = (bounds[a].center - dirtyCenter).sqrMagnitude;
             float db = (bounds[b].center - dirtyCenter).sqrMagnitude;
             return da.CompareTo(db);
         });
 
-        for (int i = 0; i < dirtyIndices.Count; i++)
+        for (int i = 0; i < _dirtyChunkScratch.Count; i++)
         {
-            int idx = dirtyIndices[i];
+            int idx = _dirtyChunkScratch[i];
             _pendingChunkQueue.Enqueue(idx);
             _pendingChunkSet.Add(idx);
         }
@@ -607,14 +610,22 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             return;
 
         rings = Mathf.Max(1, rings);
+        _neighborFrontierScratch.Clear();
+        _neighborNextFrontierScratch.Clear();
+        List<int> frontier = _neighborFrontierScratch;
+        List<int> nextFrontier = _neighborNextFrontierScratch;
+        frontier.AddRange(_pendingChunkSet);
 
         for (int ring = 0; ring < rings; ring++)
         {
-            List<int> seed = new List<int>(_pendingChunkSet);
+            if (frontier.Count == 0)
+                break;
 
-            for (int si = 0; si < seed.Count; si++)
+            nextFrontier.Clear();
+
+            for (int si = 0; si < frontier.Count; si++)
             {
-                int i = seed[si];
+                int i = frontier[si];
 
                 if (i < 0 || i >= bounds.Count)
                     continue;
@@ -632,9 +643,14 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                     {
                         _pendingChunkQueue.Enqueue(j);
                         _pendingChunkSet.Add(j);
+                        nextFrontier.Add(j);
                     }
                 }
             }
+
+            List<int> swap = frontier;
+            frontier = nextFrontier;
+            nextFrontier = swap;
         }
     }
 
