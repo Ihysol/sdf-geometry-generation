@@ -95,6 +95,15 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreeCrossingInvalidation_UsesCachedCrossingPointForPreciseInvalidation()
+    {
+        Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5f, 5f), new Vector3(0.2f, 0.2f, 0.2f));
+
+        Assert.That(FlatOctreeVolumeBuilder.CrossingPointOverlapsBounds(new Vector3(4.8f, 5f, 5f), dirtyBounds), Is.False);
+        Assert.That(FlatOctreeVolumeBuilder.CrossingPointOverlapsBounds(new Vector3(5.2f, 5f, 5f), dirtyBounds), Is.True);
+    }
+
+    [Test]
     public void FlatOctreeCornerInvalidation_InvalidatesCornerInsideWorldBounds()
     {
         Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5f, 5f), new Vector3(0.5f, 0.5f, 0.5f));

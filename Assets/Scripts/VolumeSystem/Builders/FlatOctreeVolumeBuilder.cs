@@ -1321,7 +1321,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _hasPreparedCrossingCache = false;
     }
 
-    private void InvalidateCrossingCache(Bounds dirtyBounds, Vector3 origin, Vector3 cellSize)
+    private void InvalidateCrossingCache(Bounds dirtyBounds)
     {
         if (_averageCrossingCache.Count == 0)
             return;
@@ -1329,7 +1329,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _crossingCacheRemovalBuffer.Clear();
         foreach (KeyValuePair<OctreeHermiteEdgeKey, CrossingCacheEntry> pair in _averageCrossingCache)
         {
-            if (CrossingEdgeOverlapsBounds(pair.Key, dirtyBounds, origin, cellSize))
+            if (CrossingPointOverlapsBounds(pair.Value.Crossing, dirtyBounds))
                 _crossingCacheRemovalBuffer.Add(pair.Key);
         }
 
@@ -1345,7 +1345,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Bounds expandedDirtyBounds = _crossingCacheDirtyBounds;
         float epsilonPadding = Bounds.size.magnitude * 1e-5f;
         expandedDirtyBounds.Expand(epsilonPadding);
-        InvalidateCrossingCache(expandedDirtyBounds, origin, cellSize);
+        InvalidateCrossingCache(expandedDirtyBounds);
     }
 
     public static bool CrossingEdgeOverlapsBounds(
@@ -1369,6 +1369,15 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return minX <= dirtyMax.x && maxX >= dirtyMin.x &&
                minY <= dirtyMax.y && maxY >= dirtyMin.y &&
                minZ <= dirtyMax.z && maxZ >= dirtyMin.z;
+    }
+
+    public static bool CrossingPointOverlapsBounds(Vector3 crossing, Bounds dirtyBounds)
+    {
+        Vector3 dirtyMin = dirtyBounds.min;
+        Vector3 dirtyMax = dirtyBounds.max;
+        return crossing.x >= dirtyMin.x && crossing.x <= dirtyMax.x &&
+               crossing.y >= dirtyMin.y && crossing.y <= dirtyMax.y &&
+               crossing.z >= dirtyMin.z && crossing.z <= dirtyMax.z;
     }
 
     private static Vector3 GridCoordToPosition(Vector3Int coord, Vector3 origin, Vector3 cellSize)
