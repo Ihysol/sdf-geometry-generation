@@ -230,6 +230,7 @@ public class VolumeModel : MonoBehaviour
     public bool renderOctreeDebugCubes = false;
     public bool logChunkRebuildStats = false;
     public bool logRebuildDuration = true;
+    public bool profileFlatRecursiveParts = false;
 
     [Header("Add Object")]
     public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
@@ -274,6 +275,11 @@ public class VolumeModel : MonoBehaviour
         public readonly double renderMs;
         public readonly double flatBuildMs;
         public readonly double flatRecursiveMs;
+        public readonly double recursiveCornerSampleMs;
+        public readonly double recursiveCenterDecisionMs;
+        public readonly double recursiveChildCornerMs;
+        public readonly double recursiveNodeRecordMs;
+        public readonly double recursiveOtherMs;
         public readonly double flatCreateLayoutMs;
         public readonly double flatRuntimeCacheMs;
         public readonly double surfaceVertexMs;
@@ -322,6 +328,11 @@ public class VolumeModel : MonoBehaviour
             double renderMs,
             double flatBuildMs,
             double flatRecursiveMs,
+            double recursiveCornerSampleMs,
+            double recursiveCenterDecisionMs,
+            double recursiveChildCornerMs,
+            double recursiveNodeRecordMs,
+            double recursiveOtherMs,
             double flatCreateLayoutMs,
             double flatRuntimeCacheMs,
             double surfaceVertexMs,
@@ -369,6 +380,11 @@ public class VolumeModel : MonoBehaviour
             this.renderMs = renderMs;
             this.flatBuildMs = flatBuildMs;
             this.flatRecursiveMs = flatRecursiveMs;
+            this.recursiveCornerSampleMs = recursiveCornerSampleMs;
+            this.recursiveCenterDecisionMs = recursiveCenterDecisionMs;
+            this.recursiveChildCornerMs = recursiveChildCornerMs;
+            this.recursiveNodeRecordMs = recursiveNodeRecordMs;
+            this.recursiveOtherMs = recursiveOtherMs;
             this.flatCreateLayoutMs = flatCreateLayoutMs;
             this.flatRuntimeCacheMs = flatRuntimeCacheMs;
             this.surfaceVertexMs = surfaceVertexMs;
@@ -729,6 +745,11 @@ public class VolumeModel : MonoBehaviour
         VolumeMeshRenderer.RenderStats renderStats = RenderOutput.LastRenderStats;
         double flatBuildMs = 0d;
         double flatRecursiveMs = 0d;
+        double recursiveCornerSampleMs = 0d;
+        double recursiveCenterDecisionMs = 0d;
+        double recursiveChildCornerMs = 0d;
+        double recursiveNodeRecordMs = 0d;
+        double recursiveOtherMs = 0d;
         double flatCreateLayoutMs = 0d;
         double flatRuntimeCacheMs = 0d;
         double surfaceVertexMs = 0d;
@@ -768,6 +789,11 @@ public class VolumeModel : MonoBehaviour
             FlatOctreeVolumeBuilder.BuildStats stats = octreeSampler.flatBuilder.LastBuildStats;
             flatBuildMs = stats.totalMs;
             flatRecursiveMs = stats.recursiveBuildMs;
+            recursiveCornerSampleMs = stats.recursiveCornerSampleMs;
+            recursiveCenterDecisionMs = stats.recursiveCenterDecisionMs;
+            recursiveChildCornerMs = stats.recursiveChildCornerMs;
+            recursiveNodeRecordMs = stats.recursiveNodeRecordMs;
+            recursiveOtherMs = stats.recursiveOtherMs;
             flatCreateLayoutMs = stats.createLayoutMs;
             flatRuntimeCacheMs = stats.runtimeCacheMs;
             surfaceVertexMs = stats.surfaceVertexMs;
@@ -810,6 +836,11 @@ public class VolumeModel : MonoBehaviour
             renderMs,
             flatBuildMs,
             flatRecursiveMs,
+            recursiveCornerSampleMs,
+            recursiveCenterDecisionMs,
+            recursiveChildCornerMs,
+            recursiveNodeRecordMs,
+            recursiveOtherMs,
             flatCreateLayoutMs,
             flatRuntimeCacheMs,
             surfaceVertexMs,
@@ -875,6 +906,7 @@ public class VolumeModel : MonoBehaviour
             FlatOctreeVolumeBuilder.BuildStats stats = octreeSampler.flatBuilder.LastBuildStats;
             log +=
                 $", flatBuild(total={stats.totalMs:F2} ms, recursive={stats.recursiveBuildMs:F2} ms, createLayout={stats.createLayoutMs:F2} ms, runtimeCache={stats.runtimeCacheMs:F2} ms), " +
+                $"{FormatRecursivePartsLog(stats)}, " +
                 $"surface(vertex={stats.surfaceVertexMs:F2} ms, crossing={stats.surfaceCrossingMs:F2} ms, normal={stats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={stats.sourceEvaluations}, cornerMiss={stats.cornerCacheMisses}, center={stats.centerEvaluations}, edge={stats.edgeRefinementEvaluations}), " +
                 $"cache(cornerHit={stats.cornerCacheHits}, cornerMiss={stats.cornerCacheMisses}, cornerInvalidated={stats.persistentCornerCacheInvalidated}, cornerSize={stats.persistentCornerCacheSize}, centerHit={stats.centerCacheHits}, centerMiss={stats.centerCacheMisses}, centerInvalidated={stats.persistentCenterCacheInvalidated}, centerSize={stats.persistentCenterCacheSize}, crossingHit={stats.crossingCacheHits}, crossingMiss={stats.crossingCacheMisses}), " +
@@ -917,6 +949,7 @@ public class VolumeModel : MonoBehaviour
             $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
             $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
+            $"{FormatRecursivePartsLog(samples)}, " +
             $"createLayout({Summarize(samples, s => s.flatCreateLayoutMs)}), " +
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
@@ -1176,6 +1209,7 @@ public class VolumeModel : MonoBehaviour
             $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
             $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
+            $"{FormatRecursivePartsLog(samples)}, " +
             $"createLayout({Summarize(samples, s => s.flatCreateLayoutMs)}), " +
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
@@ -1209,7 +1243,7 @@ public class VolumeModel : MonoBehaviour
         return $"min={values[0]:F2} ms, med={median:F2} ms, avg={sum / values.Length:F2} ms, p95={p95:F2} ms, max={values[values.Length - 1]:F2} ms";
     }
 
-    private static string BuildWorstSampleLog(RebuildProfileSample[] samples)
+    private string BuildWorstSampleLog(RebuildProfileSample[] samples)
     {
         int index = FindMaxSampleIndex(samples, s => s.totalMs);
         RebuildProfileSample sample = samples[index];
@@ -1217,6 +1251,7 @@ public class VolumeModel : MonoBehaviour
         return
             $"worst(index={index}, total={sample.totalMs:F2} ms, volumeBuild={sample.volumeBuildMs:F2} ms, render={sample.renderMs:F2} ms, " +
             $"recursive={sample.flatRecursiveMs:F2} ms, createLayout={sample.flatCreateLayoutMs:F2} ms, runtimeCache={sample.flatRuntimeCacheMs:F2} ms, crossing={sample.surfaceCrossingMs:F2} ms, " +
+            $"{FormatRecursivePartsLog(sample)}, " +
             $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, bounds={FormatVector(sample.buildBoundsSize)}, " +
             $"rebuilt={sample.rebuiltChunks}, queuedDirty={sample.queuedDirtyChunks}, source={sample.sourceEvaluations}, cornerMiss={sample.cornerCacheMisses}, center={sample.centerEvaluations}, edge={sample.edgeEvaluations}, " +
             $"cornerHit={sample.cornerCacheHits}, cornerInvalidated={sample.persistentCornerCacheInvalidated}, cornerCacheSize={sample.persistentCornerCacheSize}, centerHit={sample.centerCacheHits}, centerMiss={sample.centerCacheMisses}, centerInvalidated={sample.persistentCenterCacheInvalidated}, centerCacheSize={sample.persistentCenterCacheSize}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, persistentCrossingHit={sample.persistentCrossingCacheHits}, crossingInvalidated={sample.persistentCrossingCacheInvalidated}, crossingCacheSize={sample.persistentCrossingCacheSize}, " +
@@ -1249,6 +1284,39 @@ public class VolumeModel : MonoBehaviour
             sum += selector(samples[i]);
 
         return samples.Length > 0 ? sum / samples.Length : 0d;
+    }
+
+    private static double Average(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, double> selector)
+    {
+        double sum = 0d;
+        for (int i = 0; i < samples.Length; i++)
+            sum += selector(samples[i]);
+
+        return samples.Length > 0 ? sum / samples.Length : 0d;
+    }
+
+    private string FormatRecursivePartsLog(FlatOctreeVolumeBuilder.BuildStats stats)
+    {
+        if (!profileFlatRecursiveParts)
+            return "recursiveParts=disabled";
+
+        return $"recursiveParts(corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
+    }
+
+    private string FormatRecursivePartsLog(RebuildProfileSample[] samples)
+    {
+        if (!profileFlatRecursiveParts)
+            return "recursiveParts=disabled";
+
+        return $"recursiveParts(corner={Average(samples, s => s.recursiveCornerSampleMs):F2} ms, center={Average(samples, s => s.recursiveCenterDecisionMs):F2} ms, childCorner={Average(samples, s => s.recursiveChildCornerMs):F2} ms, nodeRecord={Average(samples, s => s.recursiveNodeRecordMs):F2} ms, other={Average(samples, s => s.recursiveOtherMs):F2} ms)";
+    }
+
+    private string FormatRecursivePartsLog(RebuildProfileSample sample)
+    {
+        if (!profileFlatRecursiveParts)
+            return "recursiveParts=disabled";
+
+        return $"recursiveParts(corner={sample.recursiveCornerSampleMs:F2} ms, center={sample.recursiveCenterDecisionMs:F2} ms, childCorner={sample.recursiveChildCornerMs:F2} ms, nodeRecord={sample.recursiveNodeRecordMs:F2} ms, other={sample.recursiveOtherMs:F2} ms)";
     }
 
     private static int Count(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, bool> selector)
@@ -1357,6 +1425,7 @@ public class VolumeModel : MonoBehaviour
         target.minDepth = sourceBuilder.minDepth;
         target.suppressBuildLog = sourceBuilder.suppressBuildLog;
         target.edgeRefinementSteps = GetEffectiveEdgeRefinementSteps();
+        target.profileRecursiveParts = profileFlatRecursiveParts;
     }
 
     /// <summary>Returns the currently active sampled volume data.</summary>

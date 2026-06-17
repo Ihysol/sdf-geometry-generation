@@ -9,6 +9,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     {
         public readonly double totalMs;
         public readonly double recursiveBuildMs;
+        public readonly double recursiveCornerSampleMs;
+        public readonly double recursiveCenterDecisionMs;
+        public readonly double recursiveChildCornerMs;
+        public readonly double recursiveNodeRecordMs;
+        public readonly double recursiveOtherMs;
         public readonly double createLayoutMs;
         public readonly double runtimeCacheMs;
         public readonly double surfaceVertexMs;
@@ -49,6 +54,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public BuildStats(
             double totalMs,
             double recursiveBuildMs,
+            double recursiveCornerSampleMs,
+            double recursiveCenterDecisionMs,
+            double recursiveChildCornerMs,
+            double recursiveNodeRecordMs,
+            double recursiveOtherMs,
             double createLayoutMs,
             double runtimeCacheMs,
             double surfaceVertexMs,
@@ -88,6 +98,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         {
             this.totalMs = totalMs;
             this.recursiveBuildMs = recursiveBuildMs;
+            this.recursiveCornerSampleMs = recursiveCornerSampleMs;
+            this.recursiveCenterDecisionMs = recursiveCenterDecisionMs;
+            this.recursiveChildCornerMs = recursiveChildCornerMs;
+            this.recursiveNodeRecordMs = recursiveNodeRecordMs;
+            this.recursiveOtherMs = recursiveOtherMs;
             this.createLayoutMs = createLayoutMs;
             this.runtimeCacheMs = runtimeCacheMs;
             this.surfaceVertexMs = surfaceVertexMs;
@@ -143,6 +158,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     public int edgeRefinementSteps = 3;
     [HideInInspector]
     public float sampleCacheDirtyPaddingCells = 0f;
+    [HideInInspector]
+    public bool profileRecursiveParts = false;
 
     private readonly struct Edge
     {
@@ -304,6 +321,10 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _subdivisionOnlyCenterMismatch;
     private int _subdivisionOnlyDistanceThreshold;
     private int _subdivisionMixedReasons;
+    private long _recursiveCornerSampleTicks;
+    private long _recursiveCenterDecisionTicks;
+    private long _recursiveChildCornerTicks;
+    private long _recursiveNodeRecordTicks;
     private long _surfaceVertexTicks;
     private long _surfaceCrossingTicks;
     private long _surfaceNormalTicks;
@@ -375,6 +396,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             UnityEngine.Debug.Log(
                 $"Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
                 $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, createLayout={LastBuildStats.createLayoutMs:F2} ms, runtimeCache={LastBuildStats.runtimeCacheMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms, surfaceCrossing={LastBuildStats.surfaceCrossingMs:F2} ms, surfaceNormal={LastBuildStats.surfaceNormalMs:F2} ms), " +
+                $"{FormatRecursivePartsLog(LastBuildStats)}, " +
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
                 $"cornerCache(hit={LastBuildStats.cornerCacheHits}, miss={LastBuildStats.cornerCacheMisses}, invalidated={LastBuildStats.persistentCornerCacheInvalidated}, size={LastBuildStats.persistentCornerCacheSize}), " +
                 $"centerCache(hit={LastBuildStats.centerCacheHits}, miss={LastBuildStats.centerCacheMisses}, invalidated={LastBuildStats.persistentCenterCacheInvalidated}, size={LastBuildStats.persistentCenterCacheSize}), " +
@@ -413,9 +435,18 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 halfSize = nodeSize * 0.5f;
         Vector3 min = nodeCenter - halfSize;
         Vector3 max = nodeCenter + halfSize;
-        CornerSamples corners = hasKnownCorners
-            ? knownCorners
-            : SampleCorners(source, min, max, origin, cellSize);
+        CornerSamples corners;
+        if (hasKnownCorners)
+        {
+            corners = knownCorners;
+        }
+        else
+        {
+            long cornerSampleStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
+            corners = SampleCorners(source, min, max, origin, cellSize);
+            if (profileRecursiveParts)
+                _recursiveCornerSampleTicks += Stopwatch.GetTimestamp() - cornerSampleStart;
+        }
 
         bool cornerHasNegative = false;
         bool cornerHasPositive = false;
@@ -435,11 +466,14 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         bool couldContainSurface = false;
         if (needsCenterDecision)
         {
+            long centerDecisionStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
             float centerValue = EvaluateCenter(source, nodeCenter, origin, cellSize);
             centerDiffersFromCorners =
                 (centerValue < 0f && cornerHasPositive) ||
                 (centerValue >= 0f && cornerHasNegative);
             couldContainSurface = Mathf.Abs(centerValue) <= halfSize.magnitude;
+            if (profileRecursiveParts)
+                _recursiveCenterDecisionTicks += Stopwatch.GetTimestamp() - centerDecisionStart;
         }
         bool minDepthReason = depth < minDepth;
         bool cornerCrossingReason = cornerContainsSurface;
@@ -470,6 +504,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         bool shouldSubdivide = subdivisionReasons != 0;
 
+        long nodeRecordStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         NodeRecord record = new NodeRecord
         {
             Center = nodeCenter,
@@ -481,6 +516,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             Corners = corners
         };
         _nodes.Add(record);
+        if (profileRecursiveParts)
+            _recursiveNodeRecordTicks += Stopwatch.GetTimestamp() - nodeRecordStart;
 
         if (!shouldSubdivide)
         {
@@ -507,6 +544,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 childSize = nodeSize * 0.5f;
         int childWriteStart = _nodes.Count;
         byte childMask = 0;
+        long childCornerStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         BuildChildCornerSamples(
             source,
             nodeCenter,
@@ -523,6 +561,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             out CornerSamples child101,
             out CornerSamples child110,
             out CornerSamples child111);
+        if (profileRecursiveParts)
+            _recursiveChildCornerTicks += Stopwatch.GetTimestamp() - childCornerStart;
 
         for (int x = 0; x < 2; x++)
         for (int y = 0; y < 2; y++)
@@ -1421,6 +1461,10 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _subdivisionOnlyCenterMismatch = 0;
         _subdivisionOnlyDistanceThreshold = 0;
         _subdivisionMixedReasons = 0;
+        _recursiveCornerSampleTicks = 0;
+        _recursiveCenterDecisionTicks = 0;
+        _recursiveChildCornerTicks = 0;
+        _recursiveNodeRecordTicks = 0;
         _surfaceVertexTicks = 0;
         _surfaceCrossingTicks = 0;
         _surfaceNormalTicks = 0;
@@ -1452,9 +1496,32 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         int gcGen2Delta)
     {
         long surfaceVertexExclusiveTicks = System.Math.Max(0, _surfaceVertexTicks - _surfaceCrossingTicks - _surfaceNormalTicks);
+        double recursiveCornerSampleMs = profileRecursiveParts ? _recursiveCornerSampleTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveCenterDecisionMs = profileRecursiveParts ? _recursiveCenterDecisionTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveChildCornerMs = profileRecursiveParts ? _recursiveChildCornerTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveNodeRecordMs = profileRecursiveParts ? _recursiveNodeRecordTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveOtherMs = 0d;
+        if (profileRecursiveParts)
+        {
+            double recursiveMeasuredMs =
+                (_recursiveCornerSampleTicks +
+                 _recursiveCenterDecisionTicks +
+                 _recursiveChildCornerTicks +
+                 _recursiveNodeRecordTicks +
+                 surfaceVertexExclusiveTicks +
+                 _surfaceCrossingTicks +
+                 _surfaceNormalTicks) * 1000d / Stopwatch.Frequency;
+            recursiveOtherMs = System.Math.Max(0d, recursiveBuildMs - recursiveMeasuredMs);
+        }
+
         LastBuildStats = new BuildStats(
             totalMs,
             recursiveBuildMs,
+            recursiveCornerSampleMs,
+            recursiveCenterDecisionMs,
+            recursiveChildCornerMs,
+            recursiveNodeRecordMs,
+            recursiveOtherMs,
             createLayoutMs,
             runtimeCacheMs,
             surfaceVertexExclusiveTicks * 1000d / Stopwatch.Frequency,
@@ -1492,5 +1559,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             gcGen1Delta,
             gcGen2Delta
         );
+    }
+
+    private string FormatRecursivePartsLog(BuildStats stats)
+    {
+        if (!profileRecursiveParts)
+            return "recursiveParts=disabled";
+
+        return $"recursiveParts(corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
     }
 }

@@ -484,6 +484,10 @@ public class VolumeModelEditor : Editor
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("logRebuildDuration")
         );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("profileFlatRecursiveParts"),
+            new GUIContent("Profile Flat Recursive Parts")
+        );
 
         if (model.dataStructure == VolumeDataStructure.Octree || model.dataStructure == VolumeDataStructure.SparseVoxelOctree)
         {
