@@ -278,8 +278,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private List<NodeRecord> _previousNodes = new(InitialNodeCapacity);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<QuantizedVector3Key, CenterCacheEntry> _centerSampleCache = new(InitialFallbackCornerCapacity);
-    private readonly Dictionary<OctreeHermiteEdgeKey, CrossingCacheEntry> _averageCrossingCache = new(InitialAverageCrossingCapacity);
-    private readonly List<OctreeHermiteEdgeKey> _crossingCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
+    private readonly Dictionary<ulong, CrossingCacheEntry> _averageCrossingCache = new(InitialAverageCrossingCapacity);
+    private readonly List<ulong> _crossingCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly List<Vector3Int> _cornerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly List<QuantizedVector3Key> _centerCacheRemovalBuffer = new(InitialFallbackCornerCapacity);
     private readonly float[] _childCornerSampleScratch = new float[27];
@@ -301,6 +301,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private float _crossingCacheBoundsPadding;
     private int _crossingCacheMaxDepth = -1;
     private int _crossingCacheRefinementSteps = -1;
+    private int _crossingCacheGridVertexSide = 1;
     private bool _hasPreparedCrossingCache;
     private bool _hasCrossingCacheDirtyBounds;
     private Bounds _crossingCacheDirtyBounds;
@@ -986,7 +987,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         ref Vector3 sum,
         ref int count)
     {
-        OctreeHermiteEdgeKey key = new OctreeHermiteEdgeKey(ca, cb);
+        ulong key = PackGridEdgeKey(ca, cb, _crossingCacheGridVertexSide);
         if (_averageCrossingCache.TryGetValue(key, out CrossingCacheEntry entry))
         {
             _crossingCacheHits++;
@@ -1470,6 +1471,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _crossingCacheBoundsPadding = boundsPadding;
         _crossingCacheMaxDepth = maxDepth;
         _crossingCacheRefinementSteps = edgeRefinementSteps;
+        _crossingCacheGridVertexSide = (1 << maxDepth) + 1;
         _hasPreparedCrossingCache = false;
     }
 
@@ -1479,7 +1481,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             return;
 
         _crossingCacheRemovalBuffer.Clear();
-        foreach (KeyValuePair<OctreeHermiteEdgeKey, CrossingCacheEntry> pair in _averageCrossingCache)
+        foreach (KeyValuePair<ulong, CrossingCacheEntry> pair in _averageCrossingCache)
         {
             if (CrossingPointOverlapsBounds(pair.Value.Crossing, dirtyBounds))
                 _crossingCacheRemovalBuffer.Add(pair.Key);
@@ -1498,6 +1500,21 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         float epsilonPadding = Bounds.size.magnitude * 1e-5f;
         expandedDirtyBounds.Expand(epsilonPadding);
         InvalidateCrossingCache(expandedDirtyBounds);
+    }
+
+    public static ulong PackGridEdgeKey(Vector3Int a, Vector3Int b, int gridVertexSide)
+    {
+        int axis = a.x != b.x ? 0 : a.y != b.y ? 1 : 2;
+        int x = a.x < b.x ? a.x : b.x;
+        int y = a.y < b.y ? a.y : b.y;
+        int z = a.z < b.z ? a.z : b.z;
+        ulong side = (ulong)Mathf.Max(1, gridVertexSide);
+
+        ulong key = (ulong)axis;
+        key = key * side + (uint)z;
+        key = key * side + (uint)y;
+        key = key * side + (uint)x;
+        return key;
     }
 
     public static bool CrossingEdgeOverlapsBounds(

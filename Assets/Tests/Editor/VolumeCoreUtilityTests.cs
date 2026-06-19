@@ -104,6 +104,34 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreePackedEdgeKey_IsOrderIndependentAndUniquePerGridEdge()
+    {
+        const int gridVertexSide = 65;
+        Vector3Int start = new Vector3Int(4, 5, 6);
+
+        ulong xEdge = FlatOctreeVolumeBuilder.PackGridEdgeKey(
+            start,
+            start + Vector3Int.right,
+            gridVertexSide);
+        ulong reversedXEdge = FlatOctreeVolumeBuilder.PackGridEdgeKey(
+            start + Vector3Int.right,
+            start,
+            gridVertexSide);
+        ulong yEdge = FlatOctreeVolumeBuilder.PackGridEdgeKey(
+            start,
+            start + Vector3Int.up,
+            gridVertexSide);
+        ulong adjacentXEdge = FlatOctreeVolumeBuilder.PackGridEdgeKey(
+            start + Vector3Int.up,
+            start + Vector3Int.up + Vector3Int.right,
+            gridVertexSide);
+
+        Assert.That(reversedXEdge, Is.EqualTo(xEdge));
+        Assert.That(yEdge, Is.Not.EqualTo(xEdge));
+        Assert.That(adjacentXEdge, Is.Not.EqualTo(xEdge));
+    }
+
+    [Test]
     public void FlatOctreeCornerInvalidation_InvalidatesCornerInsideWorldBounds()
     {
         Bounds dirtyBounds = new Bounds(new Vector3(5.2f, 5f, 5f), new Vector3(0.5f, 0.5f, 0.5f));
