@@ -47,6 +47,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly int subdivisionOnlyCenterMismatch;
         public readonly int subdivisionOnlyDistanceThreshold;
         public readonly int subdivisionMixedReasons;
+        public readonly int reusedNodeCount;
+        public readonly int reusedSubtreeCount;
         public readonly int gcGen0Delta;
         public readonly int gcGen1Delta;
         public readonly int gcGen2Delta;
@@ -92,6 +94,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             int subdivisionOnlyCenterMismatch,
             int subdivisionOnlyDistanceThreshold,
             int subdivisionMixedReasons,
+            int reusedNodeCount,
+            int reusedSubtreeCount,
             int gcGen0Delta,
             int gcGen1Delta,
             int gcGen2Delta)
@@ -136,6 +140,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.subdivisionOnlyCenterMismatch = subdivisionOnlyCenterMismatch;
             this.subdivisionOnlyDistanceThreshold = subdivisionOnlyDistanceThreshold;
             this.subdivisionMixedReasons = subdivisionMixedReasons;
+            this.reusedNodeCount = reusedNodeCount;
+            this.reusedSubtreeCount = reusedSubtreeCount;
             this.gcGen0Delta = gcGen0Delta;
             this.gcGen1Delta = gcGen1Delta;
             this.gcGen2Delta = gcGen2Delta;
@@ -268,7 +274,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         }
     }
 
-    private readonly List<NodeRecord> _nodes = new(InitialNodeCapacity);
+    private List<NodeRecord> _nodes = new(InitialNodeCapacity);
+    private List<NodeRecord> _previousNodes = new(InitialNodeCapacity);
     private readonly Dictionary<Vector3Int, float> _cornerSampleCacheFallback = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<QuantizedVector3Key, CenterCacheEntry> _centerSampleCache = new(InitialFallbackCornerCapacity);
     private readonly Dictionary<OctreeHermiteEdgeKey, CrossingCacheEntry> _averageCrossingCache = new(InitialAverageCrossingCapacity);
@@ -297,6 +304,16 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private bool _hasPreparedCrossingCache;
     private bool _hasCrossingCacheDirtyBounds;
     private Bounds _crossingCacheDirtyBounds;
+    private int[] _previousSubtreeSizes;
+    private bool _reusePreviousSubtrees;
+    private Bounds _subtreeReuseDirtyBounds;
+    private bool _hasPreviousNodeBuild;
+    private Vector3 _previousNodeBuildCenter;
+    private Vector3 _previousNodeBuildSize;
+    private float _previousNodeBoundsPadding;
+    private int _previousNodeMaxDepth = -1;
+    private int _previousNodeMinDepth = -1;
+    private int _previousNodeEdgeRefinementSteps = -1;
     private int _sourceEvaluations;
     private int _cornerCacheHits;
     private int _cornerCacheMisses;
@@ -321,6 +338,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private int _subdivisionOnlyCenterMismatch;
     private int _subdivisionOnlyDistanceThreshold;
     private int _subdivisionMixedReasons;
+    private int _reusedNodeCount;
+    private int _reusedSubtreeCount;
     private long _recursiveCornerSampleTicks;
     private long _recursiveCenterDecisionTicks;
     private long _recursiveChildCornerTicks;
@@ -347,6 +366,125 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _crossingCacheDirtyBounds = dirtyBounds;
     }
 
+    private void PrepareNodeBuffersForBuild(Vector3 cellSize)
+    {
+        List<NodeRecord> completedNodes = _nodes;
+        _nodes = _previousNodes;
+        _previousNodes = completedNodes;
+        _previousSubtreeSizes = _layout.SubtreeSize;
+
+        bool hasCompatiblePreviousBuild =
+            _hasPreviousNodeBuild &&
+            _previousNodes.Count > 0 &&
+            _previousSubtreeSizes != null &&
+            _previousSubtreeSizes.Length >= _previousNodes.Count &&
+            _previousNodeBuildCenter == center &&
+            _previousNodeBuildSize == size &&
+            Mathf.Approximately(_previousNodeBoundsPadding, boundsPadding) &&
+            _previousNodeMaxDepth == maxDepth &&
+            _previousNodeMinDepth == minDepth &&
+            _previousNodeEdgeRefinementSteps == edgeRefinementSteps;
+
+        _reusePreviousSubtrees =
+            _hasPreparedCrossingCache &&
+            _hasCrossingCacheDirtyBounds &&
+            hasCompatiblePreviousBuild;
+        _subtreeReuseDirtyBounds = ExpandBoundsByCellPadding(
+            _crossingCacheDirtyBounds,
+            cellSize,
+            sampleCacheDirtyPaddingCells);
+    }
+
+    private void RecordNodeBuildConfiguration()
+    {
+        _previousNodeBuildCenter = center;
+        _previousNodeBuildSize = size;
+        _previousNodeBoundsPadding = boundsPadding;
+        _previousNodeMaxDepth = maxDepth;
+        _previousNodeMinDepth = minDepth;
+        _previousNodeEdgeRefinementSteps = edgeRefinementSteps;
+        _hasPreviousNodeBuild = true;
+    }
+
+    private bool TryReusePreviousSubtree(
+        Vector3 nodeCenter,
+        Vector3 nodeSize,
+        int previousNodeIndex,
+        out int reusedNodeIndex)
+    {
+        reusedNodeIndex = -1;
+        if (!_reusePreviousSubtrees ||
+            !PreviousNodeMatches(previousNodeIndex, nodeCenter, nodeSize) ||
+            BoundsOverlapInclusive(nodeCenter, nodeSize, _subtreeReuseDirtyBounds))
+        {
+            return false;
+        }
+
+        int subtreeSize = GetPreviousSubtreeSize(previousNodeIndex);
+        if (subtreeSize <= 0 || previousNodeIndex + subtreeSize > _previousNodes.Count)
+            return false;
+
+        reusedNodeIndex = _nodes.Count;
+        int indexOffset = reusedNodeIndex - previousNodeIndex;
+        for (int i = 0; i < subtreeSize; i++)
+        {
+            NodeRecord record = _previousNodes[previousNodeIndex + i];
+            if (record.FirstChildIndex >= 0)
+                record.FirstChildIndex += indexOffset;
+            if ((record.Flags & FlatOctreeLayout.FlagSurface) != 0)
+                _surfaceLeaves++;
+            _nodes.Add(record);
+        }
+
+        _reusedNodeCount += subtreeSize;
+        _reusedSubtreeCount++;
+        return true;
+    }
+
+    private int GetPreviousFirstChildIndex(int previousNodeIndex, Vector3 nodeCenter, Vector3 nodeSize)
+    {
+        if (!_reusePreviousSubtrees || !PreviousNodeMatches(previousNodeIndex, nodeCenter, nodeSize))
+            return -1;
+
+        NodeRecord previous = _previousNodes[previousNodeIndex];
+        int firstChild = previous.FirstChildIndex;
+        return firstChild >= 0 && firstChild < _previousNodes.Count ? firstChild : -1;
+    }
+
+    private bool PreviousNodeMatches(int previousNodeIndex, Vector3 nodeCenter, Vector3 nodeSize)
+    {
+        if (previousNodeIndex < 0 || previousNodeIndex >= _previousNodes.Count)
+            return false;
+
+        NodeRecord previous = _previousNodes[previousNodeIndex];
+        return previous.Center == nodeCenter && previous.Size == nodeSize;
+    }
+
+    private int GetPreviousSubtreeSize(int previousNodeIndex)
+    {
+        if (_previousSubtreeSizes == null ||
+            previousNodeIndex < 0 ||
+            previousNodeIndex >= _previousNodes.Count ||
+            previousNodeIndex >= _previousSubtreeSizes.Length)
+        {
+            return 0;
+        }
+
+        return _previousSubtreeSizes[previousNodeIndex];
+    }
+
+    private static bool BoundsOverlapInclusive(Vector3 center, Vector3 size, Bounds dirtyBounds)
+    {
+        Vector3 halfSize = size * 0.5f;
+        Vector3 min = center - halfSize;
+        Vector3 max = center + halfSize;
+        Vector3 dirtyMin = dirtyBounds.min;
+        Vector3 dirtyMax = dirtyBounds.max;
+        return min.x <= dirtyMax.x && max.x >= dirtyMin.x &&
+               min.y <= dirtyMax.y && max.y >= dirtyMin.y &&
+               min.z <= dirtyMax.z && max.z >= dirtyMin.z;
+    }
+
     public override OctreeVolume Build(IScalarFieldSource source)
     {
         Stopwatch totalStopwatch = Stopwatch.StartNew();
@@ -360,15 +498,16 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         const int gc1Before = 0;
         const int gc2Before = 0;
 #endif
-        ResetState();
         Bounds buildBounds = Bounds;
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        PrepareNodeBuffersForBuild(cellSize);
+        ResetState();
         PrepareCornerSampleCacheForBuild(origin, cellSize);
         PrepareCenterSampleCacheForBuild(origin, cellSize);
         PrepareCrossingCacheForBuild(origin, cellSize);
 
-        BuildNode(source, buildBounds.center, buildBounds.size, 0, origin, cellSize, false, default);
+        BuildNode(source, buildBounds.center, buildBounds.size, 0, origin, cellSize, false, default, 0);
 
         recursiveStopwatch.Stop();
         Stopwatch phaseStopwatch = Stopwatch.StartNew();
@@ -377,6 +516,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         double createLayoutMs = phaseStopwatch.Elapsed.TotalMilliseconds;
         phaseStopwatch.Restart();
         layout.EnsureRuntimeCache();
+        RecordNodeBuildConfiguration();
         phaseStopwatch.Stop();
         double runtimeCacheMs = phaseStopwatch.Elapsed.TotalMilliseconds;
         totalStopwatch.Stop();
@@ -394,7 +534,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (!suppressBuildLog && UnityEngine.Debug.isDebugBuild)
         {
             UnityEngine.Debug.Log(
-                $"Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
+                $"Flat Octree Build: nodes={_nodes.Count}, surfaceLeaves={_surfaceLeaves}, reusedNodes={_reusedNodeCount}, reusedSubtrees={_reusedSubtreeCount}, bounds={buildBounds}, refinementSteps={edgeRefinementSteps}, " +
                 $"timing(total={LastBuildStats.totalMs:F2} ms, recursive={LastBuildStats.recursiveBuildMs:F2} ms, createLayout={LastBuildStats.createLayoutMs:F2} ms, runtimeCache={LastBuildStats.runtimeCacheMs:F2} ms, surfaceVertex={LastBuildStats.surfaceVertexMs:F2} ms, surfaceCrossing={LastBuildStats.surfaceCrossingMs:F2} ms, surfaceNormal={LastBuildStats.surfaceNormalMs:F2} ms), " +
                 $"{FormatRecursivePartsLog(LastBuildStats)}, " +
                 $"samples(total={LastBuildStats.sourceEvaluations}, cornerMiss={LastBuildStats.cornerCacheMisses}, center={LastBuildStats.centerEvaluations}, edge={LastBuildStats.edgeRefinementEvaluations}), " +
@@ -429,8 +569,12 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 origin,
         Vector3 cellSize,
         bool hasKnownCorners,
-        CornerSamples knownCorners)
+        CornerSamples knownCorners,
+        int previousNodeIndex)
     {
+        if (TryReusePreviousSubtree(nodeCenter, nodeSize, previousNodeIndex, out int reusedNodeIndex))
+            return reusedNodeIndex;
+
         int nodeIndex = _nodes.Count;
         Vector3 halfSize = nodeSize * 0.5f;
         Vector3 min = nodeCenter - halfSize;
@@ -544,6 +688,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Vector3 childSize = nodeSize * 0.5f;
         int childWriteStart = _nodes.Count;
         byte childMask = 0;
+        int previousChildCursor = GetPreviousFirstChildIndex(previousNodeIndex, nodeCenter, nodeSize);
+        byte previousChildMask = previousChildCursor >= 0 ? _previousNodes[previousNodeIndex].ChildMask : (byte)0;
         long childCornerStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         BuildChildCornerSamples(
             source,
@@ -585,7 +731,13 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                 6 => child110,
                 _ => child111
             };
-            BuildNode(source, childCenter, childSize, depth + 1, origin, cellSize, true, childCorners);
+            int previousChildIndex = -1;
+            if (previousChildCursor >= 0 && (previousChildMask & (1 << childOctant)) != 0)
+            {
+                previousChildIndex = previousChildCursor;
+                previousChildCursor += GetPreviousSubtreeSize(previousChildCursor);
+            }
+            BuildNode(source, childCenter, childSize, depth + 1, origin, cellSize, true, childCorners, previousChildIndex);
             childMask |= (byte)(1 << childOctant);
         }
 
@@ -1470,6 +1622,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _subdivisionOnlyCenterMismatch = 0;
         _subdivisionOnlyDistanceThreshold = 0;
         _subdivisionMixedReasons = 0;
+        _reusedNodeCount = 0;
+        _reusedSubtreeCount = 0;
         _recursiveCornerSampleTicks = 0;
         _recursiveCenterDecisionTicks = 0;
         _recursiveChildCornerTicks = 0;
@@ -1564,6 +1718,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             _subdivisionOnlyCenterMismatch,
             _subdivisionOnlyDistanceThreshold,
             _subdivisionMixedReasons,
+            _reusedNodeCount,
+            _reusedSubtreeCount,
             gcGen0Delta,
             gcGen1Delta,
             gcGen2Delta

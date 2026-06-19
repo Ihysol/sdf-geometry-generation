@@ -220,6 +220,36 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreeDirtyBuild_ReusesCleanSubtreesWithoutChangingLayout()
+    {
+        FlatOctreeVolumeBuilder incrementalBuilder = CreateFlatBuilderForDirtyReuseTest();
+        MovingSphereSource incrementalSource = new MovingSphereSource(
+            new Vector3(-0.35f, 0f, 0f),
+            0.55f);
+        incrementalBuilder.Build(incrementalSource);
+
+        incrementalSource.Center = new Vector3(0.35f, 0f, 0f);
+        incrementalSource.ResetCount();
+        incrementalBuilder.PreparePersistentCrossingCache(
+            hasDirtyBounds: true,
+            dirtyBounds: new Bounds(Vector3.zero, new Vector3(2f, 1.2f, 1.2f)));
+        FlatOctreeLayout incrementalLayout = incrementalBuilder
+            .Build(incrementalSource)
+            .GetFlatLayout(includeCornerValues: true);
+        int incrementalEvaluations = incrementalSource.EvaluateCount;
+
+        FlatOctreeVolumeBuilder fullBuilder = CreateFlatBuilderForDirtyReuseTest();
+        MovingSphereSource fullSource = new MovingSphereSource(incrementalSource.Center, 0.55f);
+        FlatOctreeLayout fullLayout = fullBuilder
+            .Build(fullSource)
+            .GetFlatLayout(includeCornerValues: true);
+
+        Assert.That(incrementalBuilder.LastBuildStats.reusedNodeCount, Is.GreaterThan(0));
+        Assert.That(incrementalEvaluations, Is.LessThan(fullSource.EvaluateCount));
+        AssertFlatLayoutsEquivalent(incrementalLayout, fullLayout);
+    }
+
+    [Test]
     public void EdgeRefinementResidual_AcceptsSmallIsoError()
     {
         Assert.That(EdgeRefinementUtility.ResidualIsAcceptable(5e-5f), Is.True);
@@ -246,6 +276,65 @@ public class VolumeCoreUtilityTests
         {
             EvaluateCount++;
             return worldPosition.magnitude - _radius;
+        }
+
+        public void ResetCount()
+        {
+            EvaluateCount = 0;
+        }
+    }
+
+    private static FlatOctreeVolumeBuilder CreateFlatBuilderForDirtyReuseTest()
+    {
+        return new FlatOctreeVolumeBuilder
+        {
+            center = Vector3.zero,
+            size = Vector3.one * 4f,
+            boundsPadding = 0f,
+            minDepth = 2,
+            maxDepth = 4,
+            edgeRefinementSteps = 2,
+            suppressBuildLog = true
+        };
+    }
+
+    private static void AssertFlatLayoutsEquivalent(FlatOctreeLayout actual, FlatOctreeLayout expected)
+    {
+        Assert.That(actual.Count, Is.EqualTo(expected.Count));
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.That(actual.Centers[i], Is.EqualTo(expected.Centers[i]));
+            Assert.That(actual.Sizes[i], Is.EqualTo(expected.Sizes[i]));
+            Assert.That(actual.Coords[i], Is.EqualTo(expected.Coords[i]));
+            Assert.That(actual.NodeSizeInCells[i], Is.EqualTo(expected.NodeSizeInCells[i]));
+            Assert.That(actual.FirstChildIndex[i], Is.EqualTo(expected.FirstChildIndex[i]));
+            Assert.That(actual.ChildMask[i], Is.EqualTo(expected.ChildMask[i]));
+            Assert.That(actual.Flags[i], Is.EqualTo(expected.Flags[i]));
+            Assert.That(actual.SurfaceVertices[i], Is.EqualTo(expected.SurfaceVertices[i]));
+            Assert.That(actual.SurfaceNormals[i], Is.EqualTo(expected.SurfaceNormals[i]));
+
+            for (int corner = 0; corner < 8; corner++)
+                Assert.That(actual.GetCornerValue(i, corner), Is.EqualTo(expected.GetCornerValue(i, corner)));
+        }
+    }
+
+    private sealed class MovingSphereSource : IScalarFieldSource
+    {
+        private readonly float _radius;
+
+        public Vector3 Center { get; set; }
+        public int EvaluateCount { get; private set; }
+
+        public MovingSphereSource(Vector3 center, float radius)
+        {
+            Center = center;
+            _radius = radius;
+        }
+
+        public float Evaluate(Vector3 worldPosition)
+        {
+            EvaluateCount++;
+            return (worldPosition - Center).magnitude - _radius;
         }
 
         public void ResetCount()

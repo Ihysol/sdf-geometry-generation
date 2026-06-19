@@ -313,6 +313,8 @@ public class VolumeModel : MonoBehaviour
         public readonly int subdivisionOnlyCenterMismatch;
         public readonly int subdivisionOnlyDistanceThreshold;
         public readonly int subdivisionMixedReasons;
+        public readonly int reusedNodes;
+        public readonly int reusedSubtrees;
         public readonly double rendererMs;
         public readonly double rendererChunkMs;
         public readonly int rebuiltChunks;
@@ -366,6 +368,8 @@ public class VolumeModel : MonoBehaviour
             int subdivisionOnlyCenterMismatch,
             int subdivisionOnlyDistanceThreshold,
             int subdivisionMixedReasons,
+            int reusedNodes,
+            int reusedSubtrees,
             double rendererMs,
             double rendererChunkMs,
             int rebuiltChunks,
@@ -418,6 +422,8 @@ public class VolumeModel : MonoBehaviour
             this.subdivisionOnlyCenterMismatch = subdivisionOnlyCenterMismatch;
             this.subdivisionOnlyDistanceThreshold = subdivisionOnlyDistanceThreshold;
             this.subdivisionMixedReasons = subdivisionMixedReasons;
+            this.reusedNodes = reusedNodes;
+            this.reusedSubtrees = reusedSubtrees;
             this.rendererMs = rendererMs;
             this.rendererChunkMs = rendererChunkMs;
             this.rebuiltChunks = rebuiltChunks;
@@ -783,6 +789,8 @@ public class VolumeModel : MonoBehaviour
         int subdivisionOnlyCenterMismatch = 0;
         int subdivisionOnlyDistanceThreshold = 0;
         int subdivisionMixedReasons = 0;
+        int reusedNodes = 0;
+        int reusedSubtrees = 0;
 
         if (includeFlatBuildStats)
         {
@@ -827,6 +835,8 @@ public class VolumeModel : MonoBehaviour
             subdivisionOnlyCenterMismatch = stats.subdivisionOnlyCenterMismatch;
             subdivisionOnlyDistanceThreshold = stats.subdivisionOnlyDistanceThreshold;
             subdivisionMixedReasons = stats.subdivisionMixedReasons;
+            reusedNodes = stats.reusedNodeCount;
+            reusedSubtrees = stats.reusedSubtreeCount;
         }
 
         return new RebuildProfileSample(
@@ -874,6 +884,8 @@ public class VolumeModel : MonoBehaviour
             subdivisionOnlyCenterMismatch,
             subdivisionOnlyDistanceThreshold,
             subdivisionMixedReasons,
+            reusedNodes,
+            reusedSubtrees,
             renderStats.totalMs,
             renderStats.chunkRebuildMs,
             renderStats.rebuilt,
@@ -905,7 +917,7 @@ public class VolumeModel : MonoBehaviour
         {
             FlatOctreeVolumeBuilder.BuildStats stats = octreeSampler.flatBuilder.LastBuildStats;
             log +=
-                $", flatBuild(total={stats.totalMs:F2} ms, recursive={stats.recursiveBuildMs:F2} ms, createLayout={stats.createLayoutMs:F2} ms, runtimeCache={stats.runtimeCacheMs:F2} ms), " +
+                $", flatBuild(total={stats.totalMs:F2} ms, recursive={stats.recursiveBuildMs:F2} ms, createLayout={stats.createLayoutMs:F2} ms, runtimeCache={stats.runtimeCacheMs:F2} ms, reusedNodes={stats.reusedNodeCount}, reusedSubtrees={stats.reusedSubtreeCount}), " +
                 $"{FormatRecursivePartsLog(stats)}, " +
                 $"surface(vertex={stats.surfaceVertexMs:F2} ms, crossing={stats.surfaceCrossingMs:F2} ms, normal={stats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={stats.sourceEvaluations}, cornerMiss={stats.cornerCacheMisses}, center={stats.centerEvaluations}, edge={stats.edgeRefinementEvaluations}), " +
@@ -954,7 +966,7 @@ public class VolumeModel : MonoBehaviour
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
             $"normal({Summarize(samples, s => s.surfaceNormalMs)}), " +
-            $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
+            $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, avgReusedNodes={AverageInt(samples, s => s.reusedNodes):F0}, avgReusedSubtrees={AverageInt(samples, s => s.reusedSubtrees):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
             $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCornerInvalidated={AverageInt(samples, s => s.persistentCornerCacheInvalidated):F0}, avgCornerCacheSize={AverageInt(samples, s => s.persistentCornerCacheSize):F0}, avgCenterHit={AverageInt(samples, s => s.centerCacheHits):F0}, avgCenterMiss={AverageInt(samples, s => s.centerCacheMisses):F0}, avgCenterInvalidated={AverageInt(samples, s => s.persistentCenterCacheInvalidated):F0}, avgCenterCacheSize={AverageInt(samples, s => s.persistentCenterCacheSize):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
@@ -1213,7 +1225,7 @@ public class VolumeModel : MonoBehaviour
             $"createLayout({Summarize(samples, s => s.flatCreateLayoutMs)}), " +
             $"runtimeCache({Summarize(samples, s => s.flatRuntimeCacheMs)}), " +
             $"crossing({Summarize(samples, s => s.surfaceCrossingMs)}), " +
-            $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
+            $"tree(avgNodes={AverageInt(samples, s => s.totalNodes):F0}, avgSurfaceLeaves={AverageInt(samples, s => s.surfaceLeaves):F0}, avgReusedNodes={AverageInt(samples, s => s.reusedNodes):F0}, avgReusedSubtrees={AverageInt(samples, s => s.reusedSubtrees):F0}, bounds={FormatVector(samples[0].buildBoundsSize)}), " +
             $"samples(avgSource={AverageInt(samples, s => s.sourceEvaluations):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCenter={AverageInt(samples, s => s.centerEvaluations):F0}, avgEdge={AverageInt(samples, s => s.edgeEvaluations):F0}), " +
             $"cache(avgCornerHit={AverageInt(samples, s => s.cornerCacheHits):F0}, avgCornerMiss={AverageInt(samples, s => s.cornerCacheMisses):F0}, avgCornerInvalidated={AverageInt(samples, s => s.persistentCornerCacheInvalidated):F0}, avgCornerCacheSize={AverageInt(samples, s => s.persistentCornerCacheSize):F0}, avgCenterHit={AverageInt(samples, s => s.centerCacheHits):F0}, avgCenterMiss={AverageInt(samples, s => s.centerCacheMisses):F0}, avgCenterInvalidated={AverageInt(samples, s => s.persistentCenterCacheInvalidated):F0}, avgCenterCacheSize={AverageInt(samples, s => s.persistentCenterCacheSize):F0}, avgCrossingHit={AverageInt(samples, s => s.crossingCacheHits):F0}, avgCrossingMiss={AverageInt(samples, s => s.crossingCacheMisses):F0}, avgPersistentCrossingHit={AverageInt(samples, s => s.persistentCrossingCacheHits):F0}, avgCrossingInvalidated={AverageInt(samples, s => s.persistentCrossingCacheInvalidated):F0}, avgCrossingCacheSize={AverageInt(samples, s => s.persistentCrossingCacheSize):F0}), " +
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
@@ -1252,7 +1264,7 @@ public class VolumeModel : MonoBehaviour
             $"worst(index={index}, total={sample.totalMs:F2} ms, volumeBuild={sample.volumeBuildMs:F2} ms, render={sample.renderMs:F2} ms, " +
             $"recursive={sample.flatRecursiveMs:F2} ms, createLayout={sample.flatCreateLayoutMs:F2} ms, runtimeCache={sample.flatRuntimeCacheMs:F2} ms, crossing={sample.surfaceCrossingMs:F2} ms, " +
             $"{FormatRecursivePartsLog(sample)}, " +
-            $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, bounds={FormatVector(sample.buildBoundsSize)}, " +
+            $"nodes={sample.totalNodes}, surfaceLeaves={sample.surfaceLeaves}, reusedNodes={sample.reusedNodes}, reusedSubtrees={sample.reusedSubtrees}, bounds={FormatVector(sample.buildBoundsSize)}, " +
             $"rebuilt={sample.rebuiltChunks}, queuedDirty={sample.queuedDirtyChunks}, source={sample.sourceEvaluations}, cornerMiss={sample.cornerCacheMisses}, center={sample.centerEvaluations}, edge={sample.edgeEvaluations}, " +
             $"cornerHit={sample.cornerCacheHits}, cornerInvalidated={sample.persistentCornerCacheInvalidated}, cornerCacheSize={sample.persistentCornerCacheSize}, centerHit={sample.centerCacheHits}, centerMiss={sample.centerCacheMisses}, centerInvalidated={sample.persistentCenterCacheInvalidated}, centerCacheSize={sample.persistentCenterCacheSize}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, persistentCrossingHit={sample.persistentCrossingCacheHits}, crossingInvalidated={sample.persistentCrossingCacheInvalidated}, crossingCacheSize={sample.persistentCrossingCacheSize}, " +
             $"subdivision(minDepth={sample.subdivisionMinDepth}, crossing={sample.subdivisionCornerCrossing}, centerMismatch={sample.subdivisionCenterMismatch}, distance={sample.subdivisionDistanceThreshold}), " +
