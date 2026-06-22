@@ -278,6 +278,27 @@ public class VolumeCoreUtilityTests
     }
 
     [Test]
+    public void FlatOctreeRecursiveProfiling_ReportsCachePreparationAndSubtreeCopy()
+    {
+        FlatOctreeVolumeBuilder builder = CreateFlatBuilderForDirtyReuseTest();
+        builder.profileRecursiveParts = true;
+        MovingSphereSource source = new MovingSphereSource(Vector3.zero, 0.55f);
+        builder.Build(source);
+
+        builder.PreparePersistentCrossingCache(
+            hasDirtyBounds: true,
+            dirtyBounds: new Bounds(Vector3.one * 10f, Vector3.one * 0.1f));
+        builder.Build(source);
+
+        FlatOctreeVolumeBuilder.BuildStats stats = builder.LastBuildStats;
+        Assert.That(stats.recursiveNodeReusePreparationMs, Is.GreaterThanOrEqualTo(0d));
+        Assert.That(stats.recursiveCornerCachePreparationMs, Is.GreaterThanOrEqualTo(0d));
+        Assert.That(stats.recursiveCenterCachePreparationMs, Is.GreaterThanOrEqualTo(0d));
+        Assert.That(stats.recursiveCrossingCachePreparationMs, Is.GreaterThanOrEqualTo(0d));
+        Assert.That(stats.recursiveSubtreeCopyMs, Is.GreaterThan(0d));
+    }
+
+    [Test]
     public void EdgeRefinementResidual_AcceptsSmallIsoError()
     {
         Assert.That(EdgeRefinementUtility.ResidualIsAcceptable(5e-5f), Is.True);

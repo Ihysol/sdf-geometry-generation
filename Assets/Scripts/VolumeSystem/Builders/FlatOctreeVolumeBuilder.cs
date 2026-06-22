@@ -13,6 +13,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         public readonly double recursiveCenterDecisionMs;
         public readonly double recursiveChildCornerMs;
         public readonly double recursiveNodeRecordMs;
+        public readonly double recursiveNodeReusePreparationMs;
+        public readonly double recursiveCornerCachePreparationMs;
+        public readonly double recursiveCenterCachePreparationMs;
+        public readonly double recursiveCrossingCachePreparationMs;
+        public readonly double recursiveSubtreeCopyMs;
         public readonly double recursiveOtherMs;
         public readonly double createLayoutMs;
         public readonly double runtimeCacheMs;
@@ -60,6 +65,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             double recursiveCenterDecisionMs,
             double recursiveChildCornerMs,
             double recursiveNodeRecordMs,
+            double recursiveNodeReusePreparationMs,
+            double recursiveCornerCachePreparationMs,
+            double recursiveCenterCachePreparationMs,
+            double recursiveCrossingCachePreparationMs,
+            double recursiveSubtreeCopyMs,
             double recursiveOtherMs,
             double createLayoutMs,
             double runtimeCacheMs,
@@ -106,6 +116,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             this.recursiveCenterDecisionMs = recursiveCenterDecisionMs;
             this.recursiveChildCornerMs = recursiveChildCornerMs;
             this.recursiveNodeRecordMs = recursiveNodeRecordMs;
+            this.recursiveNodeReusePreparationMs = recursiveNodeReusePreparationMs;
+            this.recursiveCornerCachePreparationMs = recursiveCornerCachePreparationMs;
+            this.recursiveCenterCachePreparationMs = recursiveCenterCachePreparationMs;
+            this.recursiveCrossingCachePreparationMs = recursiveCrossingCachePreparationMs;
+            this.recursiveSubtreeCopyMs = recursiveSubtreeCopyMs;
             this.recursiveOtherMs = recursiveOtherMs;
             this.createLayoutMs = createLayoutMs;
             this.runtimeCacheMs = runtimeCacheMs;
@@ -345,6 +360,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
     private long _recursiveCenterDecisionTicks;
     private long _recursiveChildCornerTicks;
     private long _recursiveNodeRecordTicks;
+    private long _recursiveNodeReusePreparationTicks;
+    private long _recursiveCornerCachePreparationTicks;
+    private long _recursiveCenterCachePreparationTicks;
+    private long _recursiveCrossingCachePreparationTicks;
+    private long _recursiveSubtreeCopyTicks;
     private long _surfaceVertexTicks;
     private long _surfaceCrossingTicks;
     private long _surfaceNormalTicks;
@@ -425,6 +445,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (subtreeSize <= 0 || previousNodeIndex + subtreeSize > _previousNodes.Count)
             return false;
 
+        long subtreeCopyStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         reusedNodeIndex = _nodes.Count;
         int indexOffset = reusedNodeIndex - previousNodeIndex;
         for (int i = 0; i < subtreeSize; i++)
@@ -439,6 +460,8 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         _reusedNodeCount += subtreeSize;
         _reusedSubtreeCount++;
+        if (profileRecursiveParts)
+            _recursiveSubtreeCopyTicks += Stopwatch.GetTimestamp() - subtreeCopyStart;
         return true;
     }
 
@@ -502,11 +525,28 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         Bounds buildBounds = Bounds;
         Vector3 origin = buildBounds.min;
         Vector3 cellSize = buildBounds.size / (1 << maxDepth);
+        long nodeReusePreparationStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         PrepareNodeBuffersForBuild(cellSize);
+        long nodeReusePreparationTicks = profileRecursiveParts
+            ? Stopwatch.GetTimestamp() - nodeReusePreparationStart
+            : 0L;
         ResetState();
+        _recursiveNodeReusePreparationTicks = nodeReusePreparationTicks;
+
+        long cornerCachePreparationStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         PrepareCornerSampleCacheForBuild(origin, cellSize);
+        if (profileRecursiveParts)
+            _recursiveCornerCachePreparationTicks += Stopwatch.GetTimestamp() - cornerCachePreparationStart;
+
+        long centerCachePreparationStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         PrepareCenterSampleCacheForBuild(origin, cellSize);
+        if (profileRecursiveParts)
+            _recursiveCenterCachePreparationTicks += Stopwatch.GetTimestamp() - centerCachePreparationStart;
+
+        long crossingCachePreparationStart = profileRecursiveParts ? Stopwatch.GetTimestamp() : 0L;
         PrepareCrossingCacheForBuild(origin, cellSize);
+        if (profileRecursiveParts)
+            _recursiveCrossingCachePreparationTicks += Stopwatch.GetTimestamp() - crossingCachePreparationStart;
 
         BuildNode(source, buildBounds.center, buildBounds.size, 0, origin, cellSize, false, default, 0);
 
@@ -1645,6 +1685,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         _recursiveCenterDecisionTicks = 0;
         _recursiveChildCornerTicks = 0;
         _recursiveNodeRecordTicks = 0;
+        _recursiveNodeReusePreparationTicks = 0;
+        _recursiveCornerCachePreparationTicks = 0;
+        _recursiveCenterCachePreparationTicks = 0;
+        _recursiveCrossingCachePreparationTicks = 0;
+        _recursiveSubtreeCopyTicks = 0;
         _surfaceVertexTicks = 0;
         _surfaceCrossingTicks = 0;
         _surfaceNormalTicks = 0;
@@ -1680,6 +1725,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         double recursiveCenterDecisionMs = profileRecursiveParts ? _recursiveCenterDecisionTicks * 1000d / Stopwatch.Frequency : 0d;
         double recursiveChildCornerMs = profileRecursiveParts ? _recursiveChildCornerTicks * 1000d / Stopwatch.Frequency : 0d;
         double recursiveNodeRecordMs = profileRecursiveParts ? _recursiveNodeRecordTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveNodeReusePreparationMs = profileRecursiveParts ? _recursiveNodeReusePreparationTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveCornerCachePreparationMs = profileRecursiveParts ? _recursiveCornerCachePreparationTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveCenterCachePreparationMs = profileRecursiveParts ? _recursiveCenterCachePreparationTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveCrossingCachePreparationMs = profileRecursiveParts ? _recursiveCrossingCachePreparationTicks * 1000d / Stopwatch.Frequency : 0d;
+        double recursiveSubtreeCopyMs = profileRecursiveParts ? _recursiveSubtreeCopyTicks * 1000d / Stopwatch.Frequency : 0d;
         double recursiveOtherMs = 0d;
         if (profileRecursiveParts)
         {
@@ -1688,6 +1738,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
                  _recursiveCenterDecisionTicks +
                  _recursiveChildCornerTicks +
                  _recursiveNodeRecordTicks +
+                 _recursiveNodeReusePreparationTicks +
+                 _recursiveCornerCachePreparationTicks +
+                 _recursiveCenterCachePreparationTicks +
+                 _recursiveCrossingCachePreparationTicks +
+                 _recursiveSubtreeCopyTicks +
                  surfaceVertexExclusiveTicks +
                  _surfaceCrossingTicks +
                  _surfaceNormalTicks) * 1000d / Stopwatch.Frequency;
@@ -1701,6 +1756,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
             recursiveCenterDecisionMs,
             recursiveChildCornerMs,
             recursiveNodeRecordMs,
+            recursiveNodeReusePreparationMs,
+            recursiveCornerCachePreparationMs,
+            recursiveCenterCachePreparationMs,
+            recursiveCrossingCachePreparationMs,
+            recursiveSubtreeCopyMs,
             recursiveOtherMs,
             createLayoutMs,
             runtimeCacheMs,
@@ -1748,6 +1808,6 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (!profileRecursiveParts)
             return "recursiveParts=disabled";
 
-        return $"recursiveParts(corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
+        return $"recursiveParts(nodePrep={stats.recursiveNodeReusePreparationMs:F2} ms, cornerCachePrep={stats.recursiveCornerCachePreparationMs:F2} ms, centerCachePrep={stats.recursiveCenterCachePreparationMs:F2} ms, crossingCachePrep={stats.recursiveCrossingCachePreparationMs:F2} ms, subtreeCopy={stats.recursiveSubtreeCopyMs:F2} ms, corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
     }
 }

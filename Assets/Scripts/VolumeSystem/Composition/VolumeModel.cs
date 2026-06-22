@@ -279,6 +279,11 @@ public class VolumeModel : MonoBehaviour
         public readonly double recursiveCenterDecisionMs;
         public readonly double recursiveChildCornerMs;
         public readonly double recursiveNodeRecordMs;
+        public readonly double recursiveNodeReusePreparationMs;
+        public readonly double recursiveCornerCachePreparationMs;
+        public readonly double recursiveCenterCachePreparationMs;
+        public readonly double recursiveCrossingCachePreparationMs;
+        public readonly double recursiveSubtreeCopyMs;
         public readonly double recursiveOtherMs;
         public readonly double flatCreateLayoutMs;
         public readonly double flatRuntimeCacheMs;
@@ -334,6 +339,11 @@ public class VolumeModel : MonoBehaviour
             double recursiveCenterDecisionMs,
             double recursiveChildCornerMs,
             double recursiveNodeRecordMs,
+            double recursiveNodeReusePreparationMs,
+            double recursiveCornerCachePreparationMs,
+            double recursiveCenterCachePreparationMs,
+            double recursiveCrossingCachePreparationMs,
+            double recursiveSubtreeCopyMs,
             double recursiveOtherMs,
             double flatCreateLayoutMs,
             double flatRuntimeCacheMs,
@@ -388,6 +398,11 @@ public class VolumeModel : MonoBehaviour
             this.recursiveCenterDecisionMs = recursiveCenterDecisionMs;
             this.recursiveChildCornerMs = recursiveChildCornerMs;
             this.recursiveNodeRecordMs = recursiveNodeRecordMs;
+            this.recursiveNodeReusePreparationMs = recursiveNodeReusePreparationMs;
+            this.recursiveCornerCachePreparationMs = recursiveCornerCachePreparationMs;
+            this.recursiveCenterCachePreparationMs = recursiveCenterCachePreparationMs;
+            this.recursiveCrossingCachePreparationMs = recursiveCrossingCachePreparationMs;
+            this.recursiveSubtreeCopyMs = recursiveSubtreeCopyMs;
             this.recursiveOtherMs = recursiveOtherMs;
             this.flatCreateLayoutMs = flatCreateLayoutMs;
             this.flatRuntimeCacheMs = flatRuntimeCacheMs;
@@ -755,6 +770,11 @@ public class VolumeModel : MonoBehaviour
         double recursiveCenterDecisionMs = 0d;
         double recursiveChildCornerMs = 0d;
         double recursiveNodeRecordMs = 0d;
+        double recursiveNodeReusePreparationMs = 0d;
+        double recursiveCornerCachePreparationMs = 0d;
+        double recursiveCenterCachePreparationMs = 0d;
+        double recursiveCrossingCachePreparationMs = 0d;
+        double recursiveSubtreeCopyMs = 0d;
         double recursiveOtherMs = 0d;
         double flatCreateLayoutMs = 0d;
         double flatRuntimeCacheMs = 0d;
@@ -801,6 +821,11 @@ public class VolumeModel : MonoBehaviour
             recursiveCenterDecisionMs = stats.recursiveCenterDecisionMs;
             recursiveChildCornerMs = stats.recursiveChildCornerMs;
             recursiveNodeRecordMs = stats.recursiveNodeRecordMs;
+            recursiveNodeReusePreparationMs = stats.recursiveNodeReusePreparationMs;
+            recursiveCornerCachePreparationMs = stats.recursiveCornerCachePreparationMs;
+            recursiveCenterCachePreparationMs = stats.recursiveCenterCachePreparationMs;
+            recursiveCrossingCachePreparationMs = stats.recursiveCrossingCachePreparationMs;
+            recursiveSubtreeCopyMs = stats.recursiveSubtreeCopyMs;
             recursiveOtherMs = stats.recursiveOtherMs;
             flatCreateLayoutMs = stats.createLayoutMs;
             flatRuntimeCacheMs = stats.runtimeCacheMs;
@@ -850,6 +875,11 @@ public class VolumeModel : MonoBehaviour
             recursiveCenterDecisionMs,
             recursiveChildCornerMs,
             recursiveNodeRecordMs,
+            recursiveNodeReusePreparationMs,
+            recursiveCornerCachePreparationMs,
+            recursiveCenterCachePreparationMs,
+            recursiveCrossingCachePreparationMs,
+            recursiveSubtreeCopyMs,
             recursiveOtherMs,
             flatCreateLayoutMs,
             flatRuntimeCacheMs,
@@ -1312,7 +1342,7 @@ public class VolumeModel : MonoBehaviour
         if (!profileFlatRecursiveParts)
             return "recursiveParts=disabled";
 
-        return $"recursiveParts(corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
+        return $"recursiveParts(nodePrep={stats.recursiveNodeReusePreparationMs:F2} ms, cornerCachePrep={stats.recursiveCornerCachePreparationMs:F2} ms, centerCachePrep={stats.recursiveCenterCachePreparationMs:F2} ms, crossingCachePrep={stats.recursiveCrossingCachePreparationMs:F2} ms, subtreeCopy={stats.recursiveSubtreeCopyMs:F2} ms, corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
     }
 
     private string FormatRecursivePartsLog(RebuildProfileSample[] samples)
@@ -1320,7 +1350,7 @@ public class VolumeModel : MonoBehaviour
         if (!profileFlatRecursiveParts)
             return "recursiveParts=disabled";
 
-        return $"recursiveParts(corner={Average(samples, s => s.recursiveCornerSampleMs):F2} ms, center={Average(samples, s => s.recursiveCenterDecisionMs):F2} ms, childCorner={Average(samples, s => s.recursiveChildCornerMs):F2} ms, nodeRecord={Average(samples, s => s.recursiveNodeRecordMs):F2} ms, other={Average(samples, s => s.recursiveOtherMs):F2} ms)";
+        return $"recursiveParts(nodePrep={Average(samples, s => s.recursiveNodeReusePreparationMs):F2} ms, cornerCachePrep={Average(samples, s => s.recursiveCornerCachePreparationMs):F2} ms, centerCachePrep={Average(samples, s => s.recursiveCenterCachePreparationMs):F2} ms, crossingCachePrep={Average(samples, s => s.recursiveCrossingCachePreparationMs):F2} ms, subtreeCopy={Average(samples, s => s.recursiveSubtreeCopyMs):F2} ms, corner={Average(samples, s => s.recursiveCornerSampleMs):F2} ms, center={Average(samples, s => s.recursiveCenterDecisionMs):F2} ms, childCorner={Average(samples, s => s.recursiveChildCornerMs):F2} ms, nodeRecord={Average(samples, s => s.recursiveNodeRecordMs):F2} ms, other={Average(samples, s => s.recursiveOtherMs):F2} ms)";
     }
 
     private string FormatRecursivePartsLog(RebuildProfileSample sample)
@@ -1328,7 +1358,7 @@ public class VolumeModel : MonoBehaviour
         if (!profileFlatRecursiveParts)
             return "recursiveParts=disabled";
 
-        return $"recursiveParts(corner={sample.recursiveCornerSampleMs:F2} ms, center={sample.recursiveCenterDecisionMs:F2} ms, childCorner={sample.recursiveChildCornerMs:F2} ms, nodeRecord={sample.recursiveNodeRecordMs:F2} ms, other={sample.recursiveOtherMs:F2} ms)";
+        return $"recursiveParts(nodePrep={sample.recursiveNodeReusePreparationMs:F2} ms, cornerCachePrep={sample.recursiveCornerCachePreparationMs:F2} ms, centerCachePrep={sample.recursiveCenterCachePreparationMs:F2} ms, crossingCachePrep={sample.recursiveCrossingCachePreparationMs:F2} ms, subtreeCopy={sample.recursiveSubtreeCopyMs:F2} ms, corner={sample.recursiveCornerSampleMs:F2} ms, center={sample.recursiveCenterDecisionMs:F2} ms, childCorner={sample.recursiveChildCornerMs:F2} ms, nodeRecord={sample.recursiveNodeRecordMs:F2} ms, other={sample.recursiveOtherMs:F2} ms)";
     }
 
     private static int Count(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, bool> selector)
