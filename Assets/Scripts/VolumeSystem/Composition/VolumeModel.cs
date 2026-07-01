@@ -3,6 +3,8 @@ using UnityEditor;
 using UnityEditorInternal;
 #endif
 
+using System;
+using System.IO;
 using UnityEngine;
 
 public enum VolumeDataStructure
@@ -62,6 +64,7 @@ public class VolumeModel : MonoBehaviour
     private readonly System.Collections.Generic.List<Bounds> _chunkBoundsCache = new();
     private bool _hasDirtyBounds;
     private Bounds _dirtyBounds;
+    private readonly System.Collections.Generic.List<Bounds> _dirtyBoundsParts = new();
     private bool _isPreviewRebuild;
     private bool _forceFullChunkRenderOnce;
 
@@ -152,6 +155,7 @@ public class VolumeModel : MonoBehaviour
         qefEdgeWeight = Mathf.Max(0f, qefEdgeWeight);
         qefCornerWeight = Mathf.Max(0f, qefCornerWeight);
         benchmarkRuns = Mathf.Max(2, benchmarkRuns);
+        benchmarkLogArchiveLimit = Mathf.Max(1, benchmarkLogArchiveLimit);
         dirtyMoveBenchmarkStepDelayMs = Mathf.Max(0f, dirtyMoveBenchmarkStepDelayMs);
     }
 
@@ -230,6 +234,8 @@ public class VolumeModel : MonoBehaviour
     public bool renderOctreeDebugCubes = false;
     public bool logChunkRebuildStats = false;
     public bool logRebuildDuration = true;
+    public bool writeBenchmarkLogsToFile = true;
+    [Min(1)] public int benchmarkLogArchiveLimit = 20;
     public bool profileFlatRecursiveParts = false;
 
     [Header("Add Object")]
@@ -242,6 +248,8 @@ public class VolumeModel : MonoBehaviour
     private bool _hasFinalizePreviewDirtyBounds;
     private Bounds _finalizePreviewDirtyBounds;
     private bool _suppressRebuildProfileLog;
+    private bool _benchmarkLogFileReady;
+    private string _benchmarkArchiveLogPath;
     public VolumeBenchmarkType benchmarkType = VolumeBenchmarkType.DirtyMove;
     [Min(2)]
     public int benchmarkRuns = 10;
@@ -327,6 +335,22 @@ public class VolumeModel : MonoBehaviour
         public readonly bool dirtySeen;
         public readonly bool canUseDirtyChunks;
         public readonly bool fullChunkRebuild;
+        public readonly bool frontierUsed;
+        public readonly int frontierBatchCount;
+        public readonly int frontierSampleCount;
+        public readonly int frontierJobSampleCount;
+        public readonly int frontierSerialSampleCount;
+        public readonly double frontierPreparationMs;
+        public readonly double frontierEvaluationMs;
+        public readonly double frontierInsertionMs;
+        public readonly double frontierTraversalMs;
+        public readonly double frontierReuseCheckMs;
+        public readonly double frontierCollectCornersMs;
+        public readonly double frontierCollectCentersMs;
+        public readonly double frontierSubdivideDecisionMs;
+        public readonly double frontierEnqueueChildrenMs;
+        public readonly double frontierNodeRecordMs;
+        public readonly double frontierBuildReplayMs;
 
         public RebuildProfileSample(
             double totalMs,
@@ -386,7 +410,23 @@ public class VolumeModel : MonoBehaviour
             int queuedDirtyChunks,
             bool dirtySeen,
             bool canUseDirtyChunks,
-            bool fullChunkRebuild)
+            bool fullChunkRebuild,
+            bool frontierUsed = false,
+            int frontierBatchCount = 0,
+            int frontierSampleCount = 0,
+            int frontierJobSampleCount = 0,
+            int frontierSerialSampleCount = 0,
+            double frontierPreparationMs = 0d,
+            double frontierEvaluationMs = 0d,
+            double frontierInsertionMs = 0d,
+            double frontierTraversalMs = 0d,
+            double frontierReuseCheckMs = 0d,
+            double frontierCollectCornersMs = 0d,
+            double frontierCollectCentersMs = 0d,
+            double frontierSubdivideDecisionMs = 0d,
+            double frontierEnqueueChildrenMs = 0d,
+            double frontierNodeRecordMs = 0d,
+            double frontierBuildReplayMs = 0d)
         {
             this.totalMs = totalMs;
             this.compositionMs = compositionMs;
@@ -446,6 +486,22 @@ public class VolumeModel : MonoBehaviour
             this.dirtySeen = dirtySeen;
             this.canUseDirtyChunks = canUseDirtyChunks;
             this.fullChunkRebuild = fullChunkRebuild;
+            this.frontierUsed = frontierUsed;
+            this.frontierBatchCount = frontierBatchCount;
+            this.frontierSampleCount = frontierSampleCount;
+            this.frontierJobSampleCount = frontierJobSampleCount;
+            this.frontierSerialSampleCount = frontierSerialSampleCount;
+            this.frontierPreparationMs = frontierPreparationMs;
+            this.frontierEvaluationMs = frontierEvaluationMs;
+            this.frontierInsertionMs = frontierInsertionMs;
+            this.frontierTraversalMs = frontierTraversalMs;
+            this.frontierReuseCheckMs = frontierReuseCheckMs;
+            this.frontierCollectCornersMs = frontierCollectCornersMs;
+            this.frontierCollectCentersMs = frontierCollectCentersMs;
+            this.frontierSubdivideDecisionMs = frontierSubdivideDecisionMs;
+            this.frontierEnqueueChildrenMs = frontierEnqueueChildrenMs;
+            this.frontierNodeRecordMs = frontierNodeRecordMs;
+            this.frontierBuildReplayMs = frontierBuildReplayMs;
         }
     }
 #endif
@@ -616,6 +672,11 @@ public class VolumeModel : MonoBehaviour
                 bool hasInitializedVolume = dataStructure == VolumeDataStructure.Octree
                     ? octreeSampler.Volume != null
                     : sparseVoxelOctreeSampler.Volume != null;
+                bool canUseChunkLocalRendererBuild = hasDirtyBounds &&
+                    hasInitializedVolume &&
+                    enableChunking &&
+                    RenderOutput != null &&
+                    RenderOutput.CanBuildDirtyChunksLocally(this);
 
                 if (!hasInitializedVolume)
                 {
@@ -678,12 +739,20 @@ public class VolumeModel : MonoBehaviour
                     octreeSampler.MarkDirty();
                     if (canUseFlatBuilder)
                     {
-                        if (hasDirtyBounds && rebuildCause == "unknown")
-                            rebuildCause = "octree-flat-dirty-full";
-                        ConfigureFlatOctreeBuilder(activeBuilder);
-                        octreeSampler.RebuildFlatOctreeVolume(source, hasDirtyBounds, dirtyBounds);
-                        builtFlatOctreeThisRebuild = true;
-                        rebuildCause += "-flat-builder";
+                        if (canUseChunkLocalRendererBuild)
+                        {
+                            if (rebuildCause == "unknown")
+                                rebuildCause = "octree-flat-dirty-chunk-local";
+                        }
+                        else
+                        {
+                            if (hasDirtyBounds && rebuildCause == "unknown")
+                                rebuildCause = "octree-flat-dirty-full";
+                            ConfigureFlatOctreeBuilder(activeBuilder);
+                            octreeSampler.RebuildFlatOctreeVolume(source, hasDirtyBounds, dirtyBounds, _dirtyBoundsParts);
+                            builtFlatOctreeThisRebuild = true;
+                            rebuildCause += "-flat-builder";
+                        }
                     }
                     else
                     {
@@ -740,7 +809,7 @@ public class VolumeModel : MonoBehaviour
                 builtFlatOctreeThisRebuild);
             if (ShouldLogRebuildDuration() && !_suppressRebuildProfileLog)
             {
-                Debug.Log(BuildRebuildProfileLog(
+                string rebuildProfileLog = BuildRebuildProfileLog(
                     rebuildStopwatch.Elapsed.TotalMilliseconds,
                     compositionMs,
                     volumeBuildMs,
@@ -748,7 +817,9 @@ public class VolumeModel : MonoBehaviour
                     rebuildCause,
                     hasDirtyBounds,
                     usedIncrementalUpdate,
-                    builtFlatOctreeThisRebuild));
+                    builtFlatOctreeThisRebuild);
+                Debug.Log(rebuildProfileLog);
+                AppendBenchmarkLogSection("Manual Move / Rebuild Profile", rebuildProfileLog);
             }
         }
 #endif
@@ -811,6 +882,22 @@ public class VolumeModel : MonoBehaviour
         int subdivisionMixedReasons = 0;
         int reusedNodes = 0;
         int reusedSubtrees = 0;
+        bool frontierUsed = false;
+        int frontierBatchCount = 0;
+        int frontierSampleCount = 0;
+        int frontierJobSampleCount = 0;
+        int frontierSerialSampleCount = 0;
+        double frontierPreparationMs = 0d;
+        double frontierEvaluationMs = 0d;
+        double frontierInsertionMs = 0d;
+        double frontierTraversalMs = 0d;
+        double frontierReuseCheckMs = 0d;
+        double frontierCollectCornersMs = 0d;
+        double frontierCollectCentersMs = 0d;
+        double frontierSubdivideDecisionMs = 0d;
+        double frontierEnqueueChildrenMs = 0d;
+        double frontierNodeRecordMs = 0d;
+        double frontierBuildReplayMs = 0d;
 
         if (includeFlatBuildStats)
         {
@@ -862,6 +949,22 @@ public class VolumeModel : MonoBehaviour
             subdivisionMixedReasons = stats.subdivisionMixedReasons;
             reusedNodes = stats.reusedNodeCount;
             reusedSubtrees = stats.reusedSubtreeCount;
+            frontierUsed = stats.frontierUsed;
+            frontierBatchCount = stats.frontierBatchCount;
+            frontierSampleCount = stats.frontierSampleCount;
+            frontierJobSampleCount = stats.frontierJobSampleCount;
+            frontierSerialSampleCount = stats.frontierSerialSampleCount;
+            frontierPreparationMs = stats.frontierPreparationMs;
+            frontierEvaluationMs = stats.frontierEvaluationMs;
+            frontierInsertionMs = stats.frontierInsertionMs;
+            frontierTraversalMs = stats.frontierTraversalMs;
+            frontierReuseCheckMs = stats.frontierReuseCheckMs;
+            frontierCollectCornersMs = stats.frontierCollectCornersMs;
+            frontierCollectCentersMs = stats.frontierCollectCentersMs;
+            frontierSubdivideDecisionMs = stats.frontierSubdivideDecisionMs;
+            frontierEnqueueChildrenMs = stats.frontierEnqueueChildrenMs;
+            frontierNodeRecordMs = stats.frontierNodeRecordMs;
+            frontierBuildReplayMs = stats.frontierBuildReplayMs;
         }
 
         return new RebuildProfileSample(
@@ -922,7 +1025,23 @@ public class VolumeModel : MonoBehaviour
             renderStats.queuedDirtyChunks,
             renderStats.hadDirtyBounds,
             renderStats.canDoDirtyRebuild,
-            renderStats.fullRebuildRequested);
+            renderStats.fullRebuildRequested,
+            frontierUsed,
+            frontierBatchCount,
+            frontierSampleCount,
+            frontierJobSampleCount,
+            frontierSerialSampleCount,
+            frontierPreparationMs,
+            frontierEvaluationMs,
+            frontierInsertionMs,
+            frontierTraversalMs,
+            frontierReuseCheckMs,
+            frontierCollectCornersMs,
+            frontierCollectCentersMs,
+            frontierSubdivideDecisionMs,
+            frontierEnqueueChildrenMs,
+            frontierNodeRecordMs,
+            frontierBuildReplayMs);
     }
 
     private string BuildRebuildProfileLog(
@@ -940,7 +1059,7 @@ public class VolumeModel : MonoBehaviour
             $"Volume Rebuild Profile [{GetPipelineDebugLabel()}]: " +
             $"model(total={totalMs:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms), " +
             $"cause={rebuildCause}, hasDirty={hadDirtyBounds}, incremental={usedIncrementalUpdate}, refinementSteps={GetEffectiveEdgeRefinementSteps()}, " +
-            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget}, " +
+            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, chunkLocalBuild={renderStats.chunkLocalBuildMs:F2} ms, chunkLocalBuilds={renderStats.chunkLocalBuilds}, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget}, " +
             $"dirtySeen={renderStats.hadDirtyBounds}, canDirty={renderStats.canDoDirtyRebuild}, full={renderStats.fullRebuildRequested}, queuedDirty={renderStats.queuedDirtyChunks}, dirtySize={FormatVector(renderStats.dirtyBounds.size)})";
 
         if (includeFlatBuildStats)
@@ -952,10 +1071,108 @@ public class VolumeModel : MonoBehaviour
                 $"surface(vertex={stats.surfaceVertexMs:F2} ms, crossing={stats.surfaceCrossingMs:F2} ms, normal={stats.surfaceNormalMs:F2} ms), " +
                 $"samples(total={stats.sourceEvaluations}, cornerMiss={stats.cornerCacheMisses}, center={stats.centerEvaluations}, edge={stats.edgeRefinementEvaluations}), " +
                 $"cache(cornerHit={stats.cornerCacheHits}, cornerMiss={stats.cornerCacheMisses}, cornerInvalidated={stats.persistentCornerCacheInvalidated}, cornerSize={stats.persistentCornerCacheSize}, centerHit={stats.centerCacheHits}, centerMiss={stats.centerCacheMisses}, centerInvalidated={stats.persistentCenterCacheInvalidated}, centerSize={stats.persistentCenterCacheSize}, crossingHit={stats.crossingCacheHits}, crossingMiss={stats.crossingCacheMisses}), " +
-                $"gc(gen0={stats.gcGen0Delta}, gen1={stats.gcGen1Delta}, gen2={stats.gcGen2Delta})";
+                $"gc(gen0={stats.gcGen0Delta}, gen1={stats.gcGen1Delta}, gen2={stats.gcGen2Delta}), " +
+                $"frontier(used={stats.frontierUsed}, batches={stats.frontierBatchCount}, samples={stats.frontierSampleCount}, jobSamples={stats.frontierJobSampleCount}, serialSamples={stats.frontierSerialSampleCount}, prep={stats.frontierPreparationMs:F2} ms, traversal={stats.frontierTraversalMs:F2} ms, reuse={stats.frontierReuseCheckMs:F2} ms, collectCorners={stats.frontierCollectCornersMs:F2} ms, collectCenters={stats.frontierCollectCentersMs:F2} ms, subdivide={stats.frontierSubdivideDecisionMs:F2} ms, enqueue={stats.frontierEnqueueChildrenMs:F2} ms, nodeRecord={stats.frontierNodeRecordMs:F2} ms, eval={stats.frontierEvaluationMs:F2} ms, insert={stats.frontierInsertionMs:F2} ms, replay={stats.frontierBuildReplayMs:F2} ms)";
         }
 
         return log;
+    }
+
+    private string BenchmarkLogDirectoryPath
+    {
+        get
+        {
+#if UNITY_EDITOR
+            DirectoryInfo projectRoot = Directory.GetParent(Application.dataPath);
+            if (projectRoot != null)
+                return Path.Combine(projectRoot.FullName, "Logs");
+#endif
+            return Path.Combine(Application.persistentDataPath, "Logs");
+        }
+    }
+
+    private string BenchmarkLatestLogPath =>
+        Path.Combine(BenchmarkLogDirectoryPath, "volume-benchmark-latest.log");
+
+    private void EnsureBenchmarkLogFile()
+    {
+        if (!writeBenchmarkLogsToFile || _benchmarkLogFileReady)
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(BenchmarkLogDirectoryPath);
+            string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            _benchmarkArchiveLogPath = Path.Combine(
+                BenchmarkLogDirectoryPath,
+                $"volume-benchmark-{timestamp}.log");
+
+            string header =
+                $"SDF benchmark log session started {DateTime.Now:O}\n" +
+                $"Scene: {gameObject.scene.name}\n" +
+                $"Model: {name}\n\n";
+            File.WriteAllText(BenchmarkLatestLogPath, header);
+            File.WriteAllText(_benchmarkArchiveLogPath, header);
+            _benchmarkLogFileReady = true;
+            TrimBenchmarkLogArchive();
+        }
+        catch (Exception ex)
+        {
+            _benchmarkLogFileReady = false;
+            Debug.LogWarning($"Failed to initialize SDF benchmark log file: {ex.Message}");
+        }
+    }
+
+    private void AppendBenchmarkLogSection(string sectionTitle, string message)
+    {
+        if (!writeBenchmarkLogsToFile || string.IsNullOrEmpty(message))
+            return;
+
+        EnsureBenchmarkLogFile();
+        if (!_benchmarkLogFileReady)
+            return;
+
+        string block =
+            $"===== {sectionTitle} | {DateTime.Now:O} =====\n" +
+            message +
+            "\n\n";
+
+        try
+        {
+            File.AppendAllText(BenchmarkLatestLogPath, block);
+            if (!string.IsNullOrEmpty(_benchmarkArchiveLogPath))
+                File.AppendAllText(_benchmarkArchiveLogPath, block);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"Failed to append SDF benchmark log file: {ex.Message}");
+        }
+    }
+
+    private void TrimBenchmarkLogArchive()
+    {
+        int limit = Mathf.Max(1, benchmarkLogArchiveLimit);
+        FileInfo[] files = new DirectoryInfo(BenchmarkLogDirectoryPath)
+            .GetFiles("volume-benchmark-*.log");
+        Array.Sort(files, (a, b) => b.CreationTimeUtc.CompareTo(a.CreationTimeUtc));
+
+        for (int i = limit; i < files.Length; i++)
+        {
+            try
+            {
+                files[i].Delete();
+            }
+            catch (Exception)
+            {
+                // Best-effort cleanup only; logging must not fail because old files are locked.
+            }
+        }
+    }
+
+    private void LogBenchmarkSection(string sectionTitle, string message)
+    {
+        Debug.Log(message);
+        AppendBenchmarkLogSection(sectionTitle, message);
     }
 
     public void RunRebuildBenchmark()
@@ -978,7 +1195,7 @@ public class VolumeModel : MonoBehaviour
             _suppressRebuildProfileLog = previousSuppressRebuildProfileLog;
         }
 
-        Debug.Log(BuildRebuildBenchmarkLog(samples));
+        LogBenchmarkSection("Non Visual Steps / Rebuild Benchmark", BuildRebuildBenchmarkLog(samples));
     }
 
     private string BuildRebuildBenchmarkLog(RebuildProfileSample[] samples)
@@ -1002,12 +1219,18 @@ public class VolumeModel : MonoBehaviour
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
             $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}), " +
+            $"frontier(used={Count(samples, s => s.frontierUsed)}/{samples.Length}, avgBatches={AverageInt(samples, s => s.frontierBatchCount):F0}, avgSamples={AverageInt(samples, s => s.frontierSampleCount):F0}, avgJobSamples={AverageInt(samples, s => s.frontierJobSampleCount):F0}, avgSerialSamples={AverageInt(samples, s => s.frontierSerialSampleCount):F0}, avgPrep={Average(samples, s => s.frontierPreparationMs):F2} ms, avgTraversal={Average(samples, s => s.frontierTraversalMs):F2} ms, avgReuse={Average(samples, s => s.frontierReuseCheckMs):F2} ms, avgCollectCorners={Average(samples, s => s.frontierCollectCornersMs):F2} ms, avgCollectCenters={Average(samples, s => s.frontierCollectCentersMs):F2} ms, avgSubdivide={Average(samples, s => s.frontierSubdivideDecisionMs):F2} ms, avgEnqueue={Average(samples, s => s.frontierEnqueueChildrenMs):F2} ms, avgNodeRecord={Average(samples, s => s.frontierNodeRecordMs):F2} ms, avgEval={Average(samples, s => s.frontierEvaluationMs):F2} ms, avgInsert={Average(samples, s => s.frontierInsertionMs):F2} ms, avgReplay={Average(samples, s => s.frontierBuildReplayMs):F2} ms), " +
             BuildWorstSampleLog(samples);
     }
 
     public void RunDirtyMoveBenchmark()
     {
-        if (visualizeDirtyMoveBenchmark)
+        RunDirtyMoveBenchmark(visualizeDirtyMoveBenchmark);
+    }
+
+    public void RunDirtyMoveBenchmark(bool visualSteps)
+    {
+        if (visualSteps)
         {
             StartVisualDirtyMoveBenchmark();
             return;
@@ -1052,10 +1275,15 @@ public class VolumeModel : MonoBehaviour
             {
                 if (restoreDirtyMoveBenchmarkObject && target != null && target.transform.localPosition != originalPosition)
                 {
-                    Bounds restoreDirtyBounds = target.EstimateLocalMoveDirtyBounds(target.transform.localPosition, originalPosition);
+                    target.EstimateLocalMoveDirtyBoundsParts(
+                        target.transform.localPosition,
+                        originalPosition,
+                        out Bounds restorePreviousDirtyBounds,
+                        out Bounds restoreNextDirtyBounds);
                     target.transform.localPosition = originalPosition;
                     target.SyncEditorTransformCache();
-                    MarkDirtyBounds(restoreDirtyBounds);
+                    MarkDirtyBounds(restorePreviousDirtyBounds);
+                    MarkDirtyBounds(restoreNextDirtyBounds);
                     RebuildModel();
                 }
             }
@@ -1066,7 +1294,9 @@ public class VolumeModel : MonoBehaviour
             }
         }
 
-        Debug.Log(BuildDirtyMoveBenchmarkLog(samples, target.name, offset, logicalRuns, visual: false));
+        LogBenchmarkSection(
+            "Non Visual Steps / Dirty Move Benchmark",
+            BuildDirtyMoveBenchmarkLog(samples, target.name, offset, logicalRuns, visual: false));
     }
 
     private void StartVisualDirtyMoveBenchmark()
@@ -1105,6 +1335,7 @@ public class VolumeModel : MonoBehaviour
         RebuildModel();
         EditorApplication.update -= RunVisualDirtyMoveBenchmarkStep;
         EditorApplication.update += RunVisualDirtyMoveBenchmarkStep;
+        RequestVisualBenchmarkEditorTick();
     }
 
     private void RunVisualDirtyMoveBenchmarkStep()
@@ -1116,10 +1347,16 @@ public class VolumeModel : MonoBehaviour
         }
 
         if (RenderOutput.LastRenderStats.pending > 0)
+        {
+            RequestVisualBenchmarkEditorTick();
             return;
+        }
 
         if (EditorApplication.timeSinceStartup < _dirtyMoveBenchmarkNextStepTime)
+        {
+            RequestVisualBenchmarkEditorTick();
             return;
+        }
 
         if (_dirtyMoveBenchmarkStep < _dirtyMoveBenchmarkSamples.Length)
         {
@@ -1134,14 +1371,21 @@ public class VolumeModel : MonoBehaviour
                 ref _dirtyMoveBenchmarkCurrentPosition,
                 next
             );
+            RenderOutput?.DrainPendingChunksImmediately();
             _dirtyMoveBenchmarkStep++;
             _dirtyMoveBenchmarkNextStepTime = EditorApplication.timeSinceStartup +
                 Mathf.Max(0f, dirtyMoveBenchmarkStepDelayMs) / 1000d;
-            SceneView.RepaintAll();
+            RequestVisualBenchmarkEditorTick();
             return;
         }
 
         FinishVisualDirtyMoveBenchmark(cancelled: false);
+    }
+
+    private static void RequestVisualBenchmarkEditorTick()
+    {
+        EditorApplication.QueuePlayerLoopUpdate();
+        SceneView.RepaintAll();
     }
 
     private void FinishVisualDirtyMoveBenchmark(bool cancelled)
@@ -1172,7 +1416,9 @@ public class VolumeModel : MonoBehaviour
 
         if (!cancelled && _dirtyMoveBenchmarkSamples != null && _dirtyMoveBenchmarkTarget != null)
         {
-            Debug.Log(BuildDirtyMoveBenchmarkLog(
+            LogBenchmarkSection(
+                "Visual Steps / Dirty Move Benchmark",
+                BuildDirtyMoveBenchmarkLog(
                 _dirtyMoveBenchmarkSamples,
                 _dirtyMoveBenchmarkTarget.name,
                 _dirtyMoveBenchmarkActiveOffset,
@@ -1212,12 +1458,22 @@ public class VolumeModel : MonoBehaviour
         return Mathf.Max(1, logicalRuns);
     }
 
-    private RebuildProfileSample RunDirtyMoveBenchmarkStep(VolumeObject target, ref Vector3 current, Vector3 next)
+    private RebuildProfileSample RunDirtyMoveBenchmarkStep(
+        VolumeObject target,
+        ref Vector3 current,
+        Vector3 next,
+        bool forceFullRebuild = false)
     {
-        Bounds dirtyBounds = target.EstimateLocalMoveDirtyBounds(current, next);
+        target.EstimateLocalMoveDirtyBoundsParts(current, next, out Bounds previousDirtyBounds, out Bounds nextDirtyBounds);
         target.transform.localPosition = next;
         target.SyncEditorTransformCache();
-        MarkDirtyBounds(dirtyBounds);
+        if (forceFullRebuild)
+            ClearDirtyBounds();
+        else
+        {
+            MarkDirtyBounds(previousDirtyBounds);
+            MarkDirtyBounds(nextDirtyBounds);
+        }
         RebuildModel();
         current = next;
         return LastRebuildProfileSample;
@@ -1261,6 +1517,7 @@ public class VolumeModel : MonoBehaviour
             $"subdivision(avgMinDepth={AverageInt(samples, s => s.subdivisionMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionDistanceThreshold):F0}), " +
             $"exclusive(avgMinDepth={AverageInt(samples, s => s.subdivisionOnlyMinDepth):F0}, avgCrossing={AverageInt(samples, s => s.subdivisionOnlyCornerCrossing):F0}, avgCenterMismatch={AverageInt(samples, s => s.subdivisionOnlyCenterMismatch):F0}, avgDistance={AverageInt(samples, s => s.subdivisionOnlyDistanceThreshold):F0}, avgMixed={AverageInt(samples, s => s.subdivisionMixedReasons):F0}), " +
             $"chunks(avgRebuilt={AverageInt(samples, s => s.rebuiltChunks):F1}, avgQueuedDirty={AverageInt(samples, s => s.queuedDirtyChunks):F1}, dirtySeen={Count(samples, s => s.dirtySeen)}/{samples.Length}, canDirty={Count(samples, s => s.canUseDirtyChunks)}/{samples.Length}, full={Count(samples, s => s.fullChunkRebuild)}/{samples.Length}), " +
+            $"frontier(used={Count(samples, s => s.frontierUsed)}/{samples.Length}, avgBatches={AverageInt(samples, s => s.frontierBatchCount):F0}, avgSamples={AverageInt(samples, s => s.frontierSampleCount):F0}, avgJobSamples={AverageInt(samples, s => s.frontierJobSampleCount):F0}, avgSerialSamples={AverageInt(samples, s => s.frontierSerialSampleCount):F0}, avgPrep={Average(samples, s => s.frontierPreparationMs):F2} ms, avgTraversal={Average(samples, s => s.frontierTraversalMs):F2} ms, avgReuse={Average(samples, s => s.frontierReuseCheckMs):F2} ms, avgCollectCorners={Average(samples, s => s.frontierCollectCornersMs):F2} ms, avgCollectCenters={Average(samples, s => s.frontierCollectCentersMs):F2} ms, avgSubdivide={Average(samples, s => s.frontierSubdivideDecisionMs):F2} ms, avgEnqueue={Average(samples, s => s.frontierEnqueueChildrenMs):F2} ms, avgNodeRecord={Average(samples, s => s.frontierNodeRecordMs):F2} ms, avgEval={Average(samples, s => s.frontierEvaluationMs):F2} ms, avgInsert={Average(samples, s => s.frontierInsertionMs):F2} ms, avgReplay={Average(samples, s => s.frontierBuildReplayMs):F2} ms), " +
             BuildWorstSampleLog(samples);
     }
 
@@ -1299,7 +1556,8 @@ public class VolumeModel : MonoBehaviour
             $"cornerHit={sample.cornerCacheHits}, cornerInvalidated={sample.persistentCornerCacheInvalidated}, cornerCacheSize={sample.persistentCornerCacheSize}, centerHit={sample.centerCacheHits}, centerMiss={sample.centerCacheMisses}, centerInvalidated={sample.persistentCenterCacheInvalidated}, centerCacheSize={sample.persistentCenterCacheSize}, crossingHit={sample.crossingCacheHits}, crossingMiss={sample.crossingCacheMisses}, persistentCrossingHit={sample.persistentCrossingCacheHits}, crossingInvalidated={sample.persistentCrossingCacheInvalidated}, crossingCacheSize={sample.persistentCrossingCacheSize}, " +
             $"subdivision(minDepth={sample.subdivisionMinDepth}, crossing={sample.subdivisionCornerCrossing}, centerMismatch={sample.subdivisionCenterMismatch}, distance={sample.subdivisionDistanceThreshold}), " +
             $"exclusive(minDepth={sample.subdivisionOnlyMinDepth}, crossing={sample.subdivisionOnlyCornerCrossing}, centerMismatch={sample.subdivisionOnlyCenterMismatch}, distance={sample.subdivisionOnlyDistanceThreshold}, mixed={sample.subdivisionMixedReasons}), " +
-            $"dirtySeen={sample.dirtySeen}, canDirty={sample.canUseDirtyChunks}, full={sample.fullChunkRebuild})";
+            $"dirtySeen={sample.dirtySeen}, canDirty={sample.canUseDirtyChunks}, full={sample.fullChunkRebuild}, " +
+            $"frontier(used={sample.frontierUsed}, batches={sample.frontierBatchCount}, samples={sample.frontierSampleCount}, jobSamples={sample.frontierJobSampleCount}, serialSamples={sample.frontierSerialSampleCount}, prep={sample.frontierPreparationMs:F2} ms, traversal={sample.frontierTraversalMs:F2} ms, reuse={sample.frontierReuseCheckMs:F2} ms, collectCorners={sample.frontierCollectCornersMs:F2} ms, collectCenters={sample.frontierCollectCentersMs:F2} ms, subdivide={sample.frontierSubdivideDecisionMs:F2} ms, enqueue={sample.frontierEnqueueChildrenMs:F2} ms, nodeRecord={sample.frontierNodeRecordMs:F2} ms, eval={sample.frontierEvaluationMs:F2} ms, insert={sample.frontierInsertionMs:F2} ms, replay={sample.frontierBuildReplayMs:F2} ms))";
     }
 
     private static int FindMaxSampleIndex(RebuildProfileSample[] samples, System.Func<RebuildProfileSample, double> selector)
@@ -1673,6 +1931,12 @@ public class VolumeModel : MonoBehaviour
             output.Clear();
     }
 
+    public void DrainPendingRenderChunksImmediately()
+    {
+        VolumeRenderOutput output = RenderOutput;
+        output?.DrainPendingChunksImmediately();
+    }
+
     public bool TryGetChunkBounds(out System.Collections.Generic.List<Bounds> bounds)
     {
         bounds = _chunkBoundsCache;
@@ -1696,6 +1960,8 @@ public class VolumeModel : MonoBehaviour
 
     public void MarkDirtyBounds(Bounds dirtyBounds)
     {
+        _dirtyBoundsParts.Add(dirtyBounds);
+
         if (!_hasDirtyBounds)
         {
             _dirtyBounds = dirtyBounds;
@@ -1746,6 +2012,7 @@ public class VolumeModel : MonoBehaviour
         if (_isPreviewRebuild && _hasDirtyBounds)
             CaptureFinalizePreviewDirtyBounds(_dirtyBounds);
 #endif
+        _dirtyBoundsParts.Clear();
         _hasDirtyBounds = false;
     }
 
@@ -1857,7 +2124,7 @@ public class VolumeModel : MonoBehaviour
 
         _finalizePreviewRebuildQueued = false;
         EditorApplication.update -= FinalizePreviewRebuildIfNeeded;
-        _forceFullChunkRenderOnce = true;
+        _forceFullChunkRenderOnce = !_hasFinalizePreviewDirtyBounds;
         RestoreFinalizePreviewDirtyBounds();
         RebuildModel();
     }

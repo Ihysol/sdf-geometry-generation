@@ -8,7 +8,16 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     private SceneCompositeSDF _composite;
     private SdfSceneSnapshot _snapshot;
 
-    public SdfSceneSnapshot Snapshot => _snapshot;
+   public SdfSceneSnapshot Snapshot => _snapshot;
+
+    /// <summary>Returns the built-in snapshot when all shapes are supported by Burst evaluation.</summary>
+    public bool TryGetBuiltInSnapshot(out SdfSceneSnapshot snapshot)
+    {
+        if (_snapshot == null)
+            RebuildComposition();
+        snapshot = _snapshot;
+        return snapshot != null && !snapshot.HasUnsupportedShapes;
+    }
 
     [ContextMenu("Rebuild Composition")]
     /// <summary>Refreshes the composite SDF from the current object list.</summary>
@@ -67,6 +76,29 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 
         if (model != null)
             model.MarkDirtyBounds(dirtyBounds);
+
+        RebuildComposition();
+
+        if (model != null)
+            model.RebuildModel();
+    }
+
+    public void MarkDirtyAndRebuild(Bounds dirtyBounds, IReadOnlyList<Bounds> dirtyBoundsParts)
+    {
+        VolumeModel model = GetComponent<VolumeModel>();
+
+        if (model != null)
+        {
+            if (dirtyBoundsParts == null || dirtyBoundsParts.Count == 0)
+            {
+                model.MarkDirtyBounds(dirtyBounds);
+            }
+            else
+            {
+                for (int i = 0; i < dirtyBoundsParts.Count; i++)
+                    model.MarkDirtyBounds(dirtyBoundsParts[i]);
+            }
+        }
 
         RebuildComposition();
 

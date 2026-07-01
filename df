@@ -1,0 +1,366 @@
+[33mcommit f61bd0f6168430024216223dfd0af0de5d38be2a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 15 14:06:23 2026 +0200
+
+    Cache flat octree center samples across dirty builds
+
+[33mcommit dfc3500e04f6a5b5db61f234e2d8653912f5ff6c[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 15 13:21:27 2026 +0200
+
+    Persist flat octree corner sample cache across dirty builds
+
+[33mcommit e073cf609b7d1dd9b589c470759ae48de9446aff[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Fri Jun 12 14:50:59 2026 +0200
+
+    feat: clean third-person controller with orbit camera
+    
+    - WASD movement relative to camera, character rotates towards movement direction
+    - Mouse look via Input System (raw delta, no OS acceleration)
+    - Direct camera positioning — no drift, lerp, or smoothdamp artifacts
+    - Auto-loads InputSystem_Actions from Resources/
+    - Proper cursor lock/unlock on enable/disable
+    - Sprint (Shift), Jump (Space) support
+
+[33mcommit 5dba05052781a745c44d54be526f102a7a61d93c[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Fri Jun 12 14:46:27 2026 +0200
+
+    Optimize edge refinement early-out across octree pipelines
+
+[33mcommit 11fe4eb1dff55f2cd236d82d56f4621e4c5c0f2e[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Fri Jun 12 13:58:25 2026 +0200
+
+    perf(volume): optimize octree crossing caches and harden voxel access
+
+[33mcommit b008a5c7af199cf81a71da3ea5244d217ab6028d[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Thu Jun 11 16:02:55 2026 +0200
+
+    Reuse flat octree layout arrays
+    
+    - Reuse FlatOctreeLayout structural arrays across builds
+    - Track active flat layout count separately from array capacity
+    - Allow layout validation to accept capacity-sized arrays
+    - Reuse surface normal buffers in flat octree meshing
+    - Stabilize createLayout timing in rebuild benchmarks
+
+[33mcommit aadc26ca3aa34fb2c4e781d0a28e677c0ebd5045[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Thu Jun 11 15:53:06 2026 +0200
+
+    Add persistent flat octree crossing cache
+    
+    - Preserve crossing samples across dirty flat octree rebuilds
+    - Invalidate cached crossings using dirty edge bounds
+    - Tighten dirty invalidation padding to reduce recomputation
+    - Log persistent crossing cache hits, invalidations, and size
+    - Include createLayout timing in benchmark summaries
+
+[33mcommit bea575a4a8032c53621875519acec99d1f79acb4[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Thu Jun 11 07:28:54 2026 +0200
+
+    perf: Skip unnecessary flat octree center samples
+    
+    - Add flat octree subdivision reason diagnostics
+    - Report subdivision averages and worst-sample reasons in benchmark logs
+    - Avoid center SDF evaluation when subdivision is already forced
+    - Keep center checks only when they can affect subdivision decisions
+
+[33mcommit 4b1511f19f8b9c87d3d43986cdbee975e97e4ab6[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Thu Jun 11 07:16:13 2026 +0200
+
+    perf: Stabilize flat octree benchmark runtime cache
+    
+    - Add DirtyMoveSweep benchmark diagnostics for tree size and cache stats
+    - Reuse flat octree layout runtime cache buffers between builds
+    - Track surface leaf count separately from reused array capacity
+    - Include worst-sample diagnostics for nodes, leaves, cache misses, and timings
+
+[33mcommit d6d6d29f7d4b7453a9e621566725d53238c87b7e[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Thu Jun 11 06:46:07 2026 +0200
+
+    feat: Add dirty move sweep benchmark mode
+    
+    - Add DirtyMoveSweep as separate benchmark type
+    - Sweep from original position toward offset and return each step
+    - Default dirty move offset to negative Z
+    - Keep restore object enabled by default
+
+[33mcommit 6f5f53548d2fd7de580582af74a99b088b48ed37[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed Jun 10 15:31:29 2026 +0200
+
+    feat: Add visual dirty move benchmark
+
+[33mcommit 89d23e82d17aa0be0585e244dcf885e260218890[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed Jun 10 12:20:31 2026 +0200
+
+    fix: Add dirty move benchmark and finalize preview chunks
+
+[33mcommit f3be31139e4cdd0e66dcf04bce87c73e965ec52a[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Tue Jun 9 15:28:31 2026 +0200
+
+    Optimize flat octree rebuilds and dirty chunk rendering
+    
+    - replace flat octree SDF normal sampling with corner-derived normals
+    - add consolidated rebuild profiling and editor benchmark summaries
+    - preserve preview dirty bounds for final rebuilds
+    - allow renderer to rebuild only dirty chunks after object movement
+    - remove noisy per-chunk and dirty-bound debug logs
+    - keep dirty rebuild diagnostics in the compact profile output
+
+[33mcommit 85a746f25e382385d64563d6cc30f38d1473de39[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Tue Jun 9 11:14:29 2026 +0200
+
+    perf: Optimize flat octree rebuild profiling and normals
+    
+    - replace flat octree SDF normal sampling with corner-derived normals
+    - consolidate rebuild timing into a single profile log
+    - add editor rebuild benchmark with min/median/avg/max stats
+    - preserve dirty bounds until renderer rebuilds chunks
+    - remove deep per-chunk and flat DC debug timing overhead
+    - keep flat DC processed-edge tracking allocation-free
+
+[33mcommit 5e76cecced3777b0fa26620ba8e6ffb5020a93da[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 8 13:39:16 2026 +0200
+
+    perf: Stabilize flat octree surface build timings
+    
+    - add diagnostics for surface crossing, normal sampling, and crossing cache hits
+    - increase crossing cache capacity to reduce dictionary growth stalls
+    - keep refinement steps at 3 while preserving visual quality
+    - reduce build timing spikes without changing mesh output
+
+[33mcommit a92083c614b983332a6d6e8f9b108dcbddb8d430[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 8 09:39:11 2026 +0200
+
+    perf: Stabilize flat octree layout cache timings
+    
+    - pre-size flat octree builder caches to reduce recursive build GC pressure
+    - add build timing diagnostics for layout, runtime cache, and GC activity
+    - build surface leaf indices without List/ToArray churn
+    - skip full exact-leaf dictionary population when dense leaf lookup is available
+    - keep generated flat octree normals for mesh reuse
+
+[33mcommit baa237d42da05a48355f730f0297087863e55936[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 8 08:09:22 2026 +0200
+
+    perf: Optimize flat octree build diagnostics and cache reuse
+    
+    - add detailed flat octree timing for layout creation, runtime cache, and GC activity
+    - preserve generated SDF normals in flat octree layouts to avoid per-chunk fallback normal recomputation
+    - reuse mesh normals when present instead of recalculating them
+    - pre-size flat octree builder caches to reduce recursive build GC spikes
+
+[33mcommit 24d76be52d183803ab5764b1a0b0965df2ebdbee[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 8 07:26:12 2026 +0200
+
+    fix: Optimize flat octree rebuild and fix chunk seam normals
+    
+    - rename direct flat builder to FlatOctreeVolumeBuilder
+    - route flat AverageCrossings octree rebuilds through the flat builder
+    - emit prebuilt FlatOctreeLayout from OctreeVolume
+    - rebuild full flat chunk cycles in one pass
+    - add SDF-gradient normals for flat octree meshes
+    - avoid per-chunk RecalculateNormals when normals are provided
+    - add editor coverage for meshable flat layouts with normals
+
+[33mcommit 5eda846e20e699ad9929a663066e9b086281ca54[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 8 07:12:22 2026 +0200
+
+    Optimize flat octree rebuild path
+    
+    - add direct flat octree builder for Flat + DualContouring + AverageCrossings
+    - return OctreeVolume with prebuilt FlatOctreeLayout for existing flat mesher
+    - rebuild full flat chunk cycles in one pass
+    - avoid mesh bounds recalculation scan during chunk rebuilds
+    - add editor coverage for meshable direct flat layouts
+
+[33mcommit 514de04011cbe054869424d6ed0d9d9cc6f751d5[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed Jun 3 15:25:47 2026 +0200
+
+    Stabilize flat preview meshing performance
+    
+    - add dense flat cell-to-leaf lookup for faster leaf resolution
+    - warm up flat octree runtime cache before chunk rebuilds
+    - keep preview refinement aligned with global refinement steps
+    - improve flat meshing diagnostics behind chunk rebuild logging
+    - add tests for flat lookup and preview refinement behavior
+
+[33mcommit 523e8f6ab4c3fdf5720dedb7b7ef3c88a671daa1[m[33m ([m[1;31morigin/dev[m[33m)[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed Jun 3 13:28:59 2026 +0200
+
+    Optimize octree preview meshing path
+    
+    - simplify QEF during preview rebuilds
+    - use flat dual contouring for octree preview meshing
+    - skip gradient and Hermite sampling for average crossings
+    - cache average crossing edge refinement results
+    - add tests for effective preview settings
+
+[33mcommit 8f53b86bb94b66cc7bebb752e2af3dbfe267ca9c[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Tue Jun 2 15:21:02 2026 +0200
+
+    perf: Cache octree samples and reduce recursive allocations
+
+[33mcommit cc8f7df5de8d767eac05808bba1f7bd4cb6b0c0f[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Tue Jun 2 14:05:46 2026 +0200
+
+    perf: Cache octree samples and add build profiling
+
+[33mcommit f210b785448b3643d96539a16a241b11a2e549bf[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 1 07:18:40 2026 +0200
+
+    feat: Add volume rebuild modes with live editor updates
+
+[33mcommit 5a1570cf05262d7a384e6d5ee2086ebdbe8f17ba[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon Jun 1 06:59:15 2026 +0200
+
+    docs: specify volume rebuild modes
+
+[33mcommit f93f8a9bae0b268ab8def4cd7c1a9d8cf7125bc7[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Fri May 29 16:02:04 2026 +0200
+
+    fix: Centralize preview rebuild log suppression
+    
+      - add VolumeModel preview rebuild context for shared log policy
+      - route rebuild, chunk, and flat mesher debug logs through centralized checks
+      - preserve preview context for delayed editor chunk drains
+      - suppress preview chunk final logs without duplicating preview heuristics
+
+[33mcommit 77c86904987c12d76107cea813fd6975584453a1[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Fri May 29 15:45:07 2026 +0200
+
+    optimize flat octree meshing and editor rebuild flow
+    
+      - add flat adaptive/dense data interfaces to SVO and voxel grid paths
+      - cache flat octree runtime lookup data on FlatOctreeLayout
+      - store node cell sizes in flat octree layout
+      - route flat dual contouring through IFlatAdaptiveVolumeData
+      - reduce per-chunk flat mesher setup and prefilter owned surface leaves
+      - drain pending chunks via editor update in edit mode
+      - avoid stale editor mouse state blocking preview finalization
+      - avoid duplicate full rebuilds after incremental fallback
+      - suppress preview octree build logs
+      - include mesher in rebuild/chunk debug labels
+      - update flat mesher migration notes
+
+[33mcommit baef809d957db8f5fa981d08e300a92be04206b5[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed May 27 15:41:15 2026 +0200
+
+    fix(rendering): reset chunk final-cycle on new full rebuild to avoid delayed/mixed final logs
+
+[33mcommit 1997e767dacd770383faf0aa67f4d77e6688cc44[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed May 27 10:01:23 2026 +0200
+
+    feat(preview): add structure-aware preview UI and voxel low-res interaction preview
+    
+     - move Preview section near builder and default it to collapsed
+      - show preview controls based on selected data structure (Octree/SVO depth vs VoxelGrid resolution)
+      - add voxel interaction preview with reduced gridSize and automatic final full-resolution rebuild
+      - fix preview interaction gating in VolumeObject to include voxel preview mode
+      - add voxel preview defaults (previewVoxelGridSize = 24,24,24)
+      - set octree preview default depth to 5
+      - reorder voxel builder inspector fields for clarity (Uniform Extent before Grid Extent)
+
+[33mcommit 51ec52278abddeb0fc0014ca4086e74646282a8c[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed May 27 09:04:05 2026 +0200
+
+    feat: add interactive preview-depth rebuilding with release-gated final remesh for octree workflows
+     - add preview rebuild controls to VolumeModel:
+        - usePreviewDepthWhileInteracting
+        - previewInteractionMaxDepth
+        - previewInteractionHoldSeconds
+      - add dedicated Preview section in VolumeModel inspector
+      - track interactive edits and use reduced effective octree max depth during drag
+      - append preview depth info to rebuild cause (preview(dX/Y))
+      - queue and execute final full-resolution rebuild after interaction window ends
+      - ensure final rebuild is release-gated when rebuildOnMoveRelease is enabled
+      - make pointer/handle detection compatible with both Input System and legacy Input
+      - limit preview behavior to Octree/SparseVoxelOctree; keep VoxelGrid on stable release flow
+      - suppress preview-pass debug spam for rebuild/chunk timing logs
+
+[33mcommit e43b4bf005ec93c6979aefb7d554e1c117d978e4[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed May 27 07:30:00 2026 +0200
+
+    feat: Add uniform chunk-resolution toggle and improve chunked rebuild stability/logging
+    
+      - add `uniformChunkResolution` to VolumeModel and enforce uniform chunk counts in OnValidate
+      - expose `Uniform Chunk Resolution` in VolumeModel inspector under chunk count controls
+      - when uniform mode is enabled, editing one chunk-count axis applies the same value to all axes
+      - improve debug logs with data-structure/storage-mode tags:
+        - VolumeMeshRenderer Chunked [dataStructure/storageMode]
+        - VolumeModel Rebuild [dataStructure/storageMode]
+      - add incremental rebuild diagnostics cleanup:
+        - explicit init causes (octree-full-init / svo-full-init)
+        - fallback reason propagation into rebuild cause
+        - warn only for real incremental fallback cases
+      - stabilize editor chunk rebuild spikes with time budgets and adaptive scheduling
+
+[33mcommit e4143c07b8d42e06f4a190afecd98f387cd7ffb5[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed May 27 07:19:41 2026 +0200
+
+    perf: Improve octree rebuild diagnostics and stabilize chunked editor rendering performance
+
+[33mcommit 7768ddb05511441a7a03ee44e333c13ee534b250[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Tue May 26 15:44:14 2026 +0200
+
+    perf: Improve octree chunked rebuild behavior and add flat-octree meshing path
+
+[33mcommit 210388c6924ec91f85e355b2de36a42fe7afc23f[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Wed May 20 15:37:43 2026 +0200
+
+    feat(volume): add SVO data path and flat-storage option, expand mesher coverage across data structures, improve inspector defaults/toggles, and reduce rebuild log spam
+
+[33mcommit 93a4ae2d3327ffd8e6cfa63dea480f64e27811a7[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Tue May 19 12:37:04 2026 +0200
+
+    feat(volume): add separate octree mesher modes (DC, marching cubes, marching tetrahedra), wire inspector/renderer selection, and extend QEF controls
+
+[33mcommit da72a61361302ab8cef17ef6591d1bbd92388b53[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon May 18 16:37:40 2026 +0200
+
+    feat(qef): remove QEF Fast mode, add constrained QEF projection, introduce permanent eigenvalue-based feature classification, and add optional multi-hermite edge sampling controls
+
+[33mcommit 8d2aea7f601af24079843eaf63ee2b1e3d47d864[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon May 18 16:24:37 2026 +0200
+
+    refactor(core): unify mesher API to direct BuildMesh targets, remove legacy sampler runtimeSource, tighten debug logging, and split renderer single-mesh flow into focused internal steps
+
+[33mcommit 04ad933a689e234d1fc86cec49897f108f95a65b[m
+Author: tobias gent <tobias.gent@th-deg.de>
+Date:   Mon May 18 15:17:31 2026 +0200
+
+    feat(volume): overhaul chunked octree meshing with dirty incremental rebuilds, hermite+QEF vertex modes, seam stability fixes, and inspector-exposed tuning/debug controls

@@ -18,6 +18,27 @@ public class MeshVolumeChunk : VolumeChunkBase
         Rebuild(model, source, null);
     }
 
+    public void ApplyMeshData(MeshData meshData, VolumeModel model)
+    {
+        EnsureSetup();
+
+        _mesh.Clear();
+        _mesh.indexFormat = IndexFormat.UInt32;
+
+        if (meshData != null)
+            meshData.ApplyTo(_mesh);
+
+        if (model != null && model.recalculateNormals && !_mesh.HasVertexAttribute(VertexAttribute.Normal))
+        {
+            _mesh.RecalculateNormals();
+        }
+
+        if (model != null && model.recalculateBounds)
+        {
+            _mesh.bounds = coreBounds;
+        }
+    }
+
     public void Rebuild(VolumeModel model, IScalarFieldSource source, OctreeChunkMesher sharedOctreeChunkMesher)
     {
         EnsureSetup();

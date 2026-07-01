@@ -2,6 +2,32 @@ using UnityEngine;
 
 public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
 {
+    public readonly struct FlatDualContouringChunkSettings
+    {
+        public readonly float IsoLevel;
+        public readonly bool UseQefVertices;
+        public readonly QefVertexMode QefVertexMode;
+        public readonly float QefBlendFactor;
+        public readonly float QefSnapEpsilon;
+        public readonly float QefMaxOffsetCells;
+        public readonly float QefAxisSnapStrength;
+        public readonly bool QefEnableMultiHermite;
+        public readonly int QefHermiteSamplesPerEdge;
+
+        public FlatDualContouringChunkSettings(VolumeModel model)
+        {
+            IsoLevel = model.isoLevel;
+            UseQefVertices = model.GetEffectiveUseQefVertices();
+            QefVertexMode = model.GetEffectiveQefVertexMode();
+            QefBlendFactor = model.qefBlendFactor;
+            QefSnapEpsilon = model.qefSnapEpsilon;
+            QefMaxOffsetCells = model.qefMaxOffsetCells;
+            QefAxisSnapStrength = model.qefAxisSnapStrength;
+            QefEnableMultiHermite = model.GetEffectiveQefEnableMultiHermite();
+            QefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
+        }
+    }
+
     private readonly DualContouringOctreeMesher _mesher = new();
     private readonly DualContouringFlatOctreeMesher _flatMesher = new();
     private readonly DualMarchingCubesOctreeMesher _dualMarchingCubesMesher = new();
@@ -82,6 +108,51 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
                 }
                 break;
         }
+    }
+
+    public bool TryBuildChunkData(
+        VolumeModel model,
+        OctreeVolume volume,
+        Bounds coreBounds,
+        out MeshData meshData)
+    {
+        meshData = null;
+
+        if (model == null || volume == null)
+            return false;
+
+        if (model.octreeMesherType != OctreeMesherType.DualContouring ||
+            model.GetEffectiveStorageMode() != VolumeStorageMode.Flat)
+            return false;
+
+        IFlatAdaptiveVolumeData flatVolume = model.GetActiveFlatAdaptiveVolume() ?? volume;
+        FlatDualContouringChunkSettings settings = new(model);
+        meshData = BuildFlatDualContouringChunkData(settings, flatVolume, coreBounds);
+        return true;
+    }
+
+    public static MeshData BuildFlatDualContouringChunkData(
+        FlatDualContouringChunkSettings settings,
+        IFlatAdaptiveVolumeData flatVolume,
+        Bounds coreBounds)
+    {
+        DualContouringFlatOctreeMesher flatMesher = new()
+        {
+            enableDebugLog = false,
+            isoLevel = settings.IsoLevel,
+            useQefVertices = settings.UseQefVertices,
+            qefVertexMode = settings.QefVertexMode,
+            qefBlendFactor = settings.QefBlendFactor,
+            qefSnapEpsilon = settings.QefSnapEpsilon,
+            qefMaxOffsetCells = settings.QefMaxOffsetCells,
+            qefAxisSnapStrength = settings.QefAxisSnapStrength,
+            qefEnableMultiHermite = settings.QefEnableMultiHermite,
+            qefHermiteSamplesPerEdge = settings.QefHermiteSamplesPerEdge,
+            ownedBounds = coreBounds,
+            ownedBoundsList = null
+        };
+
+        return flatMesher.BuildMeshData(flatVolume, settings.IsoLevel);
     }
 }
 

@@ -1,5 +1,6 @@
-   using UnityEngine;
+using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(CapsuleCollider))]
 [RequireComponent(typeof(Rigidbody))]
@@ -13,6 +14,7 @@ public class ThirdPersonController : MonoBehaviour
     [Header("Jumping")]
     [SerializeField] float jumpForce = 7f;
     [SerializeField] LayerMask groundLayer;
+    [SerializeField] float groundCheckOffset = 0.1f;
 
     [Header("Camera")]
     [SerializeField] Transform orbitCamera;
@@ -23,6 +25,26 @@ public class ThirdPersonController : MonoBehaviour
     [SerializeField] float cameraTurnSpeed = 8f;
     [SerializeField] float minVerticalAngle = -60f;
     [SerializeField] float maxVerticalAngle = 75f;
+
+    [Header("Input")]
+    [Tooltip("Assign your Player InputActionAsset here. Controls will not work without it.")]
+    [SerializeField] InputActionAsset inputActions;
+
+    [System.Serializable]
+    public class CommandBinding
+    {
+        public string actionName;
+        public MovementCommand command;
+    }
+
+    [Header("Command Bindings")]
+    [Tooltip("Map Input Action names to MovementCommands. Rebind keys in the Input System window.")]
+    [SerializeField] List<CommandBinding> commandBindings = new();
+
+    [Header("Movement System")]
+    [Tooltip("List of movement components. Higher priority components override lower ones when active.")]
+    [SerializeField] List<MovementComponent> movementComponents = new();
+    MovementComponent activeMovement;
 
     Rigidbody body;
     CapsuleCollider capsule;
@@ -37,11 +59,14 @@ public class ThirdPersonController : MonoBehaviour
     bool cursorLocked;
     bool inputBound;
 
-    InputActionAsset inputActions;
     InputAction actionMove;
     InputAction actionLook;
     InputAction actionJump;
     InputAction actionSprint;
+    
+    Dictionary<string, InputAction> boundCommandActions = new();
+    Dictionary<InputAction, System.Action<InputAction.CallbackContext>> commandCallbacks = new();
+    InputActionMap activePlayerMap;
 
     void Awake()
     {
@@ -61,7 +86,9 @@ public class ThirdPersonController : MonoBehaviour
             toCamera.y = 0f;
             targetYaw = Mathf.Atan2(toCamera.x, toCamera.z) * Mathf.Rad2Deg;
             currentYaw = targetYaw;
-            targetPitch = Mathf.Asin((orbitCamera.position.y - transform.position.y - cameraHeightOffset) / (cameraDistance * 0.5f + 0.001f)) * Mathf.Rad2Deg;
+            
+            float pitchDistance = cameraDistance * 0.5f + 0.001f;
+            targetPitch = Mathf.Asin((orbitCamera.position.y - transform.position.y - cameraHeightOffset) / pitchDistance) * Mathf.Rad2Deg;
             targetPitch = Mathf.Clamp(targetPitch, minVerticalAngle, maxVerticalAngle);
             currentPitch = targetPitch;
         }
@@ -71,45 +98,63 @@ public class ThirdPersonController : MonoBehaviour
     {
         if (inputBound) return;
 
-        if (inputActions == null)
+        InputActionAsset asset = inputActions;
+        if (asset == null)
         {
-            inputActions = Resources.Load<InputActionAsset>("InputSystem_Actions");
+            Debug.LogWarning("[ThirdPersonController] No InputActionAsset assigned. Drag your Player Input Actions into the Inspector to enable controls.");
+            return;
         }
 
-        if (inputActions != null)
+        activePlayerMap = asset.FindActionMap("Player") ?? asset.FindActionMap("Default");
+        if (activePlayerMap == null)
         {
-            var playerMap = inputActions.FindActionMap("Player");
-            if (playerMap != null)
-            {
-                actionMove = playerMap.FindAction("Move");
-                actionLook = playerMap.FindAction("Look");
-                actionJump = playerMap.FindAction("Jump");
-                actionSprint = playerMap.FindAction("Sprint");
+            Debug.LogWarning("[ThirdPersonController] Could not find 'Player' or 'Default' Action Map in the assigned InputActionAsset.");
+            return;
+        }
 
-                if (actionMove != null)
-                {
-                    actionMove.Enable();
-                    actionMove.performed += OnMovePerformed;
-                    actionMove.canceled += OnMoveCanceled;
-                }
-                if (actionLook != null)
-                {
-                    actionLook.Enable();
-                    actionLook.performed += OnLookPerformed;
-                    actionLook.canceled += OnLookCanceled;
-                }
-                if (actionJump != null)
-                {
-                    actionJump.Enable();
-                    actionJump.started += OnJumpStarted;
-                    actionJump.canceled += OnJumpCanceled;
-                }
-                if (actionSprint != null)
-                {
-                    actionSprint.Enable();
-                    actionSprint.started += OnSprintStarted;
-                    actionSprint.canceled += OnSprintCanceled;
-                }
+        activePlayerMap.Enable();
+
+        actionMove = activePlayerMap.FindAction("Move");
+        actionLook = activePlayerMap.FindAction("Look");
+        actionJump = activePlayerMap.FindAction("Jump");
+        actionSprint = activePlayerMap.FindAction("Sprint");
+
+        if (actionMove != null)
+        {
+            actionMove.Enable();
+            actionMove.performed += OnMovePerformed;
+            actionMove.canceled += OnMoveCanceled;
+        }
+        if (actionLook != null)
+        {
+            actionLook.Enable();
+            actionLook.performed += OnLookPerformed;
+            actionLook.canceled += OnLookCanceled;
+        }
+        if (actionJump != null)
+        {
+            actionJump.Enable();
+            actionJump.started += OnJumpStarted;
+            actionJump.canceled += OnJumpCanceled;
+        }
+        if (actionSprint != null)
+        {
+            actionSprint.Enable();
+            actionSprint.started += OnSprintStarted;
+            actionSprint.canceled += OnSprintCanceled;
+        }
+
+        // Bind command actions with proper callback references
+        foreach (var binding in commandBindings)
+        {
+            var action = activePlayerMap.FindAction(binding.actionName);
+            if (action != null)
+            {
+                action.Enable();
+                System.Action<InputAction.CallbackContext> callback = ctx => DispatchCommand(binding.command);
+                action.started += callback;
+                boundCommandActions[binding.actionName] = action;
+                commandCallbacks[action] = callback;
             }
         }
 
@@ -143,6 +188,17 @@ public class ThirdPersonController : MonoBehaviour
             actionSprint.Disable();
         }
 
+        foreach (var kvp in commandCallbacks)
+        {
+            kvp.Key.started -= kvp.Value;
+            kvp.Key.Disable();
+        }
+        commandCallbacks.Clear();
+        boundCommandActions.Clear();
+
+        if (activePlayerMap != null)
+            activePlayerMap.Disable();
+
         inputBound = false;
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -164,6 +220,21 @@ public class ThirdPersonController : MonoBehaviour
         targetPitch = Mathf.Clamp(targetPitch, minVerticalAngle, maxVerticalAngle);
     }
 
+    void DispatchCommand(MovementCommand command)
+    {
+        if (activeMovement != null && activeMovement.ExecuteCommand(command))
+        {
+            return; // Command was handled by the active component
+        }
+
+        // Fallback: try other components if active one doesn't support it
+        foreach (var comp in movementComponents)
+        {
+            if (comp != null && comp.ExecuteCommand(command))
+                break;
+        }
+    }
+
     void Update()
     {
         if (!cursorLocked)
@@ -179,12 +250,38 @@ public class ThirdPersonController : MonoBehaviour
 
         UpdateCameraPosition();
         isGrounded = CheckGrounded();
+        
+        UpdateMovementSystem();
     }
 
     void FixedUpdate()
     {
         HandleMovement();
         HandleJump();
+    }
+
+    void UpdateMovementSystem()
+    {
+        if (movementComponents == null) return;
+
+        MovementComponent best = null;
+        foreach (var comp in movementComponents)
+        {
+            if (comp != null && comp.CanActivate())
+            {
+                if (best == null || comp.priority > best.priority)
+                {
+                    best = comp;
+                }
+            }
+        }
+
+        if (activeMovement != best)
+        {
+            if (activeMovement != null) activeMovement.OnDeactivated();
+            activeMovement = best;
+            if (activeMovement != null) activeMovement.OnActivated();
+        }
     }
 
     void UpdateCameraPosition()
@@ -204,7 +301,12 @@ public class ThirdPersonController : MonoBehaviour
     {
         if (moveInput == Vector2.zero) return;
 
-        float currentSpeed = moveSpeed * (isRunning ? runMultiplier : 1f);
+        float multiplier = activeMovement?.speedMultiplier ?? 1f;
+        bool canSprint = activeMovement?.canSprint ?? true;
+        
+        // Only apply sprint multiplier if input is held AND current movement allows it
+        bool effectiveRunning = isRunning && canSprint;
+        float currentSpeed = moveSpeed * (effectiveRunning ? runMultiplier : 1f) * multiplier;
 
         Vector3 cameraForward = new Vector3(Mathf.Sin(Mathf.Deg2Rad * currentYaw), 0f, Mathf.Cos(Mathf.Deg2Rad * currentYaw));
         Vector3 cameraRight = Vector3.Cross(Vector3.up, cameraForward);
@@ -225,6 +327,10 @@ public class ThirdPersonController : MonoBehaviour
     void HandleJump()
     {
         if (!jumpPressed || !isGrounded) return;
+        
+        bool canJump = activeMovement?.canJump ?? true;
+        if (!canJump) return;
+
         body.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
         jumpPressed = false;
     }
@@ -232,8 +338,8 @@ public class ThirdPersonController : MonoBehaviour
     bool CheckGrounded()
     {
         float radius = capsule.radius * 0.9f;
-        Vector3 center = capsule.bounds.center;
-        Vector3 down = center - Vector3.up * (capsule.height * 0.5f + 0.05f);
+        Vector3 center = transform.position + capsule.center;
+        Vector3 down = center - Vector3.up * (capsule.height * 0.5f + groundCheckOffset);
         return Physics.CheckSphere(down, radius, groundLayer);
     }
 }

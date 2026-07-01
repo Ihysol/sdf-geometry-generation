@@ -29,6 +29,18 @@ public class VolumeRenderOutput : MonoBehaviour
         _renderer?.Rebuild(model);
     }
 
+    public void DrainPendingChunksImmediately()
+    {
+        EnsureSetup();
+        _renderer?.DrainPendingChunksImmediately();
+    }
+
+    public bool CanBuildDirtyChunksLocally(VolumeModel model)
+    {
+        EnsureSetup();
+        return _renderer != null && _renderer.CanBuildDirtyChunksLocally(model);
+    }
+
     /// <summary>Clears generated output.</summary>
     public void Clear()
     {

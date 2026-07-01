@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 [System.Serializable]
@@ -35,6 +36,15 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
 
     public void RebuildFlatOctreeVolume(IScalarFieldSource source, bool hasDirtyBounds, Bounds dirtyBounds)
     {
+        RebuildFlatOctreeVolume(source, hasDirtyBounds, dirtyBounds, null);
+    }
+
+    public void RebuildFlatOctreeVolume(
+        IScalarFieldSource source,
+        bool hasDirtyBounds,
+        Bounds dirtyBounds,
+        IReadOnlyList<Bounds> dirtyBoundsParts)
+    {
         if (source == null)
         {
             Debug.LogWarning("OctreeVolumeSampler: No source assigned.");
@@ -45,8 +55,10 @@ public class OctreeVolumeSampler : VolumeSamplerBase<OctreeVolume>
         flatBuilder.center = center;
         flatBuilder.size = extent;
         flatBuilder.PreparePersistentCrossingCache(hasDirtyBounds, dirtyBounds);
+        flatBuilder.SetDirtyCacheBoundsParts(hasDirtyBounds ? dirtyBoundsParts : null);
 
         Volume = flatBuilder.Build(source);
+        flatBuilder.SetDirtyCacheBoundsParts(null);
         IsDirty = false;
     }
 

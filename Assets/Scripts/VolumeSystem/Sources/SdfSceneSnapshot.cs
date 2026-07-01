@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using UnityEngine;
 
 public sealed class SdfSceneSnapshot : IScalarFieldSource
@@ -211,6 +212,14 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
     private readonly ShapeData[] _addShapes;
     private readonly ShapeData[] _subtractShapes;
     private readonly ShapeData[] _intersectShapes;
+    private readonly ReadOnlyCollection<ShapeData> _readOnlyAddShapes;
+    private readonly ReadOnlyCollection<ShapeData> _readOnlySubtractShapes;
+    private readonly ReadOnlyCollection<ShapeData> _readOnlyIntersectShapes;
+
+    internal Matrix4x4 RootLocalToWorld => _rootLocalToWorld;
+    internal IReadOnlyList<ShapeData> AddShapes => _readOnlyAddShapes;
+    internal IReadOnlyList<ShapeData> SubtractShapes => _readOnlySubtractShapes;
+    internal IReadOnlyList<ShapeData> IntersectShapes => _readOnlyIntersectShapes;
 
     public bool HasUnsupportedShapes { get; }
 
@@ -248,6 +257,9 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
         _addShapes = addShapes.ToArray();
         _subtractShapes = subtractShapes.ToArray();
         _intersectShapes = intersectShapes.ToArray();
+        _readOnlyAddShapes = System.Array.AsReadOnly(_addShapes);
+        _readOnlySubtractShapes = System.Array.AsReadOnly(_subtractShapes);
+        _readOnlyIntersectShapes = System.Array.AsReadOnly(_intersectShapes);
         HasUnsupportedShapes = hasUnsupportedShapes;
     }
 

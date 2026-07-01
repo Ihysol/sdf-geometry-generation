@@ -5,6 +5,7 @@ public class MeshData
 {
     public readonly List<Vector3> Vertices = new();
     public readonly List<int> Triangles = new();
+    public readonly List<Vector3> Normals = new();
 
     public Bounds Bounds;
 
@@ -13,8 +14,27 @@ public class MeshData
     {
         Vertices.Clear();
         Triangles.Clear();
+        Normals.Clear();
 
         Bounds = new Bounds(Vector3.zero, Vector3.zero);
+    }
+
+    public void ApplyTo(Mesh mesh, bool recalculateNormals = true)
+    {
+        if (mesh == null)
+            return;
+
+        mesh.Clear();
+        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        mesh.SetVertices(Vertices);
+        mesh.SetTriangles(Triangles, 0);
+
+        if (Normals.Count == Vertices.Count)
+            mesh.SetNormals(Normals);
+        else if (recalculateNormals)
+            mesh.RecalculateNormals();
+
+        mesh.bounds = Bounds;
     }
 
     /// <summary>Creates a Unity mesh from the stored buffers.</summary>
@@ -25,13 +45,7 @@ public class MeshData
         mesh.name = "Generated Volume Mesh";
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
-        mesh.SetVertices(Vertices);
-        mesh.SetTriangles(Triangles, 0);
-
-        if (recalculateNormals)
-            mesh.RecalculateNormals();
-
-        mesh.bounds = Bounds;
+        ApplyTo(mesh, recalculateNormals);
 
         return mesh;
     }

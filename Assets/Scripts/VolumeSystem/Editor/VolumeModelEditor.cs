@@ -485,6 +485,12 @@ public class VolumeModelEditor : Editor
             serializedObject.FindProperty("logRebuildDuration")
         );
         EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("writeBenchmarkLogsToFile")
+        );
+        EditorGUILayout.PropertyField(
+            serializedObject.FindProperty("benchmarkLogArchiveLimit")
+        );
+        EditorGUILayout.PropertyField(
             serializedObject.FindProperty("profileFlatRecursiveParts"),
             new GUIContent("Profile Flat Recursive Parts")
         );
@@ -720,9 +726,14 @@ public class VolumeModelEditor : Editor
 
             if (model.benchmarkType == VolumeBenchmarkType.DirtyMove ||
                 model.benchmarkType == VolumeBenchmarkType.DirtyMoveSweep)
-                model.RunDirtyMoveBenchmark();
+            {
+                bool visualSteps = serializedObject.FindProperty("visualizeDirtyMoveBenchmark").boolValue;
+                model.RunDirtyMoveBenchmark(visualSteps);
+            }
             else
+            {
                 model.RunRebuildBenchmark();
+            }
 
             EditorUtility.SetDirty(model);
         }

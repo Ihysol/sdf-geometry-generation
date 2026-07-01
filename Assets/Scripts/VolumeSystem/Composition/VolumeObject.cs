@@ -128,14 +128,13 @@ public class VolumeObject : MonoBehaviour
         CacheLocalTransform();
 
         Bounds currentBounds = GetEstimatedLocalBounds();
-        previousBounds.Encapsulate(currentBounds);
 
         VolumeModel model = GetComponentInParent<VolumeModel>();
         if (model == null || !model.ShouldAutoRebuildOnTransformChange())
             return;
 
         model.NotifyInteractiveEdit();
-        QueueComposerRebuild(previousBounds);
+        QueueComposerRebuild(previousBounds, currentBounds);
     }
 
     /// <summary>Caches the current local transform values.</summary>
@@ -160,15 +159,24 @@ public class VolumeObject : MonoBehaviour
         if (_rebuildQueued)
         {
             _queuedDirtyBounds.Encapsulate(dirtyBounds);
+            _queuedDirtyBoundsParts.Add(dirtyBounds);
         }
         else
         {
             _rebuildQueued = true;
             _queuedDirtyBounds = dirtyBounds;
+            _queuedDirtyBoundsParts.Clear();
+            _queuedDirtyBoundsParts.Add(dirtyBounds);
             EditorApplication.delayCall += DelayedComposerRebuild;
         }
 
         _lastTransformChangeTime = EditorApplication.timeSinceStartup;
+    }
+
+    private void QueueComposerRebuild(Bounds firstDirtyBounds, Bounds secondDirtyBounds)
+    {
+        QueueComposerRebuild(firstDirtyBounds);
+        QueueComposerRebuild(secondDirtyBounds);
     }
 
     /// <summary>Runs the queued editor rebuild if this object still exists.</summary>
@@ -199,6 +207,7 @@ public class VolumeObject : MonoBehaviour
                 !(previewEnabled && previewActive))
             {
                 EditorApplication.delayCall += DelayedComposerRebuild;
+                RequestEditorRebuildTick();
                 return;
             }
 
@@ -211,6 +220,7 @@ public class VolumeObject : MonoBehaviour
             if (shouldWaitForRelease && elapsed < model.moveReleaseDelaySeconds)
             {
                 EditorApplication.delayCall += DelayedComposerRebuild;
+                RequestEditorRebuildTick();
                 return;
             }
         }
@@ -220,10 +230,22 @@ public class VolumeObject : MonoBehaviour
         VolumeSceneComposer composer = GetComponentInParent<VolumeSceneComposer>();
 
         if (composer != null)
-            composer.MarkDirtyAndRebuild(_queuedDirtyBounds);
+        {
+            composer.MarkDirtyAndRebuild(_queuedDirtyBounds, _queuedDirtyBoundsParts);
+            _queuedDirtyBoundsParts.Clear();
+            model?.DrainPendingRenderChunksImmediately();
+            RequestEditorRebuildTick();
+        }
+    }
+
+    private static void RequestEditorRebuildTick()
+    {
+        EditorApplication.QueuePlayerLoopUpdate();
+        SceneView.RepaintAll();
     }
 
     private Bounds _queuedDirtyBounds;
+    private readonly System.Collections.Generic.List<Bounds> _queuedDirtyBoundsParts = new();
 
     /// <summary>Renames the GameObject from its shape, role, and grid mode.</summary>
     private void UpdateGameObjectName()
@@ -621,18 +643,28 @@ public class VolumeObject : MonoBehaviour
 
     public Bounds EstimateLocalMoveDirtyBounds(Vector3 fromLocalPosition, Vector3 toLocalPosition)
     {
-        Bounds dirtyBounds = GetEstimatedLocalBoundsForTransform(
+        EstimateLocalMoveDirtyBoundsParts(fromLocalPosition, toLocalPosition, out Bounds dirtyBounds, out Bounds toBounds);
+        dirtyBounds.Encapsulate(toBounds);
+
+        return dirtyBounds;
+    }
+
+    public void EstimateLocalMoveDirtyBoundsParts(
+        Vector3 fromLocalPosition,
+        Vector3 toLocalPosition,
+        out Bounds fromBounds,
+        out Bounds toBounds)
+    {
+        fromBounds = GetEstimatedLocalBoundsForTransform(
             fromLocalPosition,
             transform.localRotation,
             transform.localScale
         );
-        dirtyBounds.Encapsulate(GetEstimatedLocalBoundsForTransform(
+        toBounds = GetEstimatedLocalBoundsForTransform(
             toLocalPosition,
             transform.localRotation,
             transform.localScale
-        ));
-
-        return dirtyBounds;
+        );
     }
 
 #if UNITY_EDITOR

@@ -82,7 +82,12 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
 
     public void BuildMesh(IFlatAdaptiveVolumeData volume, float iso, Mesh mesh)
     {
-        mesh.Clear();
+        MeshData meshData = BuildMeshData(volume, iso);
+        meshData.ApplyTo(mesh);
+    }
+
+    public MeshData BuildMeshData(IFlatAdaptiveVolumeData volume, float iso)
+    {
         _vertices.Clear();
         _normals.Clear();
         _triangles.Clear();
@@ -98,11 +103,11 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         isoLevel = iso;
 
         if (volume == null)
-            return;
+            return new MeshData();
 
         _layout = volume.GetFlatLayout(includeCornerValues: true);
         if (_layout == null || _layout.Count == 0 || !_layout.IsValid)
-            return;
+            return new MeshData();
 
         int count = _layout.Count;
         EnsureWorkingBuffers(count);
@@ -119,10 +124,13 @@ public class DualContouringFlatOctreeMesher : IVolumeMesher<IFlatAdaptiveVolumeD
         _layout.EnsureRuntimeCache();
         BuildEdgeQuads();
 
-        mesh.SetVertices(_vertices);
+        MeshData meshData = new MeshData();
+        meshData.Vertices.AddRange(_vertices);
         if (_normals.Count == _vertices.Count)
-            mesh.SetNormals(_normals);
-        mesh.SetTriangles(_triangles, 0);
+            meshData.Normals.AddRange(_normals);
+        meshData.Triangles.AddRange(_triangles);
+        meshData.Bounds = ownedBounds ?? volume.Bounds;
+        return meshData;
     }
 
     private void EnsureWorkingBuffers(int count)
