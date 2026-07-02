@@ -18,10 +18,16 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         public readonly double queueSetupMs;
         public readonly double chunkRebuildMs;
         public readonly double chunkLocalBuildMs;
+        public readonly double chunkClusterBuildMs;
+        public readonly double chunkMeshBuildMs;
+        public readonly double chunkApplyMeshMs;
         public readonly int rebuilt;
         public readonly int pending;
         public readonly int budget;
         public readonly int chunkLocalBuilds;
+        public readonly int chunkClusters;
+        public readonly int chunkClusterBuilds;
+        public readonly int chunkClusterFallbacks;
         public readonly bool hadDirtyBounds;
         public readonly bool canDoDirtyRebuild;
         public readonly bool fullRebuildRequested;
@@ -33,6 +39,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             double queueSetupMs,
             double chunkRebuildMs,
             double chunkLocalBuildMs,
+            double chunkClusterBuildMs,
+            double chunkMeshBuildMs,
+            double chunkApplyMeshMs,
             int rebuilt,
             int pending,
             int budget,
@@ -41,16 +50,25 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             bool canDoDirtyRebuild = false,
             bool fullRebuildRequested = false,
             int queuedDirtyChunks = 0,
-            Bounds dirtyBounds = default)
+            Bounds dirtyBounds = default,
+            int chunkClusters = 0,
+            int chunkClusterBuilds = 0,
+            int chunkClusterFallbacks = 0)
         {
             this.totalMs = totalMs;
             this.queueSetupMs = queueSetupMs;
             this.chunkRebuildMs = chunkRebuildMs;
             this.chunkLocalBuildMs = chunkLocalBuildMs;
+            this.chunkClusterBuildMs = chunkClusterBuildMs;
+            this.chunkMeshBuildMs = chunkMeshBuildMs;
+            this.chunkApplyMeshMs = chunkApplyMeshMs;
             this.rebuilt = rebuilt;
             this.pending = pending;
             this.budget = budget;
             this.chunkLocalBuilds = chunkLocalBuilds;
+            this.chunkClusters = chunkClusters;
+            this.chunkClusterBuilds = chunkClusterBuilds;
+            this.chunkClusterFallbacks = chunkClusterFallbacks;
             this.hadDirtyBounds = hadDirtyBounds;
             this.canDoDirtyRebuild = canDoDirtyRebuild;
             this.fullRebuildRequested = fullRebuildRequested;
@@ -84,6 +102,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private bool _chunkCycleIsPreview;
     private double _lastPassChunkLocalBuildMs;
     private int _lastPassChunkLocalBuilds;
+    private double _lastPassChunkClusterBuildMs;
+    private int _lastPassChunkClusterBuilds;
+    private double _lastPassChunkMeshBuildMs;
+    private double _lastPassChunkApplyMeshMs;
+    private int _lastPassChunkClusters;
+    private int _lastPassChunkClusterFallbacks;
 #if UNITY_EDITOR
     private bool _editorChunkUpdateRegistered;
 #endif
@@ -161,7 +185,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 break;
         }
 
-        LastRenderStats = new RenderStats(0d, 0d, 0d, 0d, 1, 0, 1, 0);
+        LastRenderStats = new RenderStats(0d, 0d, 0d, 0d, 0d, 0d, 0d, 1, 0, 1, 0);
     }
 
     private void RebuildSingleVoxel(VolumeModel model)
@@ -391,6 +415,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 queueSetupMs,
                 chunkRebuildMs,
                 _lastPassChunkLocalBuildMs,
+                _lastPassChunkClusterBuildMs,
+                _lastPassChunkMeshBuildMs,
+                _lastPassChunkApplyMeshMs,
                 rebuiltNow,
                 _pendingChunkQueue.Count,
                 rebuildBudget,
@@ -399,7 +426,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                 canDoDirtyRebuild,
                 fullRebuildRequested,
                 queuedDirtyChunks,
-                dirtyBounds);
+                dirtyBounds,
+                _lastPassChunkClusters,
+                _lastPassChunkClusterBuilds,
+                _lastPassChunkClusterFallbacks);
         }
 #else
         LastRenderStats = new RenderStats(
@@ -407,6 +437,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             0d,
             0d,
             _lastPassChunkLocalBuildMs,
+            _lastPassChunkClusterBuildMs,
+            _lastPassChunkMeshBuildMs,
+            _lastPassChunkApplyMeshMs,
             rebuiltNow,
             _pendingChunkQueue.Count,
             rebuildBudget,
@@ -415,7 +448,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             canDoDirtyRebuild,
             fullRebuildRequested,
             queuedDirtyChunks,
-            dirtyBounds);
+            dirtyBounds,
+            _lastPassChunkClusters,
+            _lastPassChunkClusterBuilds,
+            _lastPassChunkClusterFallbacks);
 #endif
     }
 
@@ -827,6 +863,9 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             previous.queueSetupMs,
             previous.chunkRebuildMs + passChunkMs,
             previous.chunkLocalBuildMs + _lastPassChunkLocalBuildMs,
+            previous.chunkClusterBuildMs + _lastPassChunkClusterBuildMs,
+            previous.chunkMeshBuildMs + _lastPassChunkMeshBuildMs,
+            previous.chunkApplyMeshMs + _lastPassChunkApplyMeshMs,
             previous.rebuilt + Mathf.Max(0, rebuiltNow),
             _pendingChunkQueue.Count,
             rebuildBudget,
@@ -835,7 +874,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             previous.canDoDirtyRebuild,
             previous.fullRebuildRequested,
             previous.queuedDirtyChunks,
-            previous.dirtyBounds);
+            previous.dirtyBounds,
+            previous.chunkClusters + _lastPassChunkClusters,
+            previous.chunkClusterBuilds + _lastPassChunkClusterBuilds,
+            previous.chunkClusterFallbacks + _lastPassChunkClusterFallbacks);
     }
 
     private void UpdateEditorChunkDrainSubscription()
@@ -959,6 +1001,12 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     {
         _lastPassChunkLocalBuildMs = 0d;
         _lastPassChunkLocalBuilds = 0;
+        _lastPassChunkClusterBuildMs = 0d;
+        _lastPassChunkClusterBuilds = 0;
+        _lastPassChunkMeshBuildMs = 0d;
+        _lastPassChunkApplyMeshMs = 0d;
+        _lastPassChunkClusters = 0;
+        _lastPassChunkClusterFallbacks = 0;
         Stopwatch passTimer = Stopwatch.StartNew();
         if (_activeChunkModel == null || _activeChunkComposer == null)
         {
@@ -967,14 +1015,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
 
         if (ShouldUseParallelChunkMeshing(_activeChunkModel))
-        {
             return RebuildQueuedChunksParallel(budget, timeBudgetMs, passTimer, out passChunkMs);
-        }
 
         int rebuilt = 0;
-        Stopwatch timeBudgetWatch = null;
-        if (timeBudgetMs > 0f)
-            timeBudgetWatch = Stopwatch.StartNew();
+        Stopwatch timeBudgetWatch = timeBudgetMs > 0f ? Stopwatch.StartNew() : null;
 
         while (rebuilt < budget && _pendingChunkQueue.Count > 0)
         {
@@ -986,22 +1030,35 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
             MeshVolumeChunk chunk = _chunks[idx];
             Bounds chunkBounds = _activeChunkBounds[idx];
+            Bounds buildBounds = GetChunkLocalBuildBounds(_activeChunkModel, chunkBounds);
 
             chunk.name = $"MeshVolumeChunk_{idx:000}";
-            Bounds buildBounds = GetChunkLocalBuildBounds(_activeChunkModel, chunkBounds);
             chunk.coreBounds = chunkBounds;
             chunk.buildBounds = buildBounds;
+
             if (ShouldUseChunkLocalVolumeBuild(_activeChunkModel) &&
-                TryBuildChunkLocalMeshData(_activeChunkModel, _activeChunkComposer, chunkBounds, buildBounds, out MeshData meshData, out double localBuildMs))
+                TryBuildChunkLocalMeshData(
+                    _activeChunkModel,
+                    _activeChunkComposer,
+                    chunkBounds,
+                    buildBounds,
+                    out MeshData meshData,
+                    out double localBuildMs,
+                    out double meshBuildMs))
             {
                 _lastPassChunkLocalBuildMs += localBuildMs;
                 _lastPassChunkLocalBuilds++;
+                _lastPassChunkMeshBuildMs += meshBuildMs;
+                Stopwatch applyTimer = Stopwatch.StartNew();
                 chunk.ApplyMeshData(meshData, _activeChunkModel);
+                applyTimer.Stop();
+                _lastPassChunkApplyMeshMs += applyTimer.Elapsed.TotalMilliseconds;
             }
             else
             {
                 chunk.Rebuild(_activeChunkModel, _activeChunkComposer, sharedOctreeChunkMesher);
             }
+
             rebuilt++;
 
             if (timeBudgetWatch != null && timeBudgetWatch.Elapsed.TotalMilliseconds >= timeBudgetMs)
@@ -1021,20 +1078,20 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         if (!IsFlatOctreeDualContouring(model))
             return false;
 
-        // Only parallelize full passes. Partial passes can briefly show old/new chunk
-        // boundaries together during visual benchmarks, which reads as geometry spikes.
+        // Only parallelize full passes. Partial passes briefly show old/new chunk
+        // boundaries together during visual benchmarks, which reads geometry spikes.
         int pending = _pendingChunkQueue.Count;
         return pending > 0 &&
-               pending <= GetChunkRebuildBudget(model, fullRebuildRequested: false) &&
-               pending <= GetMaxParallelChunkMeshingTasks();
+            pending <= GetChunkRebuildBudget(model, fullRebuildRequested: false) &&
+            pending <= GetMaxParallelChunkMeshingTasks();
     }
 
     private bool ShouldUseChunkLocalVolumeBuild(VolumeModel model)
     {
         return enableChunkLocalVolumeBuild &&
-               model != null &&
-               model.dataStructure == VolumeDataStructure.Octree &&
-               IsFlatOctreeDualContouring(model);
+            model != null &&
+            model.dataStructure == VolumeDataStructure.Octree &&
+            IsFlatOctreeDualContouring(model);
     }
 
     public bool CanBuildDirtyChunksLocally(VolumeModel model)
@@ -1072,13 +1129,97 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         public MeshData MeshData;
         public bool Success;
         public double LocalBuildMs;
+        public double MeshBuildMs;
         public bool UsedLocalBuild;
+        public bool UsedClusterFallback;
+    }
+
+    public static List<List<int>> BuildNeighborChunkClustersForTests(IReadOnlyList<Bounds> bounds)
+    {
+        List<ChunkBuildRequest> requests = new(bounds != null ? bounds.Count : 0);
+        if (bounds != null)
+        {
+            for (int i = 0; i < bounds.Count; i++)
+                requests.Add(new ChunkBuildRequest(i, bounds[i], bounds[i], null));
+        }
+
+        return BuildNeighborChunkClusters(requests);
+    }
+
+    private static List<List<int>> BuildNeighborChunkClusters(IReadOnlyList<ChunkBuildRequest> requests)
+    {
+        List<List<int>> clusters = new();
+        if (requests == null || requests.Count == 0)
+            return clusters;
+
+        bool[] visited = new bool[requests.Count];
+        Queue<int> queue = new();
+
+        for (int start = 0; start < requests.Count; start++)
+        {
+            if (visited[start])
+                continue;
+
+            List<int> cluster = new();
+            visited[start] = true;
+            queue.Enqueue(start);
+
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                cluster.Add(current);
+                Bounds currentBounds = requests[current].Bounds;
+
+                for (int candidate = 0; candidate < requests.Count; candidate++)
+                {
+                    if (visited[candidate])
+                        continue;
+
+                    if (!BoundsTouchOrOverlap(currentBounds, requests[candidate].Bounds))
+                        continue;
+
+                    visited[candidate] = true;
+                    queue.Enqueue(candidate);
+                }
+            }
+
+            clusters.Add(cluster);
+        }
+
+        return clusters;
+    }
+
+    private static bool BoundsTouchOrOverlap(Bounds a, Bounds b)
+    {
+        const float epsilon = 0.0001f;
+        Vector3 aMin = a.min;
+        Vector3 aMax = a.max;
+        Vector3 bMin = b.min;
+        Vector3 bMax = b.max;
+
+        return aMin.x <= bMax.x + epsilon && aMax.x + epsilon >= bMin.x &&
+            aMin.y <= bMax.y + epsilon && aMax.y + epsilon >= bMin.y &&
+            aMin.z <= bMax.z + epsilon && aMax.z + epsilon >= bMin.z;
+    }
+
+    private static Bounds GetClusterBuildBounds(IReadOnlyList<ChunkBuildRequest> requests, IReadOnlyList<int> cluster)
+    {
+        Bounds bounds = requests[cluster[0]].BuildBounds;
+        for (int i = 1; i < cluster.Count; i++)
+            bounds.Encapsulate(requests[cluster[i]].BuildBounds);
+        return bounds;
     }
 
     private int RebuildQueuedChunksParallel(int budget, float timeBudgetMs, Stopwatch passTimer, out double passChunkMs)
     {
         _lastPassChunkLocalBuildMs = 0d;
         _lastPassChunkLocalBuilds = 0;
+        _lastPassChunkClusterBuildMs = 0d;
+        _lastPassChunkClusterBuilds = 0;
+        _lastPassChunkMeshBuildMs = 0d;
+        _lastPassChunkApplyMeshMs = 0d;
+        _lastPassChunkClusters = 0;
+        _lastPassChunkClusterFallbacks = 0;
         int maxTasks = GetMaxParallelChunkMeshingTasks();
         int batchLimit = Mathf.Min(budget, maxTasks);
         if (batchLimit <= 0)
@@ -1089,13 +1230,10 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 
         bool useChunkLocalBuild = ShouldUseChunkLocalVolumeBuild(_activeChunkModel);
         OctreeVolume volume = useChunkLocalBuild ? null : _activeChunkModel.GetActiveOctreeVolume();
-        if (volume == null)
+        if (volume == null && !useChunkLocalBuild)
         {
-            if (!useChunkLocalBuild)
-            {
-                passChunkMs = passTimer.Elapsed.TotalMilliseconds;
-                return 0;
-            }
+            passChunkMs = passTimer.Elapsed.TotalMilliseconds;
+            return 0;
         }
 
         IFlatAdaptiveVolumeData flatVolume = null;
@@ -1137,54 +1275,44 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             MaxDegreeOfParallelism = Mathf.Max(1, maxTasks)
         };
 
-        Parallel.For(0, requests.Count, parallelOptions, i =>
+        if (useChunkLocalBuild)
         {
-            ChunkBuildRequest request = requests[i];
-            try
+            BuildChunkLocalClusterResults(requests, results, parallelOptions, meshingSettings);
+        }
+        else
+        {
+            Parallel.For(0, requests.Count, parallelOptions, i =>
             {
-                MeshData meshData;
-                if (useChunkLocalBuild)
+                ChunkBuildRequest request = requests[i];
+                try
                 {
-                    if (!TryBuildChunkLocalMeshData(_activeChunkModel, _activeChunkComposer, request.Bounds, request.BuildBounds, out meshData, out double localBuildMs))
-                        throw new System.InvalidOperationException("Chunk-local volume build failed.");
-
+                    Stopwatch meshTimer = Stopwatch.StartNew();
+                    MeshData meshData = OctreeChunkMesher.BuildFlatDualContouringChunkData(
+                        meshingSettings,
+                        flatVolume,
+                        request.Bounds);
+                    meshTimer.Stop();
                     results[i] = new ChunkBuildResult
                     {
                         Index = request.Index,
                         Bounds = request.Bounds,
                         MeshData = meshData,
                         Success = true,
-                        LocalBuildMs = localBuildMs,
-                        UsedLocalBuild = true
+                        MeshBuildMs = meshTimer.Elapsed.TotalMilliseconds
                     };
-                    return;
                 }
-                else
+                catch
                 {
-                    meshData = OctreeChunkMesher.BuildFlatDualContouringChunkData(
-                        meshingSettings,
-                        flatVolume,
-                        request.Bounds);
+                    results[i] = new ChunkBuildResult
+                    {
+                        Index = request.Index,
+                        Bounds = request.Bounds,
+                        MeshData = null,
+                        Success = false
+                    };
                 }
-                results[i] = new ChunkBuildResult
-                {
-                    Index = request.Index,
-                    Bounds = request.Bounds,
-                    MeshData = meshData,
-                    Success = true
-                };
-            }
-            catch
-            {
-                results[i] = new ChunkBuildResult
-                {
-                    Index = request.Index,
-                    Bounds = request.Bounds,
-                    MeshData = null,
-                    Success = false
-                };
-            }
-        });
+            });
+        }
 
         int rebuilt = 0;
         for (int i = 0; i < results.Length; i++)
@@ -1201,16 +1329,139 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                     _lastPassChunkLocalBuildMs += result.LocalBuildMs;
                     _lastPassChunkLocalBuilds++;
                 }
+                if (result.UsedClusterFallback)
+                    _lastPassChunkClusterFallbacks++;
+                _lastPassChunkMeshBuildMs += result.MeshBuildMs;
+                Stopwatch applyTimer = Stopwatch.StartNew();
                 chunk.ApplyMeshData(result.MeshData, _activeChunkModel);
+                applyTimer.Stop();
+                _lastPassChunkApplyMeshMs += applyTimer.Elapsed.TotalMilliseconds;
             }
             else
+            {
                 chunk.Rebuild(_activeChunkModel, _activeChunkComposer, sharedOctreeChunkMesher);
+            }
             rebuilt++;
         }
 
         passTimer.Stop();
         passChunkMs = passTimer.Elapsed.TotalMilliseconds;
         return rebuilt;
+    }
+
+    private void BuildChunkLocalClusterResults(
+        IReadOnlyList<ChunkBuildRequest> requests,
+        ChunkBuildResult[] results,
+        ParallelOptions parallelOptions,
+        OctreeChunkMesher.FlatDualContouringChunkSettings meshingSettings)
+    {
+        List<List<int>> clusters = BuildNeighborChunkClusters(requests);
+        _lastPassChunkClusters = clusters.Count;
+        bool[] clusterBuildSucceeded = new bool[clusters.Count];
+        double[] clusterBuildMs = new double[clusters.Count];
+
+        Parallel.For(0, clusters.Count, parallelOptions, clusterIndex =>
+        {
+            List<int> cluster = clusters[clusterIndex];
+            Bounds clusterBuildBounds = GetClusterBuildBounds(requests, cluster);
+
+            if (TryBuildChunkLocalFlatVolume(
+                _activeChunkModel,
+                _activeChunkComposer,
+                clusterBuildBounds,
+                out IFlatAdaptiveVolumeData flatVolume,
+                out double localBuildMs))
+            {
+                clusterBuildSucceeded[clusterIndex] = true;
+                clusterBuildMs[clusterIndex] = localBuildMs;
+                double localBuildMsPerChunk = cluster.Count > 0 ? localBuildMs / cluster.Count : 0d;
+                for (int i = 0; i < cluster.Count; i++)
+                {
+                    int requestIndex = cluster[i];
+                    ChunkBuildRequest request = requests[requestIndex];
+                    try
+                    {
+                        Stopwatch meshTimer = Stopwatch.StartNew();
+                        MeshData meshData = OctreeChunkMesher.BuildFlatDualContouringChunkData(
+                            meshingSettings,
+                            flatVolume,
+                            request.Bounds);
+                        meshTimer.Stop();
+
+                        results[requestIndex] = new ChunkBuildResult
+                        {
+                            Index = request.Index,
+                            Bounds = request.Bounds,
+                            MeshData = meshData,
+                            Success = true,
+                            LocalBuildMs = localBuildMsPerChunk,
+                            MeshBuildMs = meshTimer.Elapsed.TotalMilliseconds,
+                            UsedLocalBuild = true
+                        };
+                    }
+                    catch
+                    {
+                        results[requestIndex] = BuildSingleChunkLocalResult(request, usedClusterFallback: true);
+                    }
+                }
+
+                return;
+            }
+
+            for (int i = 0; i < cluster.Count; i++)
+            {
+                int requestIndex = cluster[i];
+                results[requestIndex] = BuildSingleChunkLocalResult(requests[requestIndex], usedClusterFallback: true);
+            }
+        });
+
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            if (!clusterBuildSucceeded[i])
+                continue;
+
+            _lastPassChunkClusterBuilds++;
+            _lastPassChunkClusterBuildMs += clusterBuildMs[i];
+        }
+    }
+
+    private ChunkBuildResult BuildSingleChunkLocalResult(ChunkBuildRequest request, bool usedClusterFallback = false)
+    {
+        try
+        {
+            if (!TryBuildChunkLocalMeshData(
+                _activeChunkModel,
+                _activeChunkComposer,
+                request.Bounds,
+                request.BuildBounds,
+                out MeshData meshData,
+                out double localBuildMs,
+                out double meshBuildMs))
+                throw new System.InvalidOperationException("Chunk-local volume build failed.");
+
+            return new ChunkBuildResult
+            {
+                Index = request.Index,
+                Bounds = request.Bounds,
+                MeshData = meshData,
+                Success = true,
+                LocalBuildMs = localBuildMs,
+                MeshBuildMs = meshBuildMs,
+                UsedLocalBuild = true,
+                UsedClusterFallback = usedClusterFallback
+            };
+        }
+        catch
+        {
+            return new ChunkBuildResult
+            {
+                Index = request.Index,
+                Bounds = request.Bounds,
+                MeshData = null,
+                Success = false,
+                UsedClusterFallback = usedClusterFallback
+            };
+        }
     }
 
     private Bounds GetChunkLocalBuildBounds(VolumeModel model, Bounds coreBounds)
@@ -1298,9 +1549,30 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         Bounds coreBounds,
         Bounds buildBounds,
         out MeshData meshData,
-        out double localBuildMs)
+        out double localBuildMs,
+        out double meshBuildMs)
     {
         meshData = null;
+        meshBuildMs = 0d;
+        if (!TryBuildChunkLocalFlatVolume(model, source, buildBounds, out IFlatAdaptiveVolumeData flatVolume, out localBuildMs))
+            return false;
+
+        OctreeChunkMesher.FlatDualContouringChunkSettings settings = new(model);
+        Stopwatch meshTimer = Stopwatch.StartNew();
+        meshData = OctreeChunkMesher.BuildFlatDualContouringChunkData(settings, flatVolume, coreBounds);
+        meshTimer.Stop();
+        meshBuildMs = meshTimer.Elapsed.TotalMilliseconds;
+        return true;
+    }
+
+    private static bool TryBuildChunkLocalFlatVolume(
+        VolumeModel model,
+        IScalarFieldSource source,
+        Bounds buildBounds,
+        out IFlatAdaptiveVolumeData flatVolume,
+        out double localBuildMs)
+    {
+        flatVolume = null;
         localBuildMs = 0d;
         if (model == null || source == null || model.octreeSampler == null || model.octreeSampler.flatBuilder == null)
             return false;
@@ -1331,13 +1603,11 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         OctreeVolume localVolume = builder.Build(source);
         buildTimer.Stop();
         localBuildMs = buildTimer.Elapsed.TotalMilliseconds;
-        IFlatAdaptiveVolumeData flatVolume = localVolume as IFlatAdaptiveVolumeData;
+        flatVolume = localVolume as IFlatAdaptiveVolumeData;
         if (flatVolume == null)
             return false;
 
         flatVolume.GetFlatLayout(includeCornerValues: true)?.EnsureRuntimeCache();
-        OctreeChunkMesher.FlatDualContouringChunkSettings settings = new(model);
-        meshData = OctreeChunkMesher.BuildFlatDualContouringChunkData(settings, flatVolume, coreBounds);
         return true;
     }
 

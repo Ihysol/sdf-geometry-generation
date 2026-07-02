@@ -330,6 +330,14 @@ public class VolumeModel : MonoBehaviour
         public readonly int reusedSubtrees;
         public readonly double rendererMs;
         public readonly double rendererChunkMs;
+        public readonly double rendererChunkLocalBuildMs;
+        public readonly double rendererChunkClusterBuildMs;
+        public readonly double rendererChunkMeshBuildMs;
+        public readonly double rendererChunkApplyMeshMs;
+        public readonly int rendererChunkLocalBuilds;
+        public readonly int rendererChunkClusters;
+        public readonly int rendererChunkClusterBuilds;
+        public readonly int rendererChunkClusterFallbacks;
         public readonly int rebuiltChunks;
         public readonly int queuedDirtyChunks;
         public readonly bool dirtySeen;
@@ -406,6 +414,14 @@ public class VolumeModel : MonoBehaviour
             int reusedSubtrees,
             double rendererMs,
             double rendererChunkMs,
+            double rendererChunkLocalBuildMs,
+            double rendererChunkClusterBuildMs,
+            double rendererChunkMeshBuildMs,
+            double rendererChunkApplyMeshMs,
+            int rendererChunkLocalBuilds,
+            int rendererChunkClusters,
+            int rendererChunkClusterBuilds,
+            int rendererChunkClusterFallbacks,
             int rebuiltChunks,
             int queuedDirtyChunks,
             bool dirtySeen,
@@ -481,6 +497,14 @@ public class VolumeModel : MonoBehaviour
             this.reusedSubtrees = reusedSubtrees;
             this.rendererMs = rendererMs;
             this.rendererChunkMs = rendererChunkMs;
+            this.rendererChunkLocalBuildMs = rendererChunkLocalBuildMs;
+            this.rendererChunkClusterBuildMs = rendererChunkClusterBuildMs;
+            this.rendererChunkMeshBuildMs = rendererChunkMeshBuildMs;
+            this.rendererChunkApplyMeshMs = rendererChunkApplyMeshMs;
+            this.rendererChunkLocalBuilds = rendererChunkLocalBuilds;
+            this.rendererChunkClusters = rendererChunkClusters;
+            this.rendererChunkClusterBuilds = rendererChunkClusterBuilds;
+            this.rendererChunkClusterFallbacks = rendererChunkClusterFallbacks;
             this.rebuiltChunks = rebuiltChunks;
             this.queuedDirtyChunks = queuedDirtyChunks;
             this.dirtySeen = dirtySeen;
@@ -1021,6 +1045,14 @@ public class VolumeModel : MonoBehaviour
             reusedSubtrees,
             renderStats.totalMs,
             renderStats.chunkRebuildMs,
+            renderStats.chunkLocalBuildMs,
+            renderStats.chunkClusterBuildMs,
+            renderStats.chunkMeshBuildMs,
+            renderStats.chunkApplyMeshMs,
+            renderStats.chunkLocalBuilds,
+            renderStats.chunkClusters,
+            renderStats.chunkClusterBuilds,
+            renderStats.chunkClusterFallbacks,
             renderStats.rebuilt,
             renderStats.queuedDirtyChunks,
             renderStats.hadDirtyBounds,
@@ -1059,7 +1091,7 @@ public class VolumeModel : MonoBehaviour
             $"Volume Rebuild Profile [{GetPipelineDebugLabel()}]: " +
             $"model(total={totalMs:F2} ms, composition={compositionMs:F2} ms, volumeBuild={volumeBuildMs:F2} ms, render={renderMs:F2} ms), " +
             $"cause={rebuildCause}, hasDirty={hadDirtyBounds}, incremental={usedIncrementalUpdate}, refinementSteps={GetEffectiveEdgeRefinementSteps()}, " +
-            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, chunkLocalBuild={renderStats.chunkLocalBuildMs:F2} ms, chunkLocalBuilds={renderStats.chunkLocalBuilds}, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget}, " +
+            $"renderer(total={renderStats.totalMs:F2} ms, queueSetup={renderStats.queueSetupMs:F2} ms, chunkRebuild={renderStats.chunkRebuildMs:F2} ms, chunkLocalBuild={renderStats.chunkLocalBuildMs:F2} ms, chunkClusterBuild={renderStats.chunkClusterBuildMs:F2} ms, chunkMeshBuild={renderStats.chunkMeshBuildMs:F2} ms, chunkApplyMesh={renderStats.chunkApplyMeshMs:F2} ms, chunkLocalChunks={renderStats.chunkLocalBuilds}, chunkClusters={renderStats.chunkClusters}, chunkClusterBuilds={renderStats.chunkClusterBuilds}, chunkFallbacks={renderStats.chunkClusterFallbacks}, rebuilt={renderStats.rebuilt}, pending={renderStats.pending}, budget={renderStats.budget}, " +
             $"dirtySeen={renderStats.hadDirtyBounds}, canDirty={renderStats.canDoDirtyRebuild}, full={renderStats.fullRebuildRequested}, queuedDirty={renderStats.queuedDirtyChunks}, dirtySize={FormatVector(renderStats.dirtyBounds.size)})";
 
         if (includeFlatBuildStats)
@@ -1206,6 +1238,11 @@ public class VolumeModel : MonoBehaviour
             $"volumeBuild({Summarize(samples, s => s.volumeBuildMs)}), " +
             $"render({Summarize(samples, s => s.renderMs)}), " +
             $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
+            $"chunkLocalBuild({Summarize(samples, s => s.rendererChunkLocalBuildMs)}), " +
+            $"chunkClusterBuild({Summarize(samples, s => s.rendererChunkClusterBuildMs)}), " +
+            $"chunkMeshBuild({Summarize(samples, s => s.rendererChunkMeshBuildMs)}), " +
+            $"chunkApplyMesh({Summarize(samples, s => s.rendererChunkApplyMeshMs)}), " +
+            $"chunkLocal(avgLocalChunks={AverageInt(samples, s => s.rendererChunkLocalBuilds):F1}, avgClusters={AverageInt(samples, s => s.rendererChunkClusters):F1}, avgClusterBuilds={AverageInt(samples, s => s.rendererChunkClusterBuilds):F1}, avgFallbacks={AverageInt(samples, s => s.rendererChunkClusterFallbacks):F1}), " +
             $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
             $"{FormatRecursivePartsLog(samples)}, " +
@@ -1505,6 +1542,11 @@ public class VolumeModel : MonoBehaviour
             $"volumeBuild({Summarize(samples, s => s.volumeBuildMs)}), " +
             $"render({Summarize(samples, s => s.renderMs)}), " +
             $"rendererChunk({Summarize(samples, s => s.rendererChunkMs)}), " +
+            $"chunkLocalBuild({Summarize(samples, s => s.rendererChunkLocalBuildMs)}), " +
+            $"chunkClusterBuild({Summarize(samples, s => s.rendererChunkClusterBuildMs)}), " +
+            $"chunkMeshBuild({Summarize(samples, s => s.rendererChunkMeshBuildMs)}), " +
+            $"chunkApplyMesh({Summarize(samples, s => s.rendererChunkApplyMeshMs)}), " +
+            $"chunkLocal(avgLocalChunks={AverageInt(samples, s => s.rendererChunkLocalBuilds):F1}, avgClusters={AverageInt(samples, s => s.rendererChunkClusters):F1}, avgClusterBuilds={AverageInt(samples, s => s.rendererChunkClusterBuilds):F1}, avgFallbacks={AverageInt(samples, s => s.rendererChunkClusterFallbacks):F1}), " +
             $"flatBuild({Summarize(samples, s => s.flatBuildMs)}), " +
             $"recursive({Summarize(samples, s => s.flatRecursiveMs)}), " +
             $"{FormatRecursivePartsLog(samples)}, " +
