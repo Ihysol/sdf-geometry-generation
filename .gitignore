@@ -88,3 +88,6 @@ Thumbs.db
 # Local generated assets/output
 /GeneratedAssets/
 .aider*
+.serena/
+.tokensave/
+.headroom/
