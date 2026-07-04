@@ -68,6 +68,9 @@ public class VolumeModel : MonoBehaviour
     private bool _isPreviewRebuild;
     private bool _forceFullChunkRenderOnce;
 
+    // Modular pipeline
+    private VolumePipeline _pipeline;
+
     [Header("Rendering")]
     public bool enableChunking = true;
     public bool forceFullChunkRedraw = false;
@@ -157,6 +160,12 @@ public class VolumeModel : MonoBehaviour
         benchmarkRuns = Mathf.Max(2, benchmarkRuns);
         benchmarkLogArchiveLimit = Mathf.Max(1, benchmarkLogArchiveLimit);
         dirtyMoveBenchmarkStepDelayMs = Mathf.Max(0f, dirtyMoveBenchmarkStepDelayMs);
+
+        if (useModularPipeline)
+        {
+            DestroyPipeline();
+            RebuildModel();
+        }
     }
 
     /// <summary>Moves this component above companion components in the inspector.</summary>
@@ -167,6 +176,9 @@ public class VolumeModel : MonoBehaviour
 #endif
 
     [Header("Pipeline")]
+    public bool useModularPipeline = false;
+    public PipelineMesherType pipelineMesherType = PipelineMesherType.Voxel;
+    public OutputMode pipelineOutputMode = OutputMode.UnityMesh;
     public VolumeDataStructure dataStructure = VolumeDataStructure.Octree;
     public VolumeStorageMode storageMode = VolumeStorageMode.Tree;
     public OctreeMesherType octreeMesherType = OctreeMesherType.DualContouring;
@@ -530,11 +542,16 @@ public class VolumeModel : MonoBehaviour
     }
 #endif
 
-    /// <summary>Continuously rebuilds the model when realtime rebuild is enabled.</summary>
+    /// <summary>Continuously rebuildes the model when realtime rebuild is enabled.</summary>
     private void Update()
     {
         if (ShouldRebuildEveryFrame())
             RebuildModel();
+    }
+
+    private void OnDestroy()
+    {
+        DestroyPipeline();
     }
 
     public bool ShouldAutoRebuildOnChange()
@@ -604,6 +621,13 @@ public class VolumeModel : MonoBehaviour
 
         if (composer == null)
         {
+            _isPreviewRebuild = previousPreviewRebuild;
+            return;
+        }
+
+        if (useModularPipeline)
+        {
+            RebuildPipeline();
             _isPreviewRebuild = previousPreviewRebuild;
             return;
         }
@@ -1814,6 +1838,7 @@ public class VolumeModel : MonoBehaviour
         composer.RebuildComposition();
 
         ClearRenderOutput();
+        DestroyPipeline();
     }
 
     /// <summary>Deletes the last registered volume object and rebuilds if needed.</summary>
@@ -1961,6 +1986,120 @@ public class VolumeModel : MonoBehaviour
             go.transform.SetParent(transform, false);
 
             return go.AddComponent<VolumeRenderOutput>();
+        }
+    }
+
+    // --- Modular Pipeline ---
+
+    private void EnsurePipeline()
+    {
+        if (_pipeline != null)
+            return;
+
+        VolumeLayout layout = CreatePipelineLayout();
+        IVolumeMesher mesher = CreatePipelineMesher();
+
+        _pipeline = new VolumePipeline(layout, mesher);
+
+        GameObject pipelineOutputGo = transform.Find("PipelineMeshOutput")?.gameObject;
+        if (pipelineOutputGo == null)
+        {
+            pipelineOutputGo = new GameObject("PipelineMeshOutput");
+            pipelineOutputGo.transform.SetParent(transform, false);
+        }
+
+        MeshFilter meshFilter = pipelineOutputGo.GetComponent<MeshFilter>();
+        if (meshFilter == null)
+            meshFilter = pipelineOutputGo.AddComponent<MeshFilter>();
+
+        MeshRenderer meshRenderer = pipelineOutputGo.GetComponent<MeshRenderer>();
+        if (meshRenderer == null)
+        {
+            meshRenderer = pipelineOutputGo.AddComponent<MeshRenderer>();
+            meshRenderer.sharedMaterial = surfaceMaterial;
+        }
+
+        IVolumeOutput output = new UnityMeshOutput(meshFilter, meshRenderer);
+        _pipeline.Initialize(output);
+    }
+
+    private VolumeLayout CreatePipelineLayout()
+    {
+        Bounds bounds = GetPipelineBounds();
+        Vector3Int resolution = GetPipelineResolution();
+
+        return VolumeLayout.FromBounds(bounds, resolution);
+    }
+
+    private Bounds GetPipelineBounds()
+    {
+        IVolumeData activeVolume = GetActiveVolume();
+        if (activeVolume != null)
+            return activeVolume.Bounds;
+
+        Bounds defaultBounds = new Bounds(Vector3.zero, new Vector3(10f, 10f, 10f));
+        defaultBounds.Encapsulate(transform.position + Vector3.one * 5f);
+        defaultBounds.Encapsulate(transform.position - Vector3.one * 5f);
+        return defaultBounds;
+    }
+
+    private Vector3Int GetPipelineResolution()
+    {
+        if (dataStructure == VolumeDataStructure.VoxelGrid && voxelGridSampler.builder != null)
+        {
+            return voxelGridSampler.builder.gridSize;
+        }
+
+        return new Vector3Int(64, 64, 64);
+    }
+
+    private IVolumeMesher CreatePipelineMesher()
+    {
+        return MesherFactory.Create(pipelineMesherType);
+    }
+
+    private void RebuildPipeline()
+    {
+        EnsurePipeline();
+
+        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        if (composer == null)
+            return;
+
+        composer.RebuildComposition();
+
+        bool hasDirtyBounds = TryGetPendingDirtyBounds(out Bounds dirtyBounds);
+
+        if (hasDirtyBounds)
+        {
+            _pipeline.Rebuild(composer, isoLevel, dirtyBounds);
+        }
+        else
+        {
+            _pipeline.Rebuild(composer, isoLevel);
+        }
+
+        if (!enableChunking)
+            ClearDirtyBounds();
+    }
+
+    private void DestroyPipeline()
+    {
+        if (_pipeline != null)
+        {
+            _pipeline.Dispose();
+            _pipeline = null;
+        }
+
+        Transform pipelineOutput = transform.Find("PipelineMeshOutput");
+        if (pipelineOutput != null)
+        {
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                DestroyImmediate(pipelineOutput.gameObject);
+            else
+#endif
+                Destroy(pipelineOutput.gameObject);
         }
     }
 
