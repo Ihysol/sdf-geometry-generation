@@ -9,7 +9,7 @@ public class AddSphereOperation : IVolumeOperation
 
     public BoundsInt AffectedRegion { get; private set; }
     public bool SupportsCpu => true;
-    public bool SupportsGpu => false;
+    public bool SupportsGpu => true;
 
     public AddSphereOperation(Vector3 center, float radius, int materialId = 0)
     {
@@ -64,6 +64,7 @@ public class AddSphereOperation : IVolumeOperation
 
     public void ApplyGpu(IVolumeBuffer buffer, UnityEngine.Rendering.CommandBuffer commandBuffer)
     {
-        throw new System.NotImplementedException("GPU operations not yet implemented.");
+        GpuOperationDispatcher.AddSphere(buffer, Center, Radius, MaterialId);
+        buffer.SyncGpuToCpu();
     }
 }

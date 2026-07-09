@@ -1,11 +1,12 @@
-using System.Collections.Generic;
 using Unity.Collections;
 using UnityEngine;
 
 public interface IVolumeBuffer
 {
     VolumeLayout Layout { get; }
-    BufferSyncState SyncState { get; }
+    BufferSyncState SyncState { get; set; }
+
+    void EnableComputeBuffers();
 
     bool HasCpuAccess { get; }
     bool HasGpuAccess { get; }
@@ -16,9 +17,15 @@ public interface IVolumeBuffer
     UnityEngine.GraphicsBuffer DensityGpu { get; }
     UnityEngine.GraphicsBuffer MaterialGpu { get; }
 
-    void MarkDirty(BoundsInt region);
-    IReadOnlyList<BoundsInt> GetDirtyRegions();
-    void ClearDirtyRegions();
+    ComputeBuffer DensityCompute { get; }
+    ComputeBuffer MaterialCompute { get; }
+
+    int TotalChunks { get; }
+    Vector3Int ChunkGridSize { get; }
+
+    VolumeChunk GetChunk(int cx, int cy, int cz);
+    int GetChunkIndex(int cx, int cy, int cz);
+    Vector3Int GetChunkCoords(Vector3Int cellIndex);
 
     void SyncCpuToGpu();
     void SyncGpuToCpu();

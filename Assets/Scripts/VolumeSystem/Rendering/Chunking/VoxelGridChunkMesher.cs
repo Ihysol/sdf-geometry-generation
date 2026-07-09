@@ -1,3 +1,4 @@
+#if LEGACY
 using UnityEngine;
 
 public class VoxelGridChunkMesher : IChunkMesher<VoxelGrid>
@@ -43,3 +44,4 @@ public class VoxelGridChunkMesher : IChunkMesher<VoxelGrid>
         }
     }
 }
+#endif

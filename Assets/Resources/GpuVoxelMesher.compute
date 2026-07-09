@@ -1,0 +1,122 @@
+#pragma kernel CSMeshVoxels
+
+// Packed as 10 floats (40 bytes) to match C# ComputeBuffer stride
+struct MeshVertex
+{
+    float3 position;
+    float padding0;
+    float3 normal;
+    float2 uv;
+    float materialId; // stored as float for 4-byte alignment
+};
+
+cbuffer _VolumeParams : register(b0)
+{
+    float4 _Resolution; // xyz=resolution, w=padded
+    float4 _CellSizeOrigin;
+    float _IsoLevel;
+}
+
+RWStructuredBuffer<float> _DensityBuffer : register(u0);
+RWStructuredBuffer<int> _MaterialBuffer : register(u1);
+RWStructuredBuffer<MeshVertex> _VertexBuffer : register(u2);
+RWStructuredBuffer<uint> _IndexBuffer : register(u3);
+RWStructuredBuffer<uint> _VertCounter : register(u4);
+
+inline float3 IndexToWorld(uint3 idx)
+{
+    return _CellSizeOrigin.yzw + (float3(idx.x, idx.y, idx.z) + 0.5f) * _CellSizeOrigin.x;
+}
+
+inline int IndexToOffset(uint3 idx)
+{
+    return idx.z * _Resolution.x * _Resolution.y + idx.y * _Resolution.x + idx.x;
+}
+
+inline float SampleDensity(int x, int y, int z)
+{
+    if (x < 0 || x >= _Resolution.x || y < 0 || y >= _Resolution.y || z < 0 || z >= _Resolution.z)
+        return -1e6;
+    return _DensityBuffer[IndexToOffset(uint3(x, y, z))];
+}
+
+int3 g_FaceNormals[6] = { int3(1,0,0), int3(-1,0,0), int3(0,1,0), int3(0,-1,0), int3(0,0,1), int3(0,0,-1) };
+int g_CornerX[24] = { 1,1,1,1, 0,0,0,0, 1,1,1,1, 0,0,0,0, 1,1,1,1, 0,0,0,0 };
+int g_CornerY[24] = { 0,1,1,0, 0,1,1,0, 1,1,1,1, 0,0,0,0, 0,1,1,0, 0,1,1,0 };
+int g_CornerZ[24] = { 0,0,1,1, 0,0,1,1, 0,0,1,1, 0,1,1,0, 1,1,1,1, 0,0,1,1 };
+
+// Process one cell per thread
+[numthreads(16, 16, 1)]
+void CSMeshVoxels(uint3 id : SV_DispatchThreadID)
+{
+    int x = id.x;
+    int y = id.y;
+    int z = id.z;
+
+    if (x >= _Resolution.x || y >= _Resolution.y || z >= _Resolution.z)
+        return;
+
+    uint3 cellIdx = uint3(x, y, z);
+    float cellSize = _CellSizeOrigin.x;
+    float cellD = _DensityBuffer[IndexToOffset(cellIdx)];
+    float3 worldBase = IndexToWorld(cellIdx);
+
+    for (int face = 0; face < 6; face++)
+    {
+        int3 normal = g_FaceNormals[face];
+        int3 neighbor = int3(x + normal.x, y + normal.y, z + normal.z);
+
+        if (neighbor.x < 0 || neighbor.x >= _Resolution.x ||
+            neighbor.y < 0 || neighbor.y >= _Resolution.y ||
+            neighbor.z < 0 || neighbor.z >= _Resolution.z)
+            continue;
+
+        float nbD = _DensityBuffer[IndexToOffset(uint3(neighbor.x, neighbor.y, neighbor.z))];
+        bool cellInside = cellD > _IsoLevel;
+        bool nbInside = nbD > _IsoLevel;
+
+        if (cellInside == nbInside)
+            continue;
+
+        float denom = nbD - cellD;
+        if (abs(denom) < 1e-6f) continue;
+
+        float t = (_IsoLevel - cellD) / denom;
+        t = clamp(t, 0.0f, 1.0f);
+        int3 nDir = normal;
+
+        // Emit 4 vertices for this face
+        uint baseVert[4];
+        for (int vi = 0; vi < 4; vi++)
+        {
+            int coIdx = face * 4 + vi;
+            int3 cornerOff = int3(g_CornerX[coIdx], g_CornerY[coIdx], g_CornerZ[coIdx]);
+
+            MeshVertex v;
+            v.position = worldBase + float3(cornerOff.x, cornerOff.y, cornerOff.z) * cellSize
+                         + float3(nDir.x, nDir.y, nDir.z) * cellSize * t;
+            v.normal = float3(nDir.x, nDir.y, nDir.z);
+            v.uv = float2(0.0f, 0.0f);
+            v.materialId = _MaterialBuffer[IndexToOffset(cellIdx)];
+
+            uint atomicIdx;
+            InterlockedIncrement(_VertCounter[0], atomicIdx);
+            if (atomicIdx < _VertexBuffer.Length)
+                _VertexBuffer[atomicIdx] = v;
+            baseVert[vi] = atomicIdx;
+        }
+
+        // Emit 2 triangles (6 indices) using the vertex indices we just got
+        uint indices[6];
+        indices[0] = baseVert[0]; indices[1] = baseVert[1]; indices[2] = baseVert[2];
+        indices[3] = baseVert[0]; indices[4] = baseVert[2]; indices[5] = baseVert[3];
+
+        for (int i = 0; i < 6; i++)
+        {
+            uint atomicIdx;
+            InterlockedIncrement(_VertCounter[1], atomicIdx);
+            if (atomicIdx < _IndexBuffer.Length)
+                _IndexBuffer[atomicIdx] = indices[i];
+        }
+    }
+}

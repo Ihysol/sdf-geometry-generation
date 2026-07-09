@@ -25,7 +25,8 @@ public enum PipelineMesherType
     GreedyVoxel,
     MarchingCubes,
     SurfaceNets,
-    DualContouring
+    DualContouring,
+    GpuVoxel
 }
 
 public enum OutputMode

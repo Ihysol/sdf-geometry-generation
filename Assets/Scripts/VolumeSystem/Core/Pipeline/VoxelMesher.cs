@@ -2,7 +2,7 @@ using System;
 using Unity.Collections;
 using UnityEngine;
 
-public class VoxelMesher : IVolumeMesher
+public class VoxelMesher : IVolumeMesher, IChunkVolumeMesher
 {
     public bool SupportsCpu => true;
     public bool SupportsGpu => false;
@@ -27,17 +27,29 @@ public class VoxelMesher : IVolumeMesher
         new[] { 0, 2, 3, 1 },   // -Z
     };
 
-    private static readonly int[][] FaceEdges = new int[][]
-    {
-        new[] { 0, 4, 5, 1 },  // +X corners
-        new[] { 0, 4, 5, 1 },  // -X corners
-        new[] { 2, 3, 6, 7 },  // +Y corners
-        new[] { 0, 1, 4, 5 },  // -Y corners
-        new[] { 4, 5, 6, 7 },  // +Z corners
-        new[] { 0, 1, 2, 3 },  // -Z corners
-    };
-
     public CpuMeshData BuildCpu(IVolumeBuffer buffer, MeshingContext context)
+    {
+        CpuMeshData combined = new CpuMeshData(Allocator.TempJob);
+
+        var gridSize = buffer.ChunkGridSize;
+        for (int cz = 0; cz < gridSize.z; cz++)
+        {
+            for (int cy = 0; cy < gridSize.y; cy++)
+            {
+                for (int cx = 0; cx < gridSize.x; cx++)
+                {
+                    ChunkCoord coord = new ChunkCoord(cx, cy, cz);
+                    CpuMeshData chunkMesh = BuildChunkCpu(buffer, coord, context);
+                    combined.Append(chunkMesh);
+                    chunkMesh.Dispose();
+                }
+            }
+        }
+
+        return combined;
+    }
+
+    public CpuMeshData BuildChunkCpu(IVolumeBuffer buffer, ChunkCoord coord, MeshingContext context)
     {
         CpuMeshData mesh = new CpuMeshData(Allocator.Temp);
 
@@ -47,13 +59,14 @@ public class VoxelMesher : IVolumeMesher
         float cellSize = layout.CellSize;
         float isoLevel = context.IsoLevel;
 
-        int vertOffset = 0;
+        VolumeChunk chunk = buffer.GetChunk(coord.X, coord.Y, coord.Z);
+        BoundsInt region = chunk.CellBounds;
 
-        for (int z = 0; z < res.z; z++)
+        for (int z = region.position.z; z < region.position.z + region.size.z; z++)
         {
-            for (int y = 0; y < res.y; y++)
+            for (int y = region.position.y; y < region.position.y + region.size.y; y++)
             {
-                for (int x = 0; x < res.x; x++)
+                for (int x = region.position.x; x < region.position.x + region.size.x; x++)
                 {
                     Vector3Int cellIndex = new Vector3Int(x, y, z);
 
@@ -78,16 +91,15 @@ public class VoxelMesher : IVolumeMesher
                             continue;
 
                         Vector3 normal = FaceNormals[face];
-                        int[] vertexOrder = FaceVertexOffsets[face];
-
-                        int baseVertIndex = vertOffset;
-                        vertOffset += 4;
+                        int baseVertIndex = mesh.Vertices.Length;
 
                         for (int vi = 0; vi < 4; vi++)
                         {
                             Vector3Int cornerOffset = GetCornerOffset(face, vi);
                             Vector3Int cornerIndex = cellIndex + cornerOffset;
-                            float cornerDensity = density[layout.IndexToOffset(cornerIndex)];
+
+                            if (!layout.IsInside(cornerIndex)) continue;
+
                             float t = (isoLevel - cellDensity) / (neighborDensity - cellDensity);
                             t = Mathf.Clamp01(t);
 
@@ -96,16 +108,26 @@ public class VoxelMesher : IVolumeMesher
                             cornerWorld += normal * cellSize * t;
 
                             mesh.Vertices.Add(cornerWorld);
-                            if (context.GenerateNormals)
-                                mesh.Normals.Add(normal);
                         }
 
-                        mesh.Indices.Add(baseVertIndex);
-                        mesh.Indices.Add(baseVertIndex + 1);
-                        mesh.Indices.Add(baseVertIndex + 2);
-                        mesh.Indices.Add(baseVertIndex);
-                        mesh.Indices.Add(baseVertIndex + 2);
-                        mesh.Indices.Add(baseVertIndex + 3);
+  int actualCount = mesh.Vertices.Length - baseVertIndex;
+                        if (actualCount >= 4)
+                        {
+                            Vector3 faceN = normal;
+                            mesh.Indices.Add(baseVertIndex);
+                            mesh.Indices.Add(baseVertIndex + 1);
+                            mesh.Indices.Add(baseVertIndex + 2);
+                            mesh.Normals.Add(faceN);
+                            mesh.Normals.Add(faceN);
+                            mesh.Normals.Add(faceN);
+
+                            mesh.Indices.Add(baseVertIndex);
+                            mesh.Indices.Add(baseVertIndex + 2);
+                            mesh.Indices.Add(baseVertIndex + 3);
+                            mesh.Normals.Add(faceN);
+                            mesh.Normals.Add(faceN);
+                            mesh.Normals.Add(faceN);
+                        }
                     }
                 }
             }
@@ -118,7 +140,7 @@ public class VoxelMesher : IVolumeMesher
     {
         switch (face)
         {
-            case 0: // +X
+            case 0:
                 switch (corner)
                 {
                     case 0: return new Vector3Int(1, 0, 0);
@@ -127,7 +149,7 @@ public class VoxelMesher : IVolumeMesher
                     case 3: return new Vector3Int(1, 0, 1);
                 }
                 break;
-            case 1: // -X
+            case 1:
                 switch (corner)
                 {
                     case 0: return new Vector3Int(0, 0, 0);
@@ -136,7 +158,7 @@ public class VoxelMesher : IVolumeMesher
                     case 3: return new Vector3Int(0, 0, 1);
                 }
                 break;
-            case 2: // +Y
+            case 2:
                 switch (corner)
                 {
                     case 0: return new Vector3Int(0, 1, 0);
@@ -145,7 +167,7 @@ public class VoxelMesher : IVolumeMesher
                     case 3: return new Vector3Int(0, 1, 1);
                 }
                 break;
-            case 3: // -Y
+            case 3:
                 switch (corner)
                 {
                     case 0: return new Vector3Int(0, 0, 0);
@@ -154,7 +176,7 @@ public class VoxelMesher : IVolumeMesher
                     case 3: return new Vector3Int(0, 0, 1);
                 }
                 break;
-            case 4: // +Z
+            case 4:
                 switch (corner)
                 {
                     case 0: return new Vector3Int(0, 0, 1);
@@ -163,7 +185,7 @@ public class VoxelMesher : IVolumeMesher
                     case 3: return new Vector3Int(0, 1, 1);
                 }
                 break;
-            case 5: // -Z
+            case 5:
                 switch (corner)
                 {
                     case 0: return new Vector3Int(0, 0, 0);

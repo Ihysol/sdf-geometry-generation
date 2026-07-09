@@ -7,6 +7,10 @@ using System.Threading.Tasks;
 using UnityEditor;
 #endif
 
+#if !LEGACY
+// Stub - legacy rendering disabled in favor of v9 Pipeline
+public class VolumeMeshRenderer : MonoBehaviour { }
+#else
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 [ExecuteAlways]
@@ -1690,3 +1694,4 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
 }
 
 
+#endif // LEGACY

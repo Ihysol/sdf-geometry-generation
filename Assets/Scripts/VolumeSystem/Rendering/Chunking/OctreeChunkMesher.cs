@@ -1,3 +1,4 @@
+#if LEGACY
 using UnityEngine;
 
 public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
@@ -157,3 +158,4 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
 }
 
 
+#endif

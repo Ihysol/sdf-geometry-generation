@@ -195,11 +195,11 @@ public class VolumeObject : MonoBehaviour
 
         if (model != null)
         {
-            bool previewEnabled =
+           bool previewEnabled =
                 model.ShouldUseInteractionPreview() &&
-                ((model.SupportsPreviewDepth() && model.usePreviewDepthWhileInteracting) ||
-                 (model.SupportsPreviewResolution() && model.usePreviewResolutionWhileInteracting));
-            bool previewActive = previewEnabled && model.IsPreviewInteractionActive();
+                ((model.SupportsPreviewDepth() && model.usePreviewDepthWhileInteracting > 0) ||
+                  (model.SupportsPreviewResolution() && model.usePreviewResolutionWhileInteracting != Vector3Int.zero));
+            bool previewActive = previewEnabled && model.IsPreviewInteractionActive;
             bool isPointerOrHandleActive = IsEditorHandleActive();
 
             if (model.rebuildOnMoveRelease &&
@@ -639,6 +639,18 @@ public class VolumeObject : MonoBehaviour
             transform.localRotation,
             transform.localScale
         );
+    }
+
+  /// <summary>Returns estimated world-space bounds of this volume object.</summary>
+    public Bounds GetBounds()
+    {
+        Bounds local = GetEstimatedLocalBounds();
+        Bounds world = local;
+        world.center = transform.TransformPoint(local.center);
+        // Approximate: scale extents by max absolute scale component
+        float maxScale = Mathf.Max(Mathf.Abs(transform.lossyScale.x), Mathf.Abs(transform.lossyScale.y), Mathf.Abs(transform.lossyScale.z));
+        world.size = local.size * maxScale;
+        return world;
     }
 
     public Bounds EstimateLocalMoveDirtyBounds(Vector3 fromLocalPosition, Vector3 toLocalPosition)

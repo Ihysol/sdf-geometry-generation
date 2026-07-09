@@ -1,3 +1,4 @@
+#if LEGACY
 using UnityEngine;
 
 [ExecuteAlways]
@@ -48,3 +49,4 @@ public class VolumeRenderOutput : MonoBehaviour
         _renderer?.Clear();
     }
 }
+#endif

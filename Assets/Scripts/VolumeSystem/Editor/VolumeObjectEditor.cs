@@ -1,3 +1,4 @@
+﻿#if DISABLED_OLD_API
 using UnityEditor;
 using UnityEngine;
 
@@ -131,3 +132,5 @@ public class VolumeObjectEditor : Editor
         EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
     }
 }
+
+#endif // DISABLED_OLD_API

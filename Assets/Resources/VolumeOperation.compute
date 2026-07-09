@@ -1,0 +1,123 @@
+// VolumeOperation.compute — GPU kernels for volume buffer operations
+#pragma kernel CSAddSphere
+#pragma kernel CSSubtractSphere
+#pragma kernel CSPaintMaterial
+#pragma kernel CSSmooth
+
+cbuffer VolumeParamsCB : register(b0)
+{
+    float4 _Resolution; // xyz=resolution, w=padded
+    float4 _CellSizeOrigin; // x=cellSize, yzw=origin
+    int _TotalCells;
+}
+
+RWStructuredBuffer<float> _DensityBuffer : register(u0);
+RWStructuredBuffer<int> _MaterialBuffer : register(u1);
+
+// Add / Subtract / Paint parameters
+float4 _Center;
+float _Radius;
+int _MaterialId;
+
+// Smooth temp buffer (written during pass, read back in CPU)
+RWStructuredBuffer<float> _TempDensityBuffer : register(u2);
+
+inline float3 IndexToWorld(uint3 idx)
+{
+    return _CellSizeOrigin.yzw + (float3(idx.x, idx.y, idx.z) + 0.5f) * _CellSizeOrigin.x;
+}
+
+inline int IndexToOffset(uint3 idx)
+{
+    return idx.z * _Resolution.x * _Resolution.y +
+           idx.y * _Resolution.x +
+           idx.x;
+}
+
+// --- Add Sphere (union / min) ---
+[numthreads(16, 16, 1)]
+void CSAddSphere(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution.x || id.y >= _Resolution.y || id.z >= _Resolution.z)
+        return;
+
+    int offset = IndexToOffset(id);
+    float3 world = IndexToWorld(id);
+    float dist = length(world - _Center) - _Radius;
+
+    _DensityBuffer[offset] = min(_DensityBuffer[offset], dist);
+
+    if (dist < 0.0f)
+        _MaterialBuffer[offset] = _MaterialId;
+}
+
+// --- Subtract Sphere (union with negated radius) ---
+[numthreads(16, 16, 1)]
+void CSSubtractSphere(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution.x || id.y >= _Resolution.y || id.z >= _Resolution.z)
+        return;
+
+    int offset = IndexToOffset(id);
+    float3 world = IndexToWorld(id);
+    float dist = length(world - _Center) - _Radius;
+
+    _DensityBuffer[offset] = min(_DensityBuffer[offset], -dist);
+}
+
+// --- Paint Material (sphere brush) ---
+[numthreads(16, 16, 1)]
+void CSPaintMaterial(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution.x || id.y >= _Resolution.y || id.z >= _Resolution.z)
+        return;
+
+    float3 world = IndexToWorld(id);
+    float distSq = length(world - _Center);
+
+    if (distSq <= _Radius)
+    {
+        int offset = IndexToOffset(id);
+        _MaterialBuffer[offset] = _MaterialId;
+    }
+}
+
+// --- Smooth (3x3x3 box filter, writes to temp buffer) ---
+[numthreads(16, 16, 1)]
+void CSSmooth(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution.x || id.y >= _Resolution.y || id.z >= _Resolution.z)
+        return;
+
+    float3 world = IndexToWorld(id);
+
+    if (length(world - _Center) > _Radius * 1.41421356f)
+        return;
+
+    int offset = IndexToOffset(id);
+    float sum = 0.0f;
+    int count = 0;
+
+    for (int dz = -1; dz <= 1; dz++)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int3 nb = int3(id.x + dx, id.y + dy, id.z + dz);
+
+                if (nb.x >= 0 && nb.x < _Resolution.x &&
+                    nb.y >= 0 && nb.y < _Resolution.y &&
+                    nb.z >= 0 && nb.z < _Resolution.z)
+                {
+                    int nbOffset = IndexToOffset(nb);
+                    sum += _DensityBuffer[nbOffset];
+                    count++;
+                }
+            }
+        }
+    }
+
+    if (count > 0)
+        _TempDensityBuffer[offset] = sum / float(count);
+}

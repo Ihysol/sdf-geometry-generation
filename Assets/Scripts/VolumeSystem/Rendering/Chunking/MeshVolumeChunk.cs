@@ -1,3 +1,4 @@
+#if LEGACY
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -214,3 +215,4 @@ public class MeshVolumeChunk : VolumeChunkBase
         Gizmos.color = oldColor;
     }
 }
+#endif

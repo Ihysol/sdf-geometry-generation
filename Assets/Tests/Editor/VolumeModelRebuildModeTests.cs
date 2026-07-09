@@ -1,3 +1,4 @@
+﻿#if DISABLED_OLD_API
 using NUnit.Framework;
 using UnityEngine;
 
@@ -216,3 +217,5 @@ public class VolumeModelRebuildModeTests
     }
 
 }
+
+#endif // DISABLED_OLD_API

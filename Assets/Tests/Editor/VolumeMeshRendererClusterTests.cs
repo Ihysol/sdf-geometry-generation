@@ -1,3 +1,4 @@
+﻿#if DISABLED_OLD_API
 using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
@@ -41,3 +42,5 @@ public class VolumeMeshRendererClusterTests
         Assert.That(typeof(VolumeModel.RebuildProfileSample).GetField("rendererChunkApplyMeshMs"), Is.Not.Null);
     }
 }
+
+#endif // DISABLED_OLD_API

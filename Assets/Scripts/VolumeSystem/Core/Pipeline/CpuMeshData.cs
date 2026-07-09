@@ -30,6 +30,18 @@ public struct CpuMeshData : System.IDisposable
         MaterialIds.Clear();
     }
 
+    public void Append(CpuMeshData other)
+    {
+        int vertOffset = Vertices.Length;
+        int idxCount = Indices.Length;
+
+        for (int i = 0; i < other.Vertices.Length; i++) Vertices.Add(other.Vertices[i]);
+        for (int i = 0; i < other.Normals.Length; i++) Normals.Add(other.Normals[i]);
+        for (int i = 0; i < other.UVs.Length; i++) UVs.Add(other.UVs[i]);
+        for (int i = 0; i < other.Indices.Length; i++) Indices.Add(other.Indices[i] + vertOffset);
+        for (int i = 0; i < other.MaterialIds.Length; i++) MaterialIds.Add(other.MaterialIds[i]);
+    }
+
     public int VertexCount => Vertices.Length;
     public int IndexCount => Indices.Length;
 
@@ -40,14 +52,36 @@ public struct CpuMeshData : System.IDisposable
         mesh.Clear();
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
-        Vector3[] verts = new Vector3[VertexCount];
+  Vector3[] verts = new Vector3[VertexCount];
         for (int i = 0; i < VertexCount; i++) verts[i] = Vertices[i];
         mesh.SetVertices(verts);
 
-        if (Normals.Length == VertexCount)
+        int[] tris = new int[IndexCount];
+        for (int i = 0; i < IndexCount; i++) tris[i] = Indices[i];
+        mesh.SetTriangles(tris, 0);
+
+        // Smooth face normals into vertex normals (when per-index normals are provided)
+        if (Normals.Length == IndexCount)
         {
-            Vector3[] norms = new Vector3[Normals.Length];
-            for (int i = 0; i < Normals.Length; i++) norms[i] = Normals[i];
+            Vector3[] vertexAccum = new Vector3[VertexCount];
+            for (int i = 0; i < IndexCount; i++)
+            {
+                int vi = tris[i];
+                vertexAccum[vi] += Normals[i];
+            }
+            Vector3[] norms = new Vector3[VertexCount];
+            for (int i = 0; i < VertexCount; i++)
+            {
+                float len = vertexAccum[i].magnitude;
+                norms[i] = len > 1e-8f ? vertexAccum[i] / len : Vector3.up;
+            }
+            mesh.SetNormals(norms);
+        }
+        else if (Normals.Length == VertexCount)
+        {
+            // Per-vertex normals from mesher – use as-is
+            Vector3[] norms = new Vector3[VertexCount];
+            for (int i = 0; i < VertexCount; i++) norms[i] = Normals[i];
             mesh.SetNormals(norms);
         }
         else
@@ -61,12 +95,6 @@ public struct CpuMeshData : System.IDisposable
             for (int i = 0; i < UVs.Length; i++) uvs[i] = UVs[i];
             mesh.SetUVs(0, uvs);
         }
-
-        int[] tris = new int[IndexCount];
-        for (int i = 0; i < IndexCount; i++) tris[i] = Indices[i];
-        mesh.SetTriangles(tris, 0);
-
-        if (verts != null) verts = null;
     }
 
     public Mesh ToMesh()

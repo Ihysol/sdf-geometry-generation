@@ -15,7 +15,7 @@ public struct VolumeLayout
             Resolution = resolution,
             CellSize = bounds.size.x / resolution.x,
             Origin = bounds.min,
-            ChunkSize = 0,
+            ChunkSize = 16,
             IsoLevel = 0f
         };
     }

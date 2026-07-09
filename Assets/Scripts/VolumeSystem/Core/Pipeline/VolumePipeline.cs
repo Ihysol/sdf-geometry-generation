@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using Unity.Collections;
 using UnityEngine;
 
 public class VolumePipeline
@@ -9,10 +7,13 @@ public class VolumePipeline
     public IVolumeBuffer Buffer { get; private set; }
     public IVolumeMesher Mesher { get; set; }
     public IVolumeOutput Output { get; set; }
+    public DirtyChunkSystem DirtyChunks { get; private set; }
+    public OperationExecutor Executor { get; private set; }
+    public VolumeScheduler Scheduler { get; private set; }
 
+    private InitialBufferBuilder _builder;
     private VolumeLayout _layout;
-    public VolumeLayout Layout => _layout;
-    public ComputeBackend Backend => ComputeBackend.CPU;
+    public ComputeBackend ActiveBackend { get; private set; } = ComputeBackend.CPU;
 
     private bool _dirty = true;
 
@@ -25,7 +26,30 @@ public class VolumePipeline
     public void Initialize(IVolumeOutput output)
     {
         Output = output;
-        Buffer = new FlatGridVolumeBuffer(_layout);
+        Buffer = new ChunkedFlatVolumeBuffer(_layout);
+        _builder = new InitialBufferBuilder(_layout);
+        DirtyChunks = new DirtyChunkSystem();
+        DirtyChunks.Initialize(Buffer);
+        Executor = new OperationExecutor(DirtyChunks, ActiveBackend);
+        Scheduler = new VolumeScheduler(DirtyChunks, Buffer, _layout);
+        Scheduler.SetMesher(Mesher);
+        Scheduler.SetOutput(Output);
+    }
+
+    public void SetBackend(ComputeBackend backend)
+    {
+        ActiveBackend = backend;
+
+        if (Buffer == null) return;
+
+        switch (backend)
+        {
+            case ComputeBackend.GPU:
+                Buffer.EnableComputeBuffers();
+                break;
+        }
+
+        Executor?.SetBackend(backend);
     }
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
@@ -37,19 +61,14 @@ public class VolumePipeline
             return;
 
         _layout.IsoLevel = isoLevel;
+        _dirty = true;
+        _builder.Build(Source, Buffer);
+        DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
-        if (Buffer is FlatGridVolumeBuffer flatBuffer)
-            flatBuffer.SampleSource(Source, isoLevel);
+        Scheduler.TickAll();
 
-        MeshingContext context = MeshingContext.Default(_layout);
-        CpuMeshData meshData = Mesher.BuildCpu(Buffer, context);
-
-        if (meshData.VertexCount > 0 && meshData.IndexCount > 0)
-        {
-            Output.ApplyCpuMesh(meshData);
-        }
-
-        if (meshData.Vertices.IsCreated) meshData.Dispose();
+        if (ActiveBackend == ComputeBackend.GPU)
+            Buffer.SyncCpuToGpu();
     }
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds)
@@ -61,46 +80,49 @@ public class VolumePipeline
             return;
 
         _layout.IsoLevel = isoLevel;
+        _dirty = true;
 
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
-        SampleDirtyRegion(Source, dirtyRegion, isoLevel);
-        Buffer.MarkDirty(dirtyRegion);
+        _builder.BuildPartial(Source, Buffer, dirtyRegion);
+        DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
+
+        Scheduler.TickAll();
+
+        if (ActiveBackend == ComputeBackend.GPU)
+            Buffer.SyncCpuToGpu();
+    }
+
+    public void RebuildGpu()
+    {
+        if (Source == null || Buffer == null || Mesher == null || Output == null)
+            return;
+
+        _builder.Build(Source, Buffer);
+        DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+        Buffer.SyncCpuToGpu();
 
         MeshingContext context = MeshingContext.Default(_layout);
-        CpuMeshData meshData = Mesher.BuildCpu(Buffer, context);
+        if (!Mesher.SupportsGpu) return;
+
+        GpuMeshData meshData = Mesher.BuildGpu(Buffer, context);
 
         if (meshData.VertexCount > 0 && meshData.IndexCount > 0)
         {
-            Output.ApplyCpuMesh(meshData);
+            Output.ApplyGpuMesh(meshData);
         }
-
-        if (meshData.Vertices.IsCreated) meshData.Dispose();
+        else
+        {
+            meshData.Dispose();
+        }
     }
 
-    private void SampleDirtyRegion(IVolumeSource source, BoundsInt region, float isoLevel)
+    public int TickScheduler()
     {
-        NativeArray<float> density = Buffer.DensityCpu;
-        NativeArray<int> material = Buffer.MaterialCpu;
-
-        for (int z = region.position.z; z < region.position.z + region.size.z; z++)
-        {
-            if (z < 0 || z >= _layout.Resolution.z) continue;
-            for (int y = region.position.y; y < region.position.y + region.size.y; y++)
-            {
-                if (y < 0 || y >= _layout.Resolution.y) continue;
-                for (int x = region.position.x; x < region.position.x + region.size.x; x++)
-                {
-                    if (x < 0 || x >= _layout.Resolution.x) continue;
-
-                    Vector3Int index = new Vector3Int(x, y, z);
-                    Vector3 world = _layout.IndexToWorld(index);
-                    int offset = _layout.IndexToOffset(index);
-
-                    density[offset] = source.Sample(world) - isoLevel;
-                    material[offset] = source.GetMaterial(world);
-                }
-            }
-        }
+        if (Scheduler == null) return 0;
+        int processed = Scheduler.Tick();
+        if (!Scheduler.HasPendingWork && !DirtyChunks.HasPendingWork)
+            _dirty = false;
+        return processed;
     }
 
     private static BoundsInt WorldBoundsToIntBounds(Bounds worldBounds, VolumeLayout layout)
@@ -120,14 +142,10 @@ public class VolumePipeline
 
     public void ApplyOperation(IVolumeOperation operation)
     {
-        if (Buffer == null) return;
+        if (Buffer == null || Executor == null) return;
 
-        if (operation.SupportsCpu)
-        {
-            operation.ApplyCpu(Buffer);
-        }
-
-        Buffer.MarkDirty(operation.AffectedRegion);
+        VolumeOperationContext ctx = VolumeOperationContext.DefaultDirect();
+        Executor.Execute(operation, Buffer, ctx);
         _dirty = true;
     }
 
@@ -147,6 +165,7 @@ public class VolumePipeline
 
     public void Dispose()
     {
+        Scheduler?.Clear();
         if (Buffer != null)
         {
             Buffer.Dispose();
