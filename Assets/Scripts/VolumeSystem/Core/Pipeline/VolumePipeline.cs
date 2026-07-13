@@ -61,7 +61,7 @@ public class VolumePipeline
             return;
 
         _layout.IsoLevel = isoLevel;
-        _dirty = true;
+        _dirty = false;
         _builder.Build(Source, Buffer);
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
@@ -78,7 +78,7 @@ public class VolumePipeline
             return;
 
         _layout.IsoLevel = isoLevel;
-        _dirty = true;
+        _dirty = false;
 
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
         _builder.BuildPartial(Source, Buffer, dirtyRegion);
