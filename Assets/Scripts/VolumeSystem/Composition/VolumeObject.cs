@@ -10,7 +10,8 @@ public enum VolumeShapeType
     Box,
     Torus,
     Hyperboloid,
-    CustomAsset
+    CustomAsset,
+    RotationalEllipsoid
 }
 
 public enum VolumeOperationRole
@@ -26,7 +27,8 @@ public enum VolumeGridType
     Global,
     Sphere,
     Torus,
-    Hyperboloid
+    Hyperboloid,
+    RotationalEllipsoid
 }
 
 [ExecuteAlways]
@@ -59,9 +61,13 @@ public class VolumeObject : MonoBehaviour
     public float torusMinorRadius = 0.25f;
 
     [Header("Hyperboloid")]
-    public float hyperboloidA = 1f;
-    public float hyperboloidB = 1f;
-    public float hyperboloidC = 1f;
+public float hyperboloidA = 1f;
+public float hyperboloidB = 1f;
+public float hyperboloidC = 1f;
+
+    [Header("Rotational Ellipsoid")]
+    public float ellipsoidRadialRadius = 2f;
+    public float ellipsoidVerticalRadius = 1f;
 
     [Header("Surface Grid / Cutter")]
     public VolumeGridType gridType = VolumeGridType.None;
@@ -81,10 +87,14 @@ public class VolumeObject : MonoBehaviour
     public int torusMinorSegments = 12;
 
     public int hyperboloidRadialSegments = 24;
-    public int hyperboloidHeightSegments = 12;
-    public float hyperboloidHeightMin = -2f;
-    public float hyperboloidHeightMax = 2f;
-    public bool useXLines = true;
+public int hyperboloidHeightSegments = 12;
+public float hyperboloidHeightMin = -2f;
+public float hyperboloidHeightMax = 2f;
+public int ellipsoidProfileAngleSegments = 12;
+public int ellipsoidLongitudeSegments = 0;
+public bool ellipsoidUseProfileLines = true;
+public bool ellipsoidUseLongitudeLines = false;
+public bool useXLines = true;
     public bool useYLines = true;
     public bool useZLines = true;
 
@@ -287,6 +297,9 @@ public class VolumeObject : MonoBehaviour
                         1f;
                 }
 
+            case VolumeShapeType.RotationalEllipsoid:
+                return EvaluateRotationalEllipsoid(p);
+
             case VolumeShapeType.CustomAsset:
                 return customAsset != null ? customAsset.Evaluate(p) : 1f;
 
@@ -297,7 +310,18 @@ public class VolumeObject : MonoBehaviour
     }
 
     /// <summary>Evaluates the active grid cutter inside the surface shell.</summary>
-    private float EvaluateGridCutter(Vector3 p, float baseDistance)
+ private float EvaluateRotationalEllipsoid(Vector3 p)
+ {
+     float safeRadial = Mathf.Max(0.0001f, ellipsoidRadialRadius);
+     float safeVertical = Mathf.Max(0.0001f, ellipsoidVerticalRadius);
+     float radial = new Vector2(p.x, p.z).magnitude / safeRadial;
+     float y = p.y / safeVertical;
+
+     return (Mathf.Sqrt(radial * radial + y * y) - 1f) *
+            Mathf.Min(safeRadial, safeVertical);
+ }
+
+ private float EvaluateGridCutter(Vector3 p, float baseDistance)
     {
         GetEffectiveGridMetrics(out float width, out float depth);
 
@@ -309,6 +333,7 @@ public class VolumeObject : MonoBehaviour
             VolumeGridType.Sphere => EvaluateSphereGrid(p, width),
             VolumeGridType.Torus => EvaluateTorusGrid(p, width),
             VolumeGridType.Hyperboloid => EvaluateHyperboloidGrid(p, width),
+            VolumeGridType.RotationalEllipsoid => EvaluateRotationalEllipsoidGrid(p, width),
             _ => 1f
         };
 
@@ -472,6 +497,37 @@ public class VolumeObject : MonoBehaviour
         return Mathf.Min(radialDist, heightDist) - width;
     }
 
+    /// <summary>Evaluates profile-angle and optional longitude grooves on a rotational ellipsoid.</summary>
+    private float EvaluateRotationalEllipsoidGrid(Vector3 p, float width)
+    {
+        float safeRadial = Mathf.Max(0.0001f, ellipsoidRadialRadius);
+        float safeVertical = Mathf.Max(0.0001f, ellipsoidVerticalRadius);
+        float radial = new Vector2(p.x, p.z).magnitude;
+        float gridD = float.PositiveInfinity;
+
+        if (ellipsoidUseProfileLines)
+        {
+            int profile = Mathf.Max(1, ellipsoidProfileAngleSegments);
+            float profileSpacing = Mathf.PI / profile;
+            float profileAngle = Mathf.Atan2(radial / safeRadial, p.y / safeVertical) + gridOffset.x;
+            float profileScale = Mathf.Max(0.0001f, Mathf.Sqrt(radial * radial + p.y * p.y));
+            float profileDist = Mathf.Abs(RepeatCentered(profileAngle, profileSpacing)) * profileScale;
+            gridD = Mathf.Min(gridD, profileDist - width);
+        }
+
+        if (ellipsoidUseLongitudeLines && ellipsoidLongitudeSegments > 0)
+        {
+            int longitudes = Mathf.Max(1, ellipsoidLongitudeSegments);
+            float longitudeSpacing = Mathf.PI * 2f / longitudes;
+            float longitudeAngle = Mathf.Atan2(p.z, p.x) + gridOffset.y;
+            float longitudeDist = Mathf.Abs(RepeatCentered(longitudeAngle, longitudeSpacing)) *
+                                  Mathf.Max(0.0001f, radial);
+            gridD = Mathf.Min(gridD, longitudeDist - width);
+        }
+
+        return float.IsPositiveInfinity(gridD) ? 1f : gridD;
+    }
+
     /// <summary>Repeats a coordinate around zero with the given spacing.</summary>
     private static float RepeatCentered(float v, float spacing)
     {
@@ -540,6 +596,19 @@ public class VolumeObject : MonoBehaviour
                     )
                 );
                 break;
+
+            case VolumeShapeType.RotationalEllipsoid:
+            {
+                Matrix4x4 objectMatrix = Gizmos.matrix;
+                Gizmos.matrix = objectMatrix * Matrix4x4.Scale(new Vector3(
+                    ellipsoidRadialRadius,
+                    ellipsoidVerticalRadius,
+                    ellipsoidRadialRadius
+                ));
+                Gizmos.DrawWireSphere(Vector3.zero, 1f);
+                Gizmos.matrix = objectMatrix;
+                break;
+            }
         }
 
         Gizmos.matrix = oldMatrix;
@@ -684,6 +753,13 @@ public class VolumeObject : MonoBehaviour
                     Mathf.Abs(hyperboloidA),
                     Mathf.Max(Mathf.Abs(hyperboloidHeightMin), Mathf.Abs(hyperboloidHeightMax)),
                     Mathf.Abs(hyperboloidB)
+                );
+
+            case VolumeShapeType.RotationalEllipsoid:
+                return new Vector3(
+                    Mathf.Abs(ellipsoidRadialRadius),
+                    Mathf.Abs(ellipsoidVerticalRadius),
+                    Mathf.Abs(ellipsoidRadialRadius)
                 );
 
             case VolumeShapeType.CustomAsset:

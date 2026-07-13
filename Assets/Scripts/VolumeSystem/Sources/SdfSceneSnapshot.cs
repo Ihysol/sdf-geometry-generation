@@ -15,6 +15,8 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
         public readonly float HyperboloidA;
         public readonly float HyperboloidB;
         public readonly float HyperboloidC;
+        public readonly float EllipsoidRadialRadius;
+        public readonly float EllipsoidVerticalRadius;
         public readonly VolumeGridType GridType;
         public readonly float GridWidth;
         public readonly float GridDepth;
@@ -29,6 +31,10 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
         public readonly int HyperboloidHeightSegments;
         public readonly float HyperboloidHeightMin;
         public readonly float HyperboloidHeightMax;
+        public readonly int EllipsoidProfileAngleSegments;
+        public readonly int EllipsoidLongitudeSegments;
+        public readonly bool EllipsoidUseProfileLines;
+        public readonly bool EllipsoidUseLongitudeLines;
         public readonly bool UseXLines;
         public readonly bool UseYLines;
         public readonly bool UseZLines;
@@ -46,6 +52,8 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
             HyperboloidA = obj.hyperboloidA;
             HyperboloidB = obj.hyperboloidB;
             HyperboloidC = obj.hyperboloidC;
+            EllipsoidRadialRadius = obj.ellipsoidRadialRadius;
+            EllipsoidVerticalRadius = obj.ellipsoidVerticalRadius;
             GridType = obj.gridType;
 
             float gridWidth = Mathf.Max(0.0001f, obj.gridWidth);
@@ -69,6 +77,10 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
             HyperboloidHeightSegments = obj.hyperboloidHeightSegments;
             HyperboloidHeightMin = obj.hyperboloidHeightMin;
             HyperboloidHeightMax = obj.hyperboloidHeightMax;
+            EllipsoidProfileAngleSegments = obj.ellipsoidProfileAngleSegments;
+            EllipsoidLongitudeSegments = obj.ellipsoidLongitudeSegments;
+            EllipsoidUseProfileLines = obj.ellipsoidUseProfileLines;
+            EllipsoidUseLongitudeLines = obj.ellipsoidUseLongitudeLines;
             UseXLines = obj.useXLines;
             UseYLines = obj.useYLines;
             UseZLines = obj.useZLines;
@@ -103,10 +115,24 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
                     float b = Mathf.Max(0.0001f, HyperboloidB);
                     float c = Mathf.Max(0.0001f, HyperboloidC);
                     return (p.x * p.x) / (a * a) + (p.z * p.z) / (b * b) - (p.y * p.y) / (c * c) - 1f;
+                case VolumeShapeType.RotationalEllipsoid:
+                    return EvaluateRotationalEllipsoid(p);
+
                 case VolumeShapeType.Sphere:
                 default:
                     return p.magnitude - SphereRadius;
             }
+        }
+
+        private float EvaluateRotationalEllipsoid(Vector3 p)
+        {
+            float safeRadial = Mathf.Max(0.0001f, EllipsoidRadialRadius);
+            float safeVertical = Mathf.Max(0.0001f, EllipsoidVerticalRadius);
+            float radial = new Vector2(p.x, p.z).magnitude / safeRadial;
+            float y = p.y / safeVertical;
+
+            return (Mathf.Sqrt(radial * radial + y * y) - 1f) *
+                   Mathf.Min(safeRadial, safeVertical);
         }
 
         private float EvaluateGridCutter(Vector3 p, float baseDistance)
@@ -118,6 +144,7 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
                 VolumeGridType.Sphere => EvaluateSphereGrid(p, GridWidth),
                 VolumeGridType.Torus => EvaluateTorusGrid(p, GridWidth),
                 VolumeGridType.Hyperboloid => EvaluateHyperboloidGrid(p, GridWidth),
+                VolumeGridType.RotationalEllipsoid => EvaluateRotationalEllipsoidGrid(p, GridWidth),
                 _ => 1f
             };
 
@@ -191,6 +218,36 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
             float heightDist = Mathf.Abs(RepeatCentered(p.y - HyperboloidHeightMin + GridOffset.y, heightSpacing));
 
             return Mathf.Min(radialDist, heightDist) - width;
+        }
+
+        private float EvaluateRotationalEllipsoidGrid(Vector3 p, float width)
+        {
+            float safeRadial = Mathf.Max(0.0001f, EllipsoidRadialRadius);
+            float safeVertical = Mathf.Max(0.0001f, EllipsoidVerticalRadius);
+            float radial = new Vector2(p.x, p.z).magnitude;
+            float gridD = float.PositiveInfinity;
+
+            if (EllipsoidUseProfileLines)
+            {
+                int profile = Mathf.Max(1, EllipsoidProfileAngleSegments);
+                float profileSpacing = Mathf.PI / profile;
+                float profileAngle = Mathf.Atan2(radial / safeRadial, p.y / safeVertical) + GridOffset.x;
+                float profileScale = Mathf.Max(0.0001f, Mathf.Sqrt(radial * radial + p.y * p.y));
+                float profileDist = Mathf.Abs(RepeatCentered(profileAngle, profileSpacing)) * profileScale;
+                gridD = Mathf.Min(gridD, profileDist - width);
+            }
+
+            if (EllipsoidUseLongitudeLines && EllipsoidLongitudeSegments > 0)
+            {
+                int longitudes = Mathf.Max(1, EllipsoidLongitudeSegments);
+                float longitudeSpacing = Mathf.PI * 2f / longitudes;
+                float longitudeAngle = Mathf.Atan2(p.z, p.x) + GridOffset.y;
+                float longitudeDist = Mathf.Abs(RepeatCentered(longitudeAngle, longitudeSpacing)) *
+                                      Mathf.Max(0.0001f, radial);
+                gridD = Mathf.Min(gridD, longitudeDist - width);
+            }
+
+            return float.IsPositiveInfinity(gridD) ? 1f : gridD;
         }
 
         private static float Box(Vector3 p, Vector3 halfExtents)

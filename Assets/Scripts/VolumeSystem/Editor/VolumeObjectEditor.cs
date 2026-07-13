@@ -48,6 +48,12 @@ public class VolumeObjectEditor : Editor
                 Draw("hyperboloidB");
                 Draw("hyperboloidC");
                 break;
+
+            case VolumeShapeType.RotationalEllipsoid:
+                Header("Rotational Ellipsoid");
+                Draw("ellipsoidRadialRadius");
+                Draw("ellipsoidVerticalRadius");
+                break;
         }
 
         EditorGUILayout.Space(8);
@@ -90,6 +96,13 @@ public class VolumeObjectEditor : Editor
                     Draw("hyperboloidHeightSegments");
                     Draw("hyperboloidHeightMin");
                     Draw("hyperboloidHeightMax");
+                    break;
+
+                case VolumeGridType.RotationalEllipsoid:
+                    Draw("ellipsoidProfileAngleSegments");
+                    Draw("ellipsoidLongitudeSegments");
+                    Draw("ellipsoidUseProfileLines");
+                    Draw("ellipsoidUseLongitudeLines");
                     break;
             }
         }
