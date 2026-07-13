@@ -52,18 +52,27 @@ public class VolumePipeline
         Executor?.SetBackend(backend);
     }
 
+    public void SetChunkRenderers(ChunkRenderManager renderers)
+    {
+        Scheduler?.SetChunkRenderers(renderers);
+    }
+
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
     {
         if (Source == null && sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
 
-        if (Source == null || Buffer == null || Mesher == null || Output == null)
+        if (Source == null || Buffer == null || Mesher == null)
+        {
+            Debug.LogError("[VolumePipeline] Rebuild failed: missing Source/Buffer/Mesher");
             return;
+        }
 
         _layout.IsoLevel = isoLevel;
         _dirty = false;
         _builder.Build(Source, Buffer);
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks marked dirty");
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();
@@ -74,8 +83,11 @@ public class VolumePipeline
         if (Source == null && sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
 
-        if (Source == null || Buffer == null || Mesher == null || Output == null)
+        if (Source == null || Buffer == null || Mesher == null)
+        {
+            Debug.LogError("[VolumePipeline] Rebuild partial failed: missing Source/Buffer/Mesher");
             return;
+        }
 
         _layout.IsoLevel = isoLevel;
         _dirty = false;
@@ -83,6 +95,7 @@ public class VolumePipeline
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
         _builder.BuildPartial(Source, Buffer, dirtyRegion);
         DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
+        Debug.Log($"[VolumePipeline] Rebuild partial: region {dirtyRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();

@@ -13,9 +13,9 @@ public class VolumeScheduler
     private IVolumeBuffer _buffer;
     private IVolumeOutput _output;
     private VolumeLayout _layout;
+    private ChunkRenderManager _chunkRenderers;
 
     private readonly List<RemeshEntry> _pending = new();
-    private readonly List<CpuMeshData> _chunkResults = new();
 
     public bool HasPendingWork => _dirtyChunks.HasPendingWork || _pending.Count > 0;
     public int PendingCount => _dirtyChunks.QueueCount + _pending.Count;
@@ -37,6 +37,11 @@ public class VolumeScheduler
         _output = output;
     }
 
+    public void SetChunkRenderers(ChunkRenderManager renderers)
+    {
+        _chunkRenderers = renderers;
+    }
+
     /// <summary>Drain dirty queue into scheduler pending list, sorted by priority.</summary>
     public void CollectPending()
     {
@@ -55,7 +60,7 @@ public class VolumeScheduler
     /// <summary>Process up to budget of chunks per frame.</summary>
    public int Tick()
     {
-        if (_mesher == null || _output == null) return 0;
+        if (_mesher == null) return 0;
 
         CollectPending();
 
@@ -64,7 +69,7 @@ public class VolumeScheduler
         MeshingContext context = MeshingContext.Default(_layout);
         bool chunked = _mesher is IChunkVolumeMesher;
 
-        int processed = 0;
+   int processed = 0;
         double startTime = Time.realtimeSinceStartup * 1000.0;
 
         while (_pending.Count > 0 && processed < MaxChunksPerFrame)
@@ -77,28 +82,29 @@ public class VolumeScheduler
             int currentVersion = _dirtyChunks.GetChunkVersion(entry.Coord);
             if (currentVersion != entry.Version)
             {
+                Debug.LogWarning($"[Scheduler] Skipping stale chunk {entry.Coord} (version mismatch)");
                 _pending.RemoveAt(0);
                 continue;
             }
 
-            if (chunked)
+            CpuMeshData chunkMesh = default;
+            if (chunked && _chunkRenderers != null)
             {
-                CpuMeshData chunkMesh = ((IChunkVolumeMesher)_mesher).BuildChunkCpu(_buffer, entry.Coord, context);
-                _chunkResults.Add(chunkMesh);
+                chunkMesh = ((IChunkVolumeMesher)_mesher).BuildChunkCpu(_buffer, entry.Coord, context);
+                Debug.Log($"[Scheduler] Chunk {entry.Coord}: {chunkMesh.VertexCount} verts, {chunkMesh.IndexCount} indices");
+                _chunkRenderers.Apply(entry.Coord, chunkMesh);
             }
-            else
+            else if (!chunked)
             {
                 break;
             }
 
+            if (chunkMesh.Vertices.IsCreated)
+                chunkMesh.Dispose();
+
             _pending.RemoveAt(0);
             _dirtyChunks.CompleteRemesh(entry.Coord);
             processed++;
-        }
-
-        if (processed > 0)
-        {
-            FlushResults();
         }
 
         return processed;
@@ -116,7 +122,7 @@ public class VolumeScheduler
 
         int processed = 0;
 
-        if (!chunked)
+        if (!chunked || _chunkRenderers == null)
         {
             CpuMeshData meshData = _mesher.BuildCpu(_buffer, context);
 
@@ -133,8 +139,6 @@ public class VolumeScheduler
         }
         else
         {
-            CpuMeshData combined = new CpuMeshData(Unity.Collections.Allocator.TempJob);
-
             while (_pending.Count > 0)
             {
                 RemeshEntry entry = _pending[0];
@@ -147,41 +151,16 @@ public class VolumeScheduler
                 }
 
                 CpuMeshData chunkMesh = ((IChunkVolumeMesher)_mesher).BuildChunkCpu(_buffer, entry.Coord, context);
-                combined.Append(chunkMesh);
-                chunkMesh.Dispose();
+                _chunkRenderers.Apply(entry.Coord, chunkMesh);
+                if (chunkMesh.Vertices.IsCreated) chunkMesh.Dispose();
                 _dirtyChunks.CompleteRemesh(entry.Coord);
 
                 _pending.RemoveAt(0);
                 processed++;
             }
-
-            if (combined.VertexCount > 0 && combined.IndexCount > 0)
-                _output.ApplyCpuMesh(combined);
-
-            combined.Dispose();
         }
 
         return processed;
-    }
-
-    private void FlushResults()
-    {
-        if (_chunkResults.Count == 0) return;
-
-        CpuMeshData combined = new CpuMeshData(Unity.Collections.Allocator.TempJob);
-
-        foreach (CpuMeshData result in _chunkResults)
-        {
-            combined.Append(result);
-            result.Dispose();
-        }
-
-        _chunkResults.Clear();
-
-        if (combined.VertexCount > 0 && combined.IndexCount > 0)
-            _output.ApplyCpuMesh(combined);
-
-        combined.Dispose();
     }
 
     private int ComputePriority(RemeshEntry entry)
@@ -196,12 +175,8 @@ public class VolumeScheduler
         }
     }
 
-    public void Clear()
+   public void Clear()
     {
         _pending.Clear();
-
-        foreach (CpuMeshData result in _chunkResults)
-            result.Dispose();
-        _chunkResults.Clear();
     }
 }

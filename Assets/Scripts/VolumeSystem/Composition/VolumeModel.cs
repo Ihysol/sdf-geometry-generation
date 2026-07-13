@@ -29,10 +29,12 @@ public class VolumeModel : MonoBehaviour
     [SerializeField] public bool rebuildOnMoveRelease = false;
     [SerializeField] public float moveReleaseDelaySeconds = 0.2f;
 
-    // ---- Pipeline State ----
+   // ---- Pipeline State ----
     private VolumePipeline _pipeline;
     private UnityMeshOutput _meshOutput;
     private MeshRenderer _meshRenderer;
+    private ChunkRenderManager _chunkRenderers;
+    private Transform _chunksParent;
     private bool _initialized;
     private int _buildVersion;
     private BoundsInt _dirtyBounds = new BoundsInt(Vector3Int.zero, Vector3Int.one);
@@ -93,25 +95,37 @@ public class VolumeModel : MonoBehaviour
         _pipeline = new VolumePipeline(layout, mesher);
         _pipeline.Initialize(_meshOutput);
         _pipeline.SetBackend(computeBackend);
+
+        // Create per-chunk renderers
+        _chunksParent = new GameObject("Chunks").transform;
+        _chunksParent.SetParent(transform, false);
+
+        Vector3Int gridSize = _pipeline.Buffer.ChunkGridSize;
+        _chunkRenderers = new ChunkRenderManager();
+        _chunkRenderers.Initialize(_pipeline.Buffer.TotalChunks, gridSize, _chunksParent, layout);
+        _chunkRenderers.SetMaterial(surfaceMaterial);
+        _pipeline.SetChunkRenderers(_chunkRenderers);
+
+        // Destroy single-mesh output object — chunk renderers take over
+        GameObject.DestroyImmediate(meshObj);
+        _meshOutput = null;
     }
 
     private void Update()
     {
         if (_pipeline != null && enablePipeline)
         {
-            // Drain scheduler first (8 chunks/frame budget)
+            _pipeline.Scheduler.MaxChunksPerFrame = 8;
+
             if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
 
-            // Rebuild only when dirty AND no pending mesh work — prevents redundant full samples
             if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
                 RebuildPipeline();
         }
 
-        if (_meshRenderer != null && surfaceMaterial != null)
-        {
-            if (_meshRenderer.sharedMaterial != surfaceMaterial)
-                _meshRenderer.sharedMaterial = surfaceMaterial;
-        }
+        // Sync material on chunk renderers
+        if (_chunkRenderers != null && surfaceMaterial != null)
+            _chunkRenderers.SetMaterial(surfaceMaterial);
     }
 
     private void RebuildPipeline()
@@ -123,7 +137,7 @@ public class VolumeModel : MonoBehaviour
 
         if (_hasDirtyBounds)
         {
-            _pipeline.Rebuild(composer, isoLevel, _dirtyBounds.position + (_dirtyBounds.size * 0.5f), _dirtyBounds.size);
+            _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
             _hasDirtyBounds = false;
         }
         else
@@ -131,8 +145,7 @@ public class VolumeModel : MonoBehaviour
             _pipeline.Rebuild(composer, isoLevel);
         }
 
-        if (_meshOutput != null && surfaceMaterial != null)
-            _meshOutput.SetMaterial(surfaceMaterial);
+        Debug.Log($"[VolumeModel] RebuildPipeline done, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
     }
 
     // ---- Public API ----
@@ -146,6 +159,11 @@ public class VolumeModel : MonoBehaviour
 
     public void Dispose()
     {
+        if (_chunkRenderers != null)
+        {
+            _chunkRenderers.Dispose();
+            _chunkRenderers = null;
+        }
         if (_pipeline != null)
         {
             _pipeline.Dispose();
@@ -227,6 +245,8 @@ public class VolumeModel : MonoBehaviour
         if (!_initialized) Initialize();
         _buildVersion++;
 
+        Debug.Log($"[VolumeModel] RebuildModel called, initialized={_initialized}, enablePipeline={enablePipeline}, pipeline={(_pipeline != null)}");
+
         if (enablePipeline && _pipeline != null)
         {
             VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
@@ -234,6 +254,10 @@ public class VolumeModel : MonoBehaviour
             {
                 composer.RebuildComposition();
                 _pipeline.Rebuild(composer, isoLevel);
+            }
+            else
+            {
+                Debug.LogError("[VolumeModel] RebuildModel: VolumeSceneComposer is null!");
             }
         }
     }
@@ -347,6 +371,9 @@ public class VolumeModel : MonoBehaviour
   private void EditorTickScheduler()
     {
         if (_pipeline == null || !enablePipeline) return;
+
+        // Edit mode: drain all remaining chunks per tick (no framerate concern)
+        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
 
         if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
         if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
