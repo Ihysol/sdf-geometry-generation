@@ -79,26 +79,26 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
         VolumeChunk chunk = buffer.GetChunk(coord.X, coord.Y, coord.Z);
         BoundsInt region = chunk.CellBounds;
 
-        // Phase 1: chunk cells + trailing +1 halo for boundary quad vertices
+       // Phase 1: chunk cells + trailing +1 halo so neighbor chunks can find boundary vertices
         int phase1MinX = region.position.x;
         int phase1MinY = region.position.y;
         int phase1MinZ = region.position.z;
-        int phase1MaxX = Mathf.Min(res.x - 1, region.position.x + region.size.x);
-        int phase1MaxY = Mathf.Min(res.y - 1, region.position.y + region.size.y);
-        int phase1MaxZ = Mathf.Min(res.z - 1, region.position.z + region.size.z);
+        int phase1MaxX = Mathf.Min(res.x, region.position.x + region.size.x);
+        int phase1MaxY = Mathf.Min(res.y, region.position.y + region.size.y);
+        int phase1MaxZ = Mathf.Min(res.z, region.position.z + region.size.z);
 
-        // Phase 2: original chunk bounds (clamped to res-1, trailing edge handled by neighbor chunk)
+        // Phase 2: grid point bounds for edge iteration (ownership filtered per-loop)
         int phase2MinX = region.position.x;
         int phase2MinY = region.position.y;
         int phase2MinZ = region.position.z;
-        int phase2MaxX = Mathf.Min(res.x - 1, region.position.x + region.size.x);
-        int phase2MaxY = Mathf.Min(res.y - 1, region.position.y + region.size.y);
-        int phase2MaxZ = Mathf.Min(res.z - 1, region.position.z + region.size.z);
+        int phase2MaxX = Mathf.Min(res.x, region.position.x + region.size.x);
+        int phase2MaxY = Mathf.Min(res.y, region.position.y + region.size.y);
+        int phase2MaxZ = Mathf.Min(res.z, region.position.z + region.size.z);
 
-        // cellVertexIndex covers the Phase 1 region
-        int cellsW = phase1MaxX - phase1MinX + 1;
-        int cellsH = phase1MaxY - phase1MinY + 1;
-        int cellsD = phase1MaxZ - phase1MinZ + 1;
+       // cellVertexIndex covers the Phase 1 region (no trailing halo needed)
+        int cellsW = phase1MaxX - phase1MinX;
+        int cellsH = phase1MaxY - phase1MinY;
+        int cellsD = phase1MaxZ - phase1MinZ;
 
         if (cellsW <= 0 || cellsH <= 0 || cellsD <= 0)
             return mesh;
@@ -202,13 +202,18 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
             }
         }
 
-       try
+      try
         {
         // Phase 2: Emit quads around crossed grid edges
         int sizeZ = sizeX * sizeY;
 
-        // X-axis edges
-        for (int x = phase2MinX; x < phase2MaxX; x++)
+        // Clamp primary axes to res-1 to prevent density overflow on trailing edge access
+        int xEdgeMax = Mathf.Min(phase2MaxX, res.x - 1);
+        int yEdgeMax = Mathf.Min(phase2MaxY, res.y - 1);
+        int zEdgeMax = Mathf.Min(phase2MaxZ, res.z - 1);
+
+        // X-axis edges at (x,y,z): quad spans cells (x,y-1,z-1),(x,y,z-1),(x,y,z),(x,y-1,z)
+        for (int x = phase2MinX; x < xEdgeMax; x++)
         {
             for (int y = phase2MinY + 1; y < phase2MaxY; y++)
             {
@@ -230,10 +235,10 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
             }
         }
 
-        // Y-axis edges
+        // Y-axis edges at (x,y,z): quad spans cells (x-1,y,z-1),(x,y,z-1),(x,y,z),(x-1,y,z)
         for (int x = phase2MinX + 1; x < phase2MaxX; x++)
         {
-            for (int y = phase2MinY; y < phase2MaxY; y++)
+            for (int y = phase2MinY; y < yEdgeMax; y++)
             {
                 for (int z = phase2MinZ + 1; z < phase2MaxZ; z++)
                 {
@@ -253,12 +258,12 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
             }
         }
 
-        // Z-axis edges
+        // Z-axis edges at (x,y,z): quad spans cells (x-1,y-1,z),(x,y-1,z),(x,y,z),(x-1,y,z)
         for (int x = phase2MinX + 1; x < phase2MaxX; x++)
         {
             for (int y = phase2MinY + 1; y < phase2MaxY; y++)
             {
-                for (int z = phase2MinZ; z < phase2MaxZ; z++)
+                for (int z = phase2MinZ; z < zEdgeMax; z++)
                 {
                     int baseIdx = x + sizeX * (y + sizeY * z);
                     float a = density[baseIdx];
