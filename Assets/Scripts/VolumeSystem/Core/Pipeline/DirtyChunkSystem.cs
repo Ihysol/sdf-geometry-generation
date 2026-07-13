@@ -35,7 +35,7 @@ public class DirtyChunkSystem
         }
     }
 
-    public void MarkDirty(BoundsInt region, DirtyReason reason = DirtyReason.Operation)
+ public void MarkDirty(BoundsInt region, DirtyReason reason = DirtyReason.Operation)
     {
         HashSet<ChunkCoord> affected = GetChunksOverlappingRegion(region);
         ExpandNeighbors(affected);
@@ -44,7 +44,7 @@ public class DirtyChunkSystem
         {
             if (_chunkMeta.TryGetValue(coord, out ChunkMetadata meta))
             {
-                if (meta.State == DirtyState.Clean || meta.State == DirtyState.Uploaded)
+                if (meta.State != DirtyState.MeshingQueued)
                 {
                     chunkVersion++;
                     meta.State = DirtyState.MeshingQueued;

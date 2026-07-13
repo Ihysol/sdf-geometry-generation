@@ -59,9 +59,7 @@ public class VolumeScheduler
 
         CollectPending();
 
-        if (_pending.Count == 0) return 0;
-
-        if (_pending.Count == 0) return 0;
+       if (_pending.Count == 0) return 0;
 
         MeshingContext context = MeshingContext.Default(_layout);
         bool chunked = _mesher is IChunkVolumeMesher;

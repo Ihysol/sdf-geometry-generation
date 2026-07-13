@@ -65,8 +65,6 @@ public class VolumePipeline
         _builder.Build(Source, Buffer);
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
-        Scheduler.TickAll();
-
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();
     }
@@ -85,8 +83,6 @@ public class VolumePipeline
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
         _builder.BuildPartial(Source, Buffer, dirtyRegion);
         DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
-
-        Scheduler.TickAll();
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();
@@ -146,7 +142,6 @@ public class VolumePipeline
 
         VolumeOperationContext ctx = VolumeOperationContext.DefaultDirect();
         Executor.Execute(operation, Buffer, ctx);
-        _dirty = true;
     }
 
     public void MarkDirty()

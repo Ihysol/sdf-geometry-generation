@@ -99,8 +99,12 @@ public class VolumeModel : MonoBehaviour
     {
         if (_pipeline != null && enablePipeline)
         {
-            if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork) RebuildPipeline();
+            // Drain scheduler first (8 chunks/frame budget)
             if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
+
+            // Rebuild only when dirty AND no pending mesh work — prevents redundant full samples
+            if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
+                RebuildPipeline();
         }
 
         if (_meshRenderer != null && surfaceMaterial != null)
@@ -116,7 +120,16 @@ public class VolumeModel : MonoBehaviour
         if (composer == null || _pipeline == null) return;
 
         composer.RebuildComposition();
-        _pipeline.Rebuild(composer, isoLevel);
+
+        if (_hasDirtyBounds)
+        {
+            _pipeline.Rebuild(composer, isoLevel, _dirtyBounds.position + (_dirtyBounds.size * 0.5f), _dirtyBounds.size);
+            _hasDirtyBounds = false;
+        }
+        else
+        {
+            _pipeline.Rebuild(composer, isoLevel);
+        }
 
         if (_meshOutput != null && surfaceMaterial != null)
             _meshOutput.SetMaterial(surfaceMaterial);
@@ -331,12 +344,13 @@ public class VolumeModel : MonoBehaviour
         _editorUpdateRegistered = false;
     }
 
-    private void EditorTickScheduler()
+  private void EditorTickScheduler()
     {
         if (_pipeline == null || !enablePipeline) return;
 
-        if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork) RebuildPipeline();
         if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
+        if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
+            RebuildPipeline();
 
         SceneView.RepaintAll();
     }
