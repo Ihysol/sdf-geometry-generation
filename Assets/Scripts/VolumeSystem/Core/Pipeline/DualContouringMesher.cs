@@ -79,21 +79,21 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
         VolumeChunk chunk = buffer.GetChunk(coord.X, coord.Y, coord.Z);
         BoundsInt region = chunk.CellBounds;
 
-       // Phase 1: chunk cells + trailing +1 halo so neighbor chunks can find boundary vertices
+      // Phase 1: chunk cells + trailing +1 halo for boundary quad vertices
         int phase1MinX = region.position.x;
         int phase1MinY = region.position.y;
         int phase1MinZ = region.position.z;
-        int phase1MaxX = Mathf.Min(res.x, region.position.x + region.size.x);
-        int phase1MaxY = Mathf.Min(res.y, region.position.y + region.size.y);
-        int phase1MaxZ = Mathf.Min(res.z, region.position.z + region.size.z);
+        int phase1MaxX = Mathf.Min(res.x, region.position.x + region.size.x + 1);
+        int phase1MaxY = Mathf.Min(res.y, region.position.y + region.size.y + 1);
+        int phase1MaxZ = Mathf.Min(res.z, region.position.z + region.size.z + 1);
 
-        // Phase 2: grid point bounds for edge iteration (ownership filtered per-loop)
-        int phase2MinX = region.position.x;
-        int phase2MinY = region.position.y;
-        int phase2MinZ = region.position.z;
-        int phase2MaxX = Mathf.Min(res.x, region.position.x + region.size.x);
-        int phase2MaxY = Mathf.Min(res.y, region.position.y + region.size.y);
-        int phase2MaxZ = Mathf.Min(res.z, region.position.z + region.size.z);
+        // Phase 2: same extended bounds so boundary edges are covered
+        int phase2MinX = phase1MinX;
+        int phase2MinY = phase1MinY;
+        int phase2MinZ = phase1MinZ;
+        int phase2MaxX = phase1MaxX;
+        int phase2MaxY = phase1MaxY;
+        int phase2MaxZ = phase1MaxZ;
 
        // cellVertexIndex covers the Phase 1 region (no trailing halo needed)
         int cellsW = phase1MaxX - phase1MinX;
@@ -213,8 +213,10 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
         int zEdgeMax = Mathf.Min(phase2MaxZ, res.z - 1);
 
         // X-axis edges at (x,y,z): quad spans cells (x,y-1,z-1),(x,y,z-1),(x,y,z),(x,y-1,z)
+        // Ownership: midpoint x+0.5 must be within chunk → x < region.maxX
         for (int x = phase2MinX; x < xEdgeMax; x++)
         {
+            if (x >= region.position.x + region.size.x) continue;
             for (int y = phase2MinY + 1; y < phase2MaxY; y++)
             {
                 for (int z = phase2MinZ + 1; z < phase2MaxZ; z++)
@@ -236,10 +238,12 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
         }
 
         // Y-axis edges at (x,y,z): quad spans cells (x-1,y,z-1),(x,y,z-1),(x,y,z),(x-1,y,z)
+        // Ownership: midpoint y+0.5 must be within chunk → y < region.maxY
         for (int x = phase2MinX + 1; x < phase2MaxX; x++)
         {
             for (int y = phase2MinY; y < yEdgeMax; y++)
             {
+                if (y >= region.position.y + region.size.y) continue;
                 for (int z = phase2MinZ + 1; z < phase2MaxZ; z++)
                 {
                     int baseIdx = x + sizeX * (y + sizeY * z);
@@ -258,13 +262,16 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
             }
         }
 
-        // Z-axis edges at (x,y,z): quad spans cells (x-1,y-1,z),(x,y-1,z),(x,y,z),(x-1,y,z)
+    // Z-axis edges at (x,y,z): quad spans cells (x-1,y-1,z),(x,y-1,z),(x,y,z),(x-1,y,z)
+        // Ownership: midpoint z+0.5 must be within chunk → z < region.maxZ
         for (int x = phase2MinX + 1; x < phase2MaxX; x++)
         {
             for (int y = phase2MinY + 1; y < phase2MaxY; y++)
             {
-                for (int z = phase2MinZ; z < zEdgeMax; z++)
+              for (int z = phase2MinZ; z < zEdgeMax; z++)
                 {
+                    if (z >= region.position.z + region.size.z) continue;
+
                     int baseIdx = x + sizeX * (y + sizeY * z);
                     float a = density[baseIdx];
                     float b = density[baseIdx + sizeZ];
