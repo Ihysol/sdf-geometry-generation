@@ -59,7 +59,8 @@ public class VolumePipeline
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
     {
-        if (Source == null && sdfSource != null)
+        // Always create a fresh adapter — the SDF is a snapshot that must reflect current objects.
+        if (sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
 
         if (Source == null || Buffer == null || Mesher == null)
@@ -80,7 +81,8 @@ public class VolumePipeline
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds)
     {
-        if (Source == null && sdfSource != null)
+        // Always create a fresh adapter — the SDF is a snapshot that must reflect current objects.
+        if (sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
 
         if (Source == null || Buffer == null || Mesher == null)
