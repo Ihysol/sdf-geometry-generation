@@ -18,7 +18,7 @@ public class VolumeModel : MonoBehaviour
     [SerializeField] public float boundsExtent = 4f;
 
     [Header("Core")]
-    [SerializeField] public float isoLevel = 0.5f;
+    [SerializeField] public float isoLevel = 0f;
     [SerializeField] public Material surfaceMaterial;
 
     [Header("Add Object")]
@@ -29,7 +29,7 @@ public class VolumeModel : MonoBehaviour
     [SerializeField] public bool rebuildOnMoveRelease = false;
     [SerializeField] public float moveReleaseDelaySeconds = 0.2f;
 
-   // ---- Pipeline State ----
+    // ---- Pipeline State ----
     private VolumePipeline _pipeline;
     private UnityMeshOutput _meshOutput;
     private MeshRenderer _meshRenderer;
@@ -134,6 +134,12 @@ public class VolumeModel : MonoBehaviour
         if (composer == null || _pipeline == null) return;
 
         composer.RebuildComposition();
+
+        if (composer.objects.Count == 0)
+        {
+            Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects in scene — nothing to mesh. Add a shape first.");
+            return;
+        }
 
         if (_hasDirtyBounds)
         {
@@ -253,6 +259,11 @@ public class VolumeModel : MonoBehaviour
             if (composer != null)
             {
                 composer.RebuildComposition();
+                if (composer.objects.Count == 0)
+                {
+                    Debug.LogWarning("[VolumeModel] RebuildModel: no objects in scene — nothing to mesh. Add a shape first.");
+                    return;
+                }
                 _pipeline.Rebuild(composer, isoLevel);
             }
             else
@@ -341,7 +352,7 @@ public class VolumeModel : MonoBehaviour
         }
     }
 
-  #if UNITY_EDITOR
+#if UNITY_EDITOR
     private void OnEnable()
     {
         if (!Application.isPlaying && !Application.isBatchMode)
@@ -368,7 +379,7 @@ public class VolumeModel : MonoBehaviour
         _editorUpdateRegistered = false;
     }
 
-  private void EditorTickScheduler()
+    private void EditorTickScheduler()
     {
         if (_pipeline == null || !enablePipeline) return;
 
