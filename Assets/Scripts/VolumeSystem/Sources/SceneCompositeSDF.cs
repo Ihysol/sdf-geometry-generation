@@ -76,4 +76,6 @@ public class SceneCompositeSDF : IScalarFieldSource
 
         return result;
     }
+
+    public int ObjectCount => _addObjects.Length + _subtractObjects.Length + _intersectObjects.Length;
 }

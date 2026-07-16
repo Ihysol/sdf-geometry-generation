@@ -8,7 +8,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     private SceneCompositeSDF _composite;
     private SdfSceneSnapshot _snapshot;
 
-   public SdfSceneSnapshot Snapshot => _snapshot;
+    public SdfSceneSnapshot Snapshot => _snapshot;
 
     /// <summary>Returns the built-in snapshot when all shapes are supported by Burst evaluation.</summary>
     public bool TryGetBuiltInSnapshot(out SdfSceneSnapshot snapshot)
@@ -29,6 +29,8 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 
         _composite = new SceneCompositeSDF(transform, objects);
         _snapshot = new SdfSceneSnapshot(transform, objects);
+
+        Debug.Log($"[Composer] Rebuilt: {objects.Count} objects");
     }
 
     /// <summary>Samples the composed SDF at a model-local position.</summary>

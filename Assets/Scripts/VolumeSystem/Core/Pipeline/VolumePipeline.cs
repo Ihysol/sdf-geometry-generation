@@ -72,8 +72,13 @@ public class VolumePipeline
         _layout.IsoLevel = isoLevel;
         _dirty = false;
         _builder.Build(Source, Buffer);
+
+        // Diagnostic: sample center cell to verify SDF values
+        int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
+        float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
+        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center density={centerVal:F3}, isoLevel={isoLevel}");
+
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
-        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks marked dirty");
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();
