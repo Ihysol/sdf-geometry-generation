@@ -21,19 +21,22 @@ public class InitialBufferBuilder
         {
             for (int y = 0; y < _layout.Resolution.y; y++)
             {
-               for (int x = 0; x < _layout.Resolution.x; x++)
-                    {
-                        Vector3Int index = new Vector3Int(x, y, z);
-                        Vector3 world = _layout.IndexToWorld(index);
+                for (int x = 0; x < _layout.Resolution.x; x++)
+                {
+                    Vector3Int index = new Vector3Int(x, y, z);
+                    Vector3 world = _layout.IndexToWorld(index);
 
-                        int offset = _layout.IndexToOffset(index);
-                        density[offset] = source.Sample(world);
-                        material[offset] = source.GetMaterial(world);
-                    }
+                    int offset = _layout.IndexToOffset(index);
+                    float val = source.Sample(world);
+                    if (float.IsInfinity(val) || float.IsNaN(val))
+                        val = 1f;
+                    density[offset] = val;
+                    material[offset] = source.GetMaterial(world);
+                }
             }
         }
 
-    buffer.SyncState = BufferSyncState.CpuDirty;
+        buffer.SyncState = BufferSyncState.CpuDirty;
     }
 
     public void BuildPartial(IVolumeSource source, IVolumeBuffer buffer, BoundsInt region)
@@ -52,18 +55,21 @@ public class InitialBufferBuilder
                 if (y < 0 || y >= _layout.Resolution.y) continue;
                 for (int x = region.position.x; x < region.position.x + region.size.x; x++)
                 {
-                  if (x < 0 || x >= _layout.Resolution.x) continue;
+                    if (x < 0 || x >= _layout.Resolution.x) continue;
 
-                        Vector3Int index = new Vector3Int(x, y, z);
-                        Vector3 world = _layout.IndexToWorld(index);
+                    Vector3Int index = new Vector3Int(x, y, z);
+                    Vector3 world = _layout.IndexToWorld(index);
 
-                        int offset = _layout.IndexToOffset(index);
-                        density[offset] = source.Sample(world);
-                        material[offset] = source.GetMaterial(world);
+                    int offset = _layout.IndexToOffset(index);
+                    float val = source.Sample(world);
+                    if (float.IsInfinity(val) || float.IsNaN(val))
+                        val = 1f;
+                    density[offset] = val;
+                    material[offset] = source.GetMaterial(world);
                 }
             }
         }
 
-       buffer.SyncState = BufferSyncState.CpuDirty;
+        buffer.SyncState = BufferSyncState.CpuDirty;
     }
 }
