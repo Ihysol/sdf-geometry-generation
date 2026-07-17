@@ -156,10 +156,10 @@ public class VolumeModel : MonoBehaviour
         }
 
         // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
-        // Drain all pending chunks now so geometry appears immediately in both editor and playmode.
-        // The async scheduler in Update() only handles runtime operations (§3.2).
         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+        _pipeline.Scheduler.UseTimeBudget = false;
         int drained = _pipeline.TickScheduler();
+        _pipeline.Scheduler.UseTimeBudget = true;
 
         Debug.Log($"[VolumeModel] RebuildPipeline done: drained {drained} chunks, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
     }
@@ -277,10 +277,10 @@ public class VolumeModel : MonoBehaviour
                 _pipeline.Rebuild(composer, isoLevel);
 
                 // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
-                // Drain all pending chunks now so geometry appears immediately in both editor and playmode.
-                // The async scheduler in Update() only handles runtime operations (§3.2).
                 _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+                _pipeline.Scheduler.UseTimeBudget = false;
                 int drained = _pipeline.TickScheduler();
+                _pipeline.Scheduler.UseTimeBudget = true;
                 Debug.Log($"[VolumeModel] RebuildModel: drained {drained} chunks synchronously");
             }
             else
@@ -402,6 +402,7 @@ public class VolumeModel : MonoBehaviour
 
         // Edit mode: drain all remaining chunks per tick (no framerate concern)
         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+        _pipeline.Scheduler.UseTimeBudget = false;
 
         if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
         if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
