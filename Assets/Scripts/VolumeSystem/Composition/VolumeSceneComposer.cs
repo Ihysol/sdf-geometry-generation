@@ -33,8 +33,8 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         Debug.Log($"[Composer] Rebuilt: {objects.Count} objects");
     }
 
-    /// <summary>Samples the composed SDF at a model-local position.</summary>
-    public float Evaluate(Vector3 p)
+    /// <summary>Samples the composed SDF at a world-space position (per IScalarFieldSource contract).</summary>
+    public float Evaluate(Vector3 worldPoint)
     {
         if (_composite == null)
             RebuildComposition();
@@ -42,7 +42,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         if (_composite == null)
             return 1f;
 
-        return _composite.Evaluate(p);
+        return _composite.Evaluate(worldPoint);
     }
 
     /// <summary>Renames registered child objects to match their order and role.</summary>
