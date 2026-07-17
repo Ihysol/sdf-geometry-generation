@@ -71,6 +71,11 @@ public class VolumePipeline
 
         _layout.IsoLevel = isoLevel;
         _dirty = false;
+
+        // Diagnostic: sample origin before build to catch empty SDF early
+        float testAtOrigin = Source.Sample(Vector3.zero);
+        Debug.Log($"[VolumePipeline] Pre-build sample at origin: {testAtOrigin:F3}");
+
         _builder.Build(Source, Buffer);
 
         // Diagnostic: sample center cell to verify SDF values

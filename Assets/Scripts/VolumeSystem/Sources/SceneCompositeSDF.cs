@@ -11,11 +11,13 @@ public class SceneCompositeSDF : IScalarFieldSource
     {
         public readonly VolumeObject Object;
         public readonly Matrix4x4 WorldToLocal;
+        public readonly Vector3 ObjectWorldPosition;
 
         public CompiledObject(VolumeObject obj)
         {
             Object = obj;
             WorldToLocal = obj.transform.worldToLocalMatrix;
+            ObjectWorldPosition = obj.transform.position;
         }
 
         public float Evaluate(Vector3 worldPoint)
@@ -34,8 +36,7 @@ public class SceneCompositeSDF : IScalarFieldSource
         for (int i = 0; i < objects.Count; i++)
         {
             VolumeObject obj = objects[i];
-            if (obj == null)
-                continue;
+            if (obj == null) continue;
 
             CompiledObject compiled = new CompiledObject(obj);
             switch (obj.role)
@@ -56,7 +57,7 @@ public class SceneCompositeSDF : IScalarFieldSource
         _subtractObjects = subtractObjects.ToArray();
         _intersectObjects = intersectObjects.ToArray();
 
-        Debug.Log($"[SceneCompositeSDF] Built: input={objects.Count}, add={_addObjects.Length}, sub={_subtractObjects.Length}, inter={_intersectObjects.Length}");
+        Debug.Log($"[SDF] Compiled: input={objects.Count}, add={_addObjects.Length}, sub={_subtractObjects.Length}, inter={_intersectObjects.Length}");
     }
 
     /// <summary>Evaluates add, subtract, and intersect objects in composition order.</summary>
@@ -65,12 +66,7 @@ public class SceneCompositeSDF : IScalarFieldSource
         float result = float.PositiveInfinity;
 
         for (int i = 0; i < _addObjects.Length; i++)
-        {
-            float d = _addObjects[i].Evaluate(worldPoint);
-            if (_addObjects[i].Object != null && i == 0)
-                Debug.Log($"[SDF] world={worldPoint}, obj0_dist={d:F3}, obj0_name={_addObjects[i].Object.name}, role={_addObjects[i].Object.role}");
-            result = Mathf.Min(result, d);
-        }
+            result = Mathf.Min(result, _addObjects[i].Evaluate(worldPoint));
 
         for (int i = 0; i < _subtractObjects.Length; i++)
             result = Mathf.Max(result, -_subtractObjects[i].Evaluate(worldPoint));
