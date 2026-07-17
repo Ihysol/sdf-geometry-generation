@@ -52,7 +52,7 @@ public struct CpuMeshData : System.IDisposable
         mesh.Clear();
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
-  Vector3[] verts = new Vector3[VertexCount];
+        Vector3[] verts = new Vector3[VertexCount];
         for (int i = 0; i < VertexCount; i++) verts[i] = Vertices[i];
         mesh.SetVertices(verts);
 
