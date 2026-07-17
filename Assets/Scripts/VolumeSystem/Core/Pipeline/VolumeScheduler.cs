@@ -42,9 +42,23 @@ public class VolumeScheduler
         _chunkRenderers = renderers;
     }
 
+    /// <summary>Clear pending queue — call before MarkAllDirty to prevent stale accumulation.</summary>
+    public void ClearPending()
+    {
+        _pending.Clear();
+    }
+
     /// <summary>Drain dirty queue into scheduler pending list, sorted by priority.</summary>
     public void CollectPending()
     {
+        // Purge stale entries first — metadata version is the source of truth
+        for (int i = _pending.Count - 1; i >= 0; i--)
+        {
+            int currentVersion = _dirtyChunks.GetChunkVersion(_pending[i].Coord);
+            if (_pending[i].Version != currentVersion)
+                _pending.RemoveAt(i);
+        }
+
         if (!_dirtyChunks.HasPendingWork) return;
 
         List<RemeshEntry> entries = _dirtyChunks.DequeueAll();
@@ -58,18 +72,18 @@ public class VolumeScheduler
     }
 
     /// <summary>Process up to budget of chunks per frame.</summary>
-   public int Tick()
+    public int Tick()
     {
         if (_mesher == null) return 0;
 
         CollectPending();
 
-       if (_pending.Count == 0) return 0;
+        if (_pending.Count == 0) return 0;
 
         MeshingContext context = MeshingContext.Default(_layout);
         bool chunked = _mesher is IChunkVolumeMesher;
 
-   int processed = 0;
+        int processed = 0;
         double startTime = Time.realtimeSinceStartup * 1000.0;
 
         while (_pending.Count > 0 && processed < MaxChunksPerFrame)
@@ -82,7 +96,7 @@ public class VolumeScheduler
             int currentVersion = _dirtyChunks.GetChunkVersion(entry.Coord);
             if (currentVersion != entry.Version)
             {
-                Debug.LogWarning($"[Scheduler] Skipping stale chunk {entry.Coord} (version mismatch)");
+                Debug.LogWarning($"[Scheduler] Skipping stale chunk {entry.Coord} (entry={entry.Version}, meta={currentVersion})");
                 _pending.RemoveAt(0);
                 continue;
             }
@@ -175,7 +189,7 @@ public class VolumeScheduler
         }
     }
 
-   public void Clear()
+    public void Clear()
     {
         _pending.Clear();
     }

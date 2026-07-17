@@ -74,7 +74,9 @@ public class VolumeModel : MonoBehaviour
         if (surfaceMaterial == null)
             surfaceMaterial = new Material(Shader.Find("Standard"));
 
-        Bounds bounds = new Bounds(Vector3.zero, Vector3.one * boundsExtent);
+        // Volume grid centered on THIS transform's world position — ensures child objects at localPosition=0
+        // live inside the volume bounds.
+        Bounds bounds = new Bounds(transform.position, Vector3.one * boundsExtent);
         VolumeLayout layout = new VolumeLayout
         {
             Resolution = resolution,
@@ -109,6 +111,8 @@ public class VolumeModel : MonoBehaviour
         // Destroy single-mesh output object — chunk renderers take over
         GameObject.DestroyImmediate(meshObj);
         _meshOutput = null;
+
+        Debug.Log($"[VolumeModel] Pipeline initialized: grid at {bounds.min:F1} to {bounds.max:F1}, center={transform.position:F1}");
     }
 
     private void Update()
@@ -341,7 +345,7 @@ public class VolumeModel : MonoBehaviour
     private void OnDrawGizmosSelected()
     {
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.2f);
-        Bounds gizmoBounds = new Bounds(Vector3.zero, Vector3.one * boundsExtent);
+        Bounds gizmoBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
         Gizmos.DrawCube(gizmoBounds.center, gizmoBounds.size);
 
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.6f);

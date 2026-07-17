@@ -72,9 +72,13 @@ public class VolumePipeline
         _layout.IsoLevel = isoLevel;
         _dirty = false;
 
-        // Diagnostic: sample origin before build to catch empty SDF early
-        float testAtOrigin = Source.Sample(Vector3.zero);
-        Debug.Log($"[VolumePipeline] Pre-build sample at origin: {testAtOrigin:F3}");
+        // Diagnostic: sample at layout center to verify SDF values
+        Vector3 centerWorld = _layout.Origin + new Vector3(
+            _layout.Resolution.x / 2f,
+            _layout.Resolution.y / 2f,
+            _layout.Resolution.z / 2f) * _layout.CellSize;
+        float testAtCenter = Source.Sample(centerWorld);
+        Debug.Log($"[VolumePipeline] Pre-build sample at layout center {centerWorld:F1}: {testAtCenter:F3}");
 
         _builder.Build(Source, Buffer);
 
@@ -83,6 +87,8 @@ public class VolumePipeline
         float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
         Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center density={centerVal:F3}, isoLevel={isoLevel}");
 
+        // Clear scheduler pending list before marking dirty — prevents stale version mismatch
+        Scheduler.ClearPending();
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
         if (ActiveBackend == ComputeBackend.GPU)
@@ -119,6 +125,7 @@ public class VolumePipeline
             return;
 
         _builder.Build(Source, Buffer);
+        Scheduler.ClearPending();
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
         Buffer.SyncCpuToGpu();
 
