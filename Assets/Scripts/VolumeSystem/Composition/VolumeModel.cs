@@ -209,8 +209,16 @@ public class VolumeModel : MonoBehaviour
 
     public void AddObject(VolumeShapeType shape, VolumeOperationRole role)
     {
+        // Place new objects at offset positions so they don't all stack at (0,0,0).
+        // With a default boundsExtent=4 and resolution=128, each unit of local space
+        // fits well inside the volume grid. Spread objects along X axis.
+        int existingCount = ObjectsRoot.childCount;
+        Vector3 offsetPos = new Vector3((existingCount - 0.5f) * 1.2f, 0f, 0f);
+
         GameObject child = new GameObject($"VolumeObject_{shape}_{role}");
         child.transform.SetParent(ObjectsRoot, false);
+        child.transform.localPosition = offsetPos;
+
         VolumeObject volumeObject = child.AddComponent<VolumeObject>();
         volumeObject.shapeType = shape;
         volumeObject.role = role;
@@ -218,6 +226,8 @@ public class VolumeModel : MonoBehaviour
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
         if (composer != null && !composer.objects.Contains(volumeObject))
             composer.objects.Add(volumeObject);
+
+        Debug.Log($"[VolumeModel] Added {shape} ({role}) at local pos {offsetPos:F1}, total objects={composer.objects.Count}");
 
         RebuildModel();
     }
