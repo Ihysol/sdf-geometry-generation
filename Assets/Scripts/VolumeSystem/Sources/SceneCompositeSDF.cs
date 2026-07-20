@@ -51,6 +51,11 @@ public class SceneCompositeSDF : IScalarFieldSource
                     addObjects.Add(compiled);
                     break;
             }
+
+            // Diagnostic: log each object's transform state at compile time
+            Debug.Log($"[SDF] Object {i}: role={obj.role}, shape={obj.shapeType}, worldPos={obj.transform.position:F2}, " +
+                $"localPos={obj.transform.localPosition:F2}, scale={obj.transform.localScale:F2}, " +
+                $"sphereRadius={obj.sphereRadius:F2}");
         }
 
         _addObjects = addObjects.ToArray();
