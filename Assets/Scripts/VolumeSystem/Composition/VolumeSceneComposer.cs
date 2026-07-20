@@ -19,10 +19,27 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         return snapshot != null && !snapshot.HasUnsupportedShapes;
     }
 
-    [ContextMenu("Rebuild Composition")]
     /// <summary>Refreshes the composite SDF from the current object list.</summary>
+    [ContextMenu("Rebuild Composition")]
     public void RebuildComposition()
     {
+        // Purge stale MonoBehaviour references (invalid after domain reload / script recompilation)
+        objects.RemoveAll(o => o == null);
+
+        // Recover live VolumeObjects from scene hierarchy — serialized list refs
+        // become invalid after Unity recompiles scripts, but the GameObjects persist.
+        Transform root = ObjectsRoot;
+        if (root != null)
+        {
+            for (int i = 0; i < root.childCount; i++)
+            {
+                VolumeObject vo = root.GetChild(i).GetComponent<VolumeObject>();
+                if (vo != null && !objects.Contains(vo))
+                    objects.Add(vo);
+            }
+        }
+
+        // Double-check after recovery
         objects.RemoveAll(o => o == null);
 
         RenameChildren();
@@ -31,6 +48,18 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         _snapshot = new SdfSceneSnapshot(transform, objects);
 
         Debug.Log($"[Composer] Rebuilt: {objects.Count} objects");
+    }
+
+    private Transform ObjectsRoot
+    {
+        get
+        {
+            Transform existing = transform.Find("Objects");
+            if (existing != null) return existing;
+            GameObject go = new GameObject("Objects");
+            go.transform.SetParent(transform, false);
+            return go.transform;
+        }
     }
 
     /// <summary>Samples the composed SDF at a world-space position (per IScalarFieldSource contract).</summary>
