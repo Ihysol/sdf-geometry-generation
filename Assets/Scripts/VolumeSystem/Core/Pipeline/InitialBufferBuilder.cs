@@ -17,6 +17,9 @@ public class InitialBufferBuilder
         var density = buffer.DensityCpu;
         var material = buffer.MaterialCpu;
 
+        double buildStart = Time.realtimeSinceStartup * 1000.0;
+        int totalCells = _layout.Resolution.x * _layout.Resolution.y * _layout.Resolution.z;
+
         for (int z = 0; z < _layout.Resolution.z; z++)
         {
             for (int y = 0; y < _layout.Resolution.y; y++)
@@ -37,6 +40,9 @@ public class InitialBufferBuilder
         }
 
         buffer.SyncState = BufferSyncState.CpuDirty;
+
+        double elapsed = (Time.realtimeSinceStartup * 1000.0) - buildStart;
+        Debug.Log($"[Buffer] Build complete: {totalCells} cells, {elapsed:F0}ms");
     }
 
     public void BuildPartial(IVolumeSource source, IVolumeBuffer buffer, BoundsInt region)

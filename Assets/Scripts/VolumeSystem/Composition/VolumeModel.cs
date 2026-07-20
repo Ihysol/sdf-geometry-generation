@@ -209,15 +209,9 @@ public class VolumeModel : MonoBehaviour
 
     public void AddObject(VolumeShapeType shape, VolumeOperationRole role)
     {
-        // Place new objects at offset positions so they don't all stack at (0,0,0).
-        // With a default boundsExtent=4 and resolution=128, each unit of local space
-        // fits well inside the volume grid. Spread objects along X axis.
-        int existingCount = ObjectsRoot.childCount;
-        Vector3 offsetPos = new Vector3((existingCount - 0.5f) * 1.2f, 0f, 0f);
-
         GameObject child = new GameObject($"VolumeObject_{shape}_{role}");
         child.transform.SetParent(ObjectsRoot, false);
-        child.transform.localPosition = offsetPos;
+        child.transform.localPosition = Vector3.zero;
 
         VolumeObject volumeObject = child.AddComponent<VolumeObject>();
         volumeObject.shapeType = shape;
@@ -227,7 +221,7 @@ public class VolumeModel : MonoBehaviour
         if (composer != null && !composer.objects.Contains(volumeObject))
             composer.objects.Add(volumeObject);
 
-        Debug.Log($"[VolumeModel] Added {shape} ({role}) at local pos {offsetPos:F1}, total objects={composer.objects.Count}");
+        Debug.Log($"[VolumeModel] Added {shape} ({role}) at center, total objects={composer.objects.Count}");
 
         RebuildModel();
     }
@@ -268,6 +262,8 @@ public class VolumeModel : MonoBehaviour
 
     public void RebuildModel()
     {
+        double rebuildStart = Time.realtimeSinceStartup * 1000.0;
+
         if (!_initialized) Initialize();
         _buildVersion++;
 
@@ -291,7 +287,9 @@ public class VolumeModel : MonoBehaviour
                 _pipeline.Scheduler.UseTimeBudget = false;
                 int drained = _pipeline.TickScheduler();
                 _pipeline.Scheduler.UseTimeBudget = true;
-                Debug.Log($"[VolumeModel] RebuildModel: drained {drained} chunks synchronously");
+
+                double elapsed = (Time.realtimeSinceStartup * 1000.0) - rebuildStart;
+                Debug.Log($"[VolumeModel] RebuildModel done: drained {drained} chunks in {elapsed:F0}ms");
             }
             else
             {
