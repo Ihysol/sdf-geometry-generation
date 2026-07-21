@@ -133,36 +133,38 @@ public class VolumeModel : MonoBehaviour
     }
 
     private void RebuildPipeline()
-    {
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-        if (composer == null || _pipeline == null) return;
+     {
+         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+         if (composer == null || _pipeline == null) return;
 
-        composer.RebuildComposition();
+         composer.RebuildComposition();
 
-        if (composer.objects.Count == 0)
-        {
-            Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects in scene — nothing to mesh. Add a shape first.");
-            return;
-        }
+         if (composer.objects.Count == 0)
+         {
+             Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects in scene — nothing to mesh. Add a shape first.");
+             return;
+         }
 
-        if (_hasDirtyBounds)
-        {
-            _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
-            _hasDirtyBounds = false;
-        }
-        else
-        {
-            _pipeline.Rebuild(composer, isoLevel);
-        }
+         if (_hasDirtyBounds)
+         {
+             _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+         }
+         else
+         {
+             _pipeline.Rebuild(composer, isoLevel);
+         }
+         // Always clear dirty bounds after rebuild — prevents stale partial-rebuild path
+         // from firing on a subsequent RebuildPipeline() call with outdated bounds.
+         _hasDirtyBounds = false;
 
-        // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
-        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-        _pipeline.Scheduler.UseTimeBudget = false;
-        int drained = _pipeline.TickScheduler();
-        _pipeline.Scheduler.UseTimeBudget = true;
+         // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
+         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+         _pipeline.Scheduler.UseTimeBudget = false;
+         int drained = _pipeline.TickScheduler();
+         _pipeline.Scheduler.UseTimeBudget = true;
 
-        Debug.Log($"[VolumeModel] RebuildPipeline done: drained {drained} chunks, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
-    }
+         Debug.Log($"[VolumeModel] RebuildPipeline done: drained {drained} chunks, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
+     }
 
     // ---- Public API ----
 
@@ -261,42 +263,45 @@ public class VolumeModel : MonoBehaviour
     }
 
     public void RebuildModel()
-    {
-        double rebuildStart = Time.realtimeSinceStartup * 1000.0;
+     {
+         double rebuildStart = Time.realtimeSinceStartup * 1000.0;
 
-        if (!_initialized) Initialize();
-        _buildVersion++;
+         if (!_initialized) Initialize();
+         _buildVersion++;
+         // Clear dirty bounds before full rebuild — prevents RebuildPipeline() from
+         // taking the partial path with stale (and possibly out-of-bounds) dirty region.
+         _hasDirtyBounds = false;
 
-        Debug.Log($"[VolumeModel] RebuildModel called, initialized={_initialized}, enablePipeline={enablePipeline}, pipeline={(_pipeline != null)}");
+         Debug.Log($"[VolumeModel] RebuildModel called, initialized={_initialized}, enablePipeline={enablePipeline}, pipeline={(_pipeline != null)}");
 
-        if (enablePipeline && _pipeline != null)
-        {
-            VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-            if (composer != null)
-            {
-                composer.RebuildComposition();
-                if (composer.objects.Count == 0)
-                {
-                    Debug.LogWarning("[VolumeModel] RebuildModel: no objects in scene — nothing to mesh. Add a shape first.");
-                    return;
-                }
-                _pipeline.Rebuild(composer, isoLevel);
+         if (enablePipeline && _pipeline != null)
+         {
+             VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+             if (composer != null)
+             {
+                 composer.RebuildComposition();
+                 if (composer.objects.Count == 0)
+                 {
+                     Debug.LogWarning("[VolumeModel] RebuildModel: no objects in scene — nothing to mesh. Add a shape first.");
+                     return;
+                 }
+                 _pipeline.Rebuild(composer, isoLevel);
 
-                // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
-                _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-                _pipeline.Scheduler.UseTimeBudget = false;
-                int drained = _pipeline.TickScheduler();
-                _pipeline.Scheduler.UseTimeBudget = true;
+                 // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
+                 _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+                 _pipeline.Scheduler.UseTimeBudget = false;
+                 int drained = _pipeline.TickScheduler();
+                 _pipeline.Scheduler.UseTimeBudget = true;
 
-                double elapsed = (Time.realtimeSinceStartup * 1000.0) - rebuildStart;
-                Debug.Log($"[VolumeModel] RebuildModel done: drained {drained} chunks in {elapsed:F0}ms");
-            }
-            else
-            {
-                Debug.LogError("[VolumeModel] RebuildModel: VolumeSceneComposer is null!");
-            }
-        }
-    }
+                 double elapsed = (Time.realtimeSinceStartup * 1000.0) - rebuildStart;
+                 Debug.Log($"[VolumeModel] RebuildModel done: drained {drained} chunks in {elapsed:F0}ms");
+             }
+             else
+             {
+                 Debug.LogError("[VolumeModel] RebuildModel: VolumeSceneComposer is null!");
+             }
+         }
+     }
 
     public void MarkDirtyBounds(Bounds bounds)
     {

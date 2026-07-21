@@ -642,16 +642,28 @@ public class VolumeObject : MonoBehaviour
     }
 
   /// <summary>Returns estimated world-space bounds of this volume object.</summary>
-    public Bounds GetBounds()
-    {
-        Bounds local = GetEstimatedLocalBounds();
-        Bounds world = local;
-        world.center = transform.TransformPoint(local.center);
-        // Approximate: scale extents by max absolute scale component
-        float maxScale = Mathf.Max(Mathf.Abs(transform.lossyScale.x), Mathf.Abs(transform.lossyScale.y), Mathf.Abs(transform.lossyScale.z));
-        world.size = local.size * maxScale;
-        return world;
-    }
+   public Bounds GetBounds()
+   {
+       Bounds local = GetEstimatedLocalBounds();
+
+       // Transform all 8 corners to world space for accurate bounds — avoids the
+       // lossyScale approximation which breaks with non-uniform or nested parent scales.
+       Vector3[] corners = new Vector3[8];
+       Vector3 half = local.size * 0.5f;
+       corners[0] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z - half.z));
+       corners[1] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z - half.z));
+       corners[2] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z - half.z));
+       corners[3] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z - half.z));
+       corners[4] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z + half.z));
+       corners[5] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z + half.z));
+       corners[6] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z + half.z));
+       corners[7] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z + half.z));
+
+       Bounds world = new Bounds(corners[0], Vector3.zero);
+       for (int i = 1; i < 8; i++)
+           world.Encapsulate(corners[i]);
+       return world;
+   }
 
     public Bounds EstimateLocalMoveDirtyBounds(Vector3 fromLocalPosition, Vector3 toLocalPosition)
     {
