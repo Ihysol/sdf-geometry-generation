@@ -304,20 +304,53 @@ public class VolumeModel : MonoBehaviour
      }
 
     public void MarkDirtyBounds(Bounds bounds)
-    {
-        _hasDirtyBounds = true;
-        _dirtyBounds.position = new Vector3Int(
-            Mathf.FloorToInt(bounds.min.x),
-            Mathf.FloorToInt(bounds.min.y),
-            Mathf.FloorToInt(bounds.min.z));
-        _dirtyBounds.size = new Vector3Int(
-            Mathf.CeilToInt(bounds.size.x),
-            Mathf.CeilToInt(bounds.size.y),
-            Mathf.CeilToInt(bounds.size.z));
+     {
+         _hasDirtyBounds = true;
+         _dirtyBounds.position = new Vector3Int(
+             Mathf.FloorToInt(bounds.min.x),
+             Mathf.FloorToInt(bounds.min.y),
+             Mathf.FloorToInt(bounds.min.z));
+         _dirtyBounds.size = new Vector3Int(
+             Mathf.CeilToInt(bounds.size.x),
+             Mathf.CeilToInt(bounds.size.y),
+             Mathf.CeilToInt(bounds.size.z));
 
-        if (enablePipeline && _pipeline != null)
-            _pipeline.MarkDirty();
-    }
+         if (enablePipeline && _pipeline != null)
+             _pipeline.MarkDirty();
+     }
+
+     /// <summary>Synchronous partial rebuild using the current dirty bounds. Call immediately after MarkDirtyBounds.</summary>
+     public void RebuildDirty()
+     {
+         if (!_initialized) Initialize();
+         if (_pipeline == null || !enablePipeline) return;
+
+         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+         if (composer == null) return;
+
+         composer.RebuildComposition();
+
+         if (composer.objects.Count == 0)
+         {
+             _hasDirtyBounds = false;
+             return;
+         }
+
+         if (_hasDirtyBounds)
+             _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+         else
+             _pipeline.Rebuild(composer, isoLevel);
+
+         _hasDirtyBounds = false;
+
+         // Synchronous drain — same as RebuildModel so geometry appears immediately.
+         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+         _pipeline.Scheduler.UseTimeBudget = false;
+         int drained = _pipeline.TickScheduler();
+         _pipeline.Scheduler.UseTimeBudget = true;
+
+         Debug.Log($"[VolumeModel] RebuildDirty done: drained {drained} chunks");
+     }
 
     // ---- Accessors ----
 

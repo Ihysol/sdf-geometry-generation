@@ -111,9 +111,24 @@ public class VolumePipeline
         _dirty = false;
 
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
-        _builder.BuildPartial(Source, Buffer, dirtyRegion);
-        DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
-        Debug.Log($"[VolumePipeline] Rebuild partial: region {dirtyRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
+           // If dirty region is empty (object outside volume), fall back to full rebuild.
+           if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
+           {
+               Debug.Log("[VolumePipeline] Partial rebuild: no overlap — falling back to full rebuild");
+               _builder.Build(Source, Buffer);
+               Scheduler.ClearPending();
+               DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+               if (ActiveBackend == ComputeBackend.GPU)
+                   Buffer.SyncCpuToGpu();
+               return;
+           }
+           // Expand to cover all cells in affected chunks + neighbors so BuildPartial resamples
+           // every cell that any remeshed chunk (including ExpandNeighbors) might read.
+           BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+           _builder.BuildPartial(Source, Buffer, sampleRegion);
+           // Mark the FULL expanded region dirty — neighbor chunks also got fresh SDF data and need remeshing.
+           DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
+           Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();
@@ -154,19 +169,56 @@ public class VolumePipeline
     }
 
     private static BoundsInt WorldBoundsToIntBounds(Bounds worldBounds, VolumeLayout layout)
-    {
-        Vector3Int minIndex = layout.WorldToIndex(worldBounds.min);
-        Vector3Int maxIndex = layout.WorldToIndex(worldBounds.max);
+       {
+           Vector3Int minIndex = layout.WorldToIndex(worldBounds.min);
+           Vector3Int maxIndex = layout.WorldToIndex(worldBounds.max);
 
-        int px = Mathf.Max(0, minIndex.x);
-        int py = Mathf.Max(0, minIndex.y);
-        int pz = Mathf.Max(0, minIndex.z);
-        int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
-        int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
-        int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
+           int px = Mathf.Max(0, minIndex.x);
+           int py = Mathf.Max(0, minIndex.y);
+           int pz = Mathf.Max(0, minIndex.z);
+           int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
+           int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
+           int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
 
-        return new BoundsInt(px, py, pz, sx, sy, sz);
-    }
+           return new BoundsInt(px, py, pz, sx, sy, sz);
+       }
+
+       /// <summary>Expand a region to cover all cells in affected chunks plus their 6-face neighbors.</summary>
+       private static BoundsInt ExpandToChunkRegions(BoundsInt region, VolumeLayout layout)
+       {
+           int cs = layout.ChunkSize;
+           if (cs <= 0) return region;
+
+           // Find chunk range
+           int minCx = Mathf.FloorToInt(region.position.x / cs);
+           int minCy = Mathf.FloorToInt(region.position.y / cs);
+           int minCz = Mathf.FloorToInt(region.position.z / cs);
+           int maxCx = Mathf.FloorToInt((region.position.x + region.size.x - 1) / cs);
+           int maxCy = Mathf.FloorToInt((region.position.y + region.size.y - 1) / cs);
+           int maxCz = Mathf.FloorToInt((region.position.z + region.size.z - 1) / cs);
+
+           // Add neighbor chunks (ExpandNeighbors in DirtyChunkSystem adds 6-face neighbors)
+           minCx--; minCy--; minCz--;
+           maxCx++; maxCy++; maxCz++;
+
+           // Clamp to grid
+           Vector3Int res = layout.Resolution;
+           minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
+           int chunkGridMax = cs * Mathf.CeilToInt((float)res.x / cs) - 1;
+           maxCx = Mathf.Min(chunkGridMax, maxCx);
+           maxCy = Mathf.Min(cs * Mathf.CeilToInt((float)res.y / cs) - 1, maxCy);
+           maxCz = Mathf.Min(cs * Mathf.CeilToInt((float)res.z / cs) - 1, maxCz);
+
+           // Convert back to cell indices
+           int px = minCx * cs;
+           int py = minCy * cs;
+           int pz = minCz * cs;
+           int sx = Mathf.Min(res.x, (maxCx + 1) * cs) - px;
+           int sy = Mathf.Min(res.y, (maxCy + 1) * cs) - py;
+           int sz = Mathf.Min(res.z, (maxCz + 1) * cs) - pz;
+
+           return new BoundsInt(px, py, pz, sx, sy, sz);
+       }
 
     public void ApplyOperation(IVolumeOperation operation)
     {
