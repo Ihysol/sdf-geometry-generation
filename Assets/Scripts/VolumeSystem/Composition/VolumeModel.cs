@@ -56,8 +56,6 @@ public class VolumeModel : MonoBehaviour
         }
     }
 
-    // ---- Init ----
-
     public void Initialize()
     {
         if (_initialized) return;
@@ -74,8 +72,6 @@ public class VolumeModel : MonoBehaviour
         if (surfaceMaterial == null)
             surfaceMaterial = new Material(Shader.Find("Standard"));
 
-        // Volume grid centered on THIS transform's world position — ensures child objects at localPosition=0
-        // live inside the volume bounds.
         Bounds bounds = new Bounds(transform.position, Vector3.one * boundsExtent);
         VolumeLayout layout = new VolumeLayout
         {
@@ -98,7 +94,6 @@ public class VolumeModel : MonoBehaviour
         _pipeline.Initialize(_meshOutput);
         _pipeline.SetBackend(computeBackend);
 
-        // Create per-chunk renderers
         _chunksParent = new GameObject("Chunks").transform;
         _chunksParent.SetParent(transform, false);
 
@@ -108,7 +103,6 @@ public class VolumeModel : MonoBehaviour
         _chunkRenderers.SetMaterial(surfaceMaterial);
         _pipeline.SetChunkRenderers(_chunkRenderers);
 
-        // Destroy single-mesh output object — chunk renderers take over
         GameObject.DestroyImmediate(meshObj);
         _meshOutput = null;
 
@@ -127,46 +121,40 @@ public class VolumeModel : MonoBehaviour
                 RebuildPipeline();
         }
 
-        // Sync material on chunk renderers
         if (_chunkRenderers != null && surfaceMaterial != null)
             _chunkRenderers.SetMaterial(surfaceMaterial);
     }
 
     private void RebuildPipeline()
-     {
-         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-         if (composer == null || _pipeline == null) return;
+    {
+        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        if (composer == null || _pipeline == null) return;
 
-         composer.RebuildComposition();
+        composer.RebuildComposition();
 
-         if (composer.objects.Count == 0)
-         {
-             Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects in scene — nothing to mesh. Add a shape first.");
-             return;
-         }
+        if (composer.objects.Count == 0)
+        {
+            Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects in scene — nothing to mesh. Add a shape first.");
+            return;
+        }
 
-         if (_hasDirtyBounds)
-         {
-             _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
-         }
-         else
-         {
-             _pipeline.Rebuild(composer, isoLevel);
-         }
-         // Always clear dirty bounds after rebuild — prevents stale partial-rebuild path
-         // from firing on a subsequent RebuildPipeline() call with outdated bounds.
-         _hasDirtyBounds = false;
+        if (_hasDirtyBounds)
+        {
+            _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+        }
+        else
+        {
+            _pipeline.Rebuild(composer, isoLevel);
+        }
+        _hasDirtyBounds = false;
 
-         // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
-         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-         _pipeline.Scheduler.UseTimeBudget = false;
-         int drained = _pipeline.TickScheduler();
-         _pipeline.Scheduler.UseTimeBudget = true;
+        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+        _pipeline.Scheduler.UseTimeBudget = false;
+        int drained = _pipeline.TickScheduler();
+        _pipeline.Scheduler.UseTimeBudget = true;
 
-         Debug.Log($"[VolumeModel] RebuildPipeline done: drained {drained} chunks, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
-     }
-
-    // ---- Public API ----
+        Debug.Log($"[VolumeModel] RebuildPipeline done: drained {drained} chunks, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
+    }
 
     public void Rebuild()
     {
@@ -204,8 +192,6 @@ public class VolumeModel : MonoBehaviour
         if (_pipeline != null)
             _pipeline.ApplyOperation(operation);
     }
-
-    // ---- Object Management ----
 
     public void AddSelectedObject() => AddObject(shapeToAdd, roleToAdd);
 
@@ -263,102 +249,96 @@ public class VolumeModel : MonoBehaviour
     }
 
     public void RebuildModel()
-     {
-         double rebuildStart = Time.realtimeSinceStartup * 1000.0;
+    {
+        double rebuildStart = Time.realtimeSinceStartup * 1000.0;
 
-         if (!_initialized) Initialize();
-         _buildVersion++;
-         // Clear dirty bounds before full rebuild — prevents RebuildPipeline() from
-         // taking the partial path with stale (and possibly out-of-bounds) dirty region.
-         _hasDirtyBounds = false;
+        if (!_initialized) Initialize();
+        _buildVersion++;
+        _hasDirtyBounds = false;
 
-         Debug.Log($"[VolumeModel] RebuildModel called, initialized={_initialized}, enablePipeline={enablePipeline}, pipeline={(_pipeline != null)}");
+        Debug.Log($"[VolumeModel] RebuildModel called, initialized={_initialized}, enablePipeline={enablePipeline}, pipeline={(_pipeline != null)}");
 
-         if (enablePipeline && _pipeline != null)
-         {
-             VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-             if (composer != null)
-             {
-                 composer.RebuildComposition();
-                 if (composer.objects.Count == 0)
-                 {
-                     Debug.LogWarning("[VolumeModel] RebuildModel: no objects in scene — nothing to mesh. Add a shape first.");
-                     return;
-                 }
-                 _pipeline.Rebuild(composer, isoLevel);
+        if (enablePipeline && _pipeline != null)
+        {
+            VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+            if (composer != null)
+            {
+                composer.RebuildComposition();
+                if (composer.objects.Count == 0)
+                {
+                    Debug.LogWarning("[VolumeModel] RebuildModel: no objects in scene — nothing to mesh. Add a shape first.");
+                    return;
+                }
+                _pipeline.Rebuild(composer, isoLevel);
 
-                 // Per v10 architecture §3.1 "Initialer Aufbau": initial build is synchronous.
-                 _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-                 _pipeline.Scheduler.UseTimeBudget = false;
-                 int drained = _pipeline.TickScheduler();
-                 _pipeline.Scheduler.UseTimeBudget = true;
+                _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+                _pipeline.Scheduler.UseTimeBudget = false;
+                int drained = _pipeline.TickScheduler();
+                _pipeline.Scheduler.UseTimeBudget = true;
 
-                 double elapsed = (Time.realtimeSinceStartup * 1000.0) - rebuildStart;
-                 Debug.Log($"[VolumeModel] RebuildModel done: drained {drained} chunks in {elapsed:F0}ms");
-             }
-             else
-             {
-                 Debug.LogError("[VolumeModel] RebuildModel: VolumeSceneComposer is null!");
-             }
-         }
-     }
+                double elapsed = (Time.realtimeSinceStartup * 1000.0) - rebuildStart;
+                Debug.Log($"[VolumeModel] RebuildModel done: drained {drained} chunks in {elapsed:F0}ms");
+            }
+            else
+            {
+                Debug.LogError("[VolumeModel] RebuildModel: VolumeSceneComposer is null!");
+            }
+        }
+    }
 
     public void MarkDirtyBounds(Bounds bounds)
-     {
-         _hasDirtyBounds = true;
-         _dirtyBounds.position = new Vector3Int(
-             Mathf.FloorToInt(bounds.min.x),
-             Mathf.FloorToInt(bounds.min.y),
-             Mathf.FloorToInt(bounds.min.z));
-         _dirtyBounds.size = new Vector3Int(
-             Mathf.CeilToInt(bounds.size.x),
-             Mathf.CeilToInt(bounds.size.y),
-             Mathf.CeilToInt(bounds.size.z));
+    {
+        _hasDirtyBounds = true;
+        _dirtyBounds.position = new Vector3Int(
+            Mathf.FloorToInt(bounds.min.x),
+            Mathf.FloorToInt(bounds.min.y),
+            Mathf.FloorToInt(bounds.min.z));
+        _dirtyBounds.size = new Vector3Int(
+            Mathf.CeilToInt(bounds.size.x),
+            Mathf.CeilToInt(bounds.size.y),
+            Mathf.CeilToInt(bounds.size.z));
 
-         if (enablePipeline && _pipeline != null)
-             _pipeline.MarkDirty();
-     }
+        if (enablePipeline && _pipeline != null)
+            _pipeline.MarkDirty();
+    }
 
-     /// <summary>Synchronous partial rebuild using the current dirty bounds. Call immediately after MarkDirtyBounds.</summary>
-     public void RebuildDirty()
-     {
-         if (!_initialized) Initialize();
-         if (_pipeline == null || !enablePipeline) return;
+    /// <summary>Synchronous partial rebuild using the current dirty bounds. Call immediately after MarkDirtyBounds.</summary>
+    public void RebuildDirty()
+    {
+        if (!_initialized) Initialize();
+        if (_pipeline == null || !enablePipeline) return;
 
-         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-         if (composer == null) return;
+        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        if (composer == null) return;
 
-         composer.RebuildComposition();
+        composer.RebuildComposition();
 
-         if (composer.objects.Count == 0)
-         {
-             _hasDirtyBounds = false;
-             return;
-         }
+        if (composer.objects.Count == 0)
+        {
+            _hasDirtyBounds = false;
+            return;
+        }
 
-         if (_hasDirtyBounds)
-             _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
-         else
-             _pipeline.Rebuild(composer, isoLevel);
+        if (_hasDirtyBounds)
+            _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+        else
+            _pipeline.Rebuild(composer, isoLevel);
 
-         _hasDirtyBounds = false;
+        _hasDirtyBounds = false;
 
-         // Synchronous drain — same as RebuildModel so geometry appears immediately.
-         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-         _pipeline.Scheduler.UseTimeBudget = false;
-         int drained = _pipeline.TickScheduler();
-         _pipeline.Scheduler.UseTimeBudget = true;
+        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+        _pipeline.Scheduler.UseTimeBudget = false;
+        int drained = _pipeline.TickScheduler();
+        _pipeline.Scheduler.UseTimeBudget = true;
 
-         Debug.Log($"[VolumeModel] RebuildDirty done: drained {drained} chunks");
-     }
-
-    // ---- Accessors ----
+        Debug.Log($"[VolumeModel] RebuildDirty done: drained {drained} chunks");
+    }
 
     public VolumePipeline Pipeline => _pipeline;
     public bool Initialized => _initialized;
     public int BuildVersion => _buildVersion;
 
-    // ---- Legacy stubs (for external code that won't execute with pipeline) ----
+    // ---- Legacy stubs ----
     public bool ShouldUseInteractionPreview() => false;
     public bool ShouldAutoRebuildOnTransformChange() => true;
     public void NotifyInteractiveEdit() { }
@@ -372,7 +352,7 @@ public class VolumeModel : MonoBehaviour
     public VoxelGridSampler voxelGridSampler => CreateVoxelGridSampler();
     public OctreeVolumeSampler octreeSampler => null;
     public SparseVoxelOctreeSampler sparseVoxelOctreeSampler => null;
-    public bool drawChildGizmos => false;
+    public bool drawChildGizmos => true;
 
     private VoxelGridSampler _voxelStub;
     private VoxelGridSampler CreateVoxelGridSampler()
@@ -380,7 +360,6 @@ public class VolumeModel : MonoBehaviour
         if (_voxelStub == null)
         {
             _voxelStub = new VoxelGridSampler();
-            // Match pipeline resolution so EstimateMinSamplingCellSize returns correct value
             int res = Mathf.Max(1, resolution.x);
             _voxelStub.builder.gridSize = new Vector3Int(res, res, res);
             _voxelStub.builder.gridExtent = new Vector3(boundsExtent, boundsExtent, boundsExtent);
@@ -388,31 +367,18 @@ public class VolumeModel : MonoBehaviour
         return _voxelStub;
     }
 
-    private void OnDrawGizmosSelected()
+    private void OnDrawGizmos()
     {
-        Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.2f);
-        Bounds gizmoBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
-        Gizmos.DrawCube(gizmoBounds.center, gizmoBounds.size);
-
+        Bounds volBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
+        Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.12f);
+        Gizmos.DrawCube(volBounds.center, volBounds.size);
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.6f);
-        Gizmos.DrawWireCube(gizmoBounds.center, gizmoBounds.size);
+        Gizmos.DrawWireCube(volBounds.center, volBounds.size);
 
-        Transform objectsRoot = transform.Find("Objects");
-        if (objectsRoot != null && objectsRoot.childCount > 0)
-        {
-            Bounds childBounds = new Bounds(objectsRoot.GetChild(0).position, Vector3.zero);
-            for (int i = 0; i < objectsRoot.childCount; i++)
-                childBounds.Encapsulate(objectsRoot.GetChild(i).position);
-
-            Gizmos.color = new Color(1f, 0.6f, 0.2f, 0.4f);
-            Gizmos.DrawWireCube(childBounds.center, childBounds.size);
-        }
-
-        if (_meshRenderer != null)
-        {
-            Gizmos.color = Color.green;
-            Gizmos.DrawWireSphere(_meshRenderer.transform.position, 0.05f);
-        }
+        // Grid origin marker (where the SDF grid starts)
+        Vector3 origin = volBounds.min;
+        Gizmos.color = new Color(1f, 0.85f, 0f, 0.9f);
+        Gizmos.DrawWireSphere(origin, boundsExtent * 0.04f);
     }
 
 #if UNITY_EDITOR
@@ -446,7 +412,6 @@ public class VolumeModel : MonoBehaviour
     {
         if (_pipeline == null || !enablePipeline) return;
 
-        // Edit mode: drain all remaining chunks per tick (no framerate concern)
         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
         _pipeline.Scheduler.UseTimeBudget = false;
 
