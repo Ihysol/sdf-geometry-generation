@@ -58,81 +58,87 @@ public class VolumePipeline
     }
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
-    {
-        // Always create a fresh adapter — the SDF is a snapshot that must reflect current objects.
-        if (sdfSource != null)
-            Source = new SdfSourceAdapter(sdfSource);
+     {
+         if (sdfSource != null)
+             Source = new SdfSourceAdapter(sdfSource);
 
-        if (Source == null || Buffer == null || Mesher == null)
-        {
-            Debug.LogError("[VolumePipeline] Rebuild failed: missing Source/Buffer/Mesher");
-            return;
-        }
+         if (Source == null || Buffer == null || Mesher == null)
+         {
+             Debug.LogError("[VolumePipeline] Rebuild failed: missing Source/Buffer/Mesher");
+             return;
+         }
 
-        _layout.IsoLevel = isoLevel;
-        _dirty = false;
+         _layout.IsoLevel = isoLevel;
+         _dirty = false;
 
-        // Diagnostic: sample at layout center to verify SDF values
-        Vector3 centerWorld = _layout.Origin + new Vector3(
-            _layout.Resolution.x / 2f,
-            _layout.Resolution.y / 2f,
-            _layout.Resolution.z / 2f) * _layout.CellSize;
-        float testAtCenter = Source.Sample(centerWorld);
-        Debug.Log($"[VolumePipeline] Pre-build sample at layout center {centerWorld:F1}: {testAtCenter:F3}");
+         // Try Burst-compiled sampling when snapshot has only supported shapes
+         if (sdfSource is SdfSceneSnapshot snapshot && !snapshot.HasUnsupportedShapes)
+         {
+             _builder.BuildBurst(snapshot, Buffer);
+         }
+         else
+         {
+             _builder.Build(Source, Buffer);
+         }
 
-        _builder.Build(Source, Buffer);
+         // Diagnostic: sample center cell to verify SDF values
+         int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
+         float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
+         Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center density={centerVal:F3}, isoLevel={isoLevel}");
 
-        // Diagnostic: sample center cell to verify SDF values
-        int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
-        float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
-        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center density={centerVal:F3}, isoLevel={isoLevel}");
+         // Clear scheduler pending list before marking dirty — prevents stale version mismatch
+         Scheduler.ClearPending();
+         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
-        // Clear scheduler pending list before marking dirty — prevents stale version mismatch
-        Scheduler.ClearPending();
-        DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
-
-        if (ActiveBackend == ComputeBackend.GPU)
-            Buffer.SyncCpuToGpu();
-    }
+         if (ActiveBackend == ComputeBackend.GPU)
+             Buffer.SyncCpuToGpu();
+     }
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds)
-    {
-        // Always create a fresh adapter — the SDF is a snapshot that must reflect current objects.
-        if (sdfSource != null)
-            Source = new SdfSourceAdapter(sdfSource);
+     {
+         if (sdfSource != null)
+             Source = new SdfSourceAdapter(sdfSource);
 
-        if (Source == null || Buffer == null || Mesher == null)
-        {
-            Debug.LogError("[VolumePipeline] Rebuild partial failed: missing Source/Buffer/Mesher");
-            return;
-        }
+         if (Source == null || Buffer == null || Mesher == null)
+         {
+             Debug.LogError("[VolumePipeline] Rebuild partial failed: missing Source/Buffer/Mesher");
+             return;
+         }
 
-        _layout.IsoLevel = isoLevel;
-        _dirty = false;
+         _layout.IsoLevel = isoLevel;
+         _dirty = false;
 
-        BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
-           // If dirty region is empty (object outside volume), fall back to full rebuild.
-           if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
-           {
-               Debug.Log("[VolumePipeline] Partial rebuild: no overlap — falling back to full rebuild");
-               _builder.Build(Source, Buffer);
-               Scheduler.ClearPending();
-               DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
-               if (ActiveBackend == ComputeBackend.GPU)
-                   Buffer.SyncCpuToGpu();
-               return;
-           }
-           // Expand to cover all cells in affected chunks + neighbors so BuildPartial resamples
-             // every cell that any remeshed chunk might read. MarkDirty also expands neighbors,
-             // giving ±2 total coverage — needed for dual contouring context at volume borders.
-             BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
+         // If dirty region is empty (object outside volume), fall back to full rebuild.
+         if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
+         {
+             Debug.Log("[VolumePipeline] Partial rebuild: no overlap — falling back to full rebuild");
+             _builder.Build(Source, Buffer);
+             Scheduler.ClearPending();
+             DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+             if (ActiveBackend == ComputeBackend.GPU)
+                 Buffer.SyncCpuToGpu();
+             return;
+         }
+
+         BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+
+         // Try Burst-compiled sampling when snapshot has only supported shapes
+         if (sdfSource is SdfSceneSnapshot burstSnapshot && !burstSnapshot.HasUnsupportedShapes)
+         {
+             _builder.BuildPartialBurst(burstSnapshot, Buffer, sampleRegion);
+         }
+         else
+         {
              _builder.BuildPartial(Source, Buffer, sampleRegion);
-             DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
-             Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
+         }
 
-        if (ActiveBackend == ComputeBackend.GPU)
-            Buffer.SyncCpuToGpu();
-    }
+         DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
+         Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
+
+         if (ActiveBackend == ComputeBackend.GPU)
+             Buffer.SyncCpuToGpu();
+     }
 
     public void RebuildGpu()
     {

@@ -217,11 +217,12 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
     private readonly ReadOnlyCollection<ShapeData> _readOnlyIntersectShapes;
 
     internal Matrix4x4 RootLocalToWorld => _rootLocalToWorld;
-    internal IReadOnlyList<ShapeData> AddShapes => _readOnlyAddShapes;
-    internal IReadOnlyList<ShapeData> SubtractShapes => _readOnlySubtractShapes;
-    internal IReadOnlyList<ShapeData> IntersectShapes => _readOnlyIntersectShapes;
+     internal IReadOnlyList<ShapeData> AddShapes => _readOnlyAddShapes;
+     internal IReadOnlyList<ShapeData> SubtractShapes => _readOnlySubtractShapes;
+     internal IReadOnlyList<ShapeData> IntersectShapes => _readOnlyIntersectShapes;
+     public int ShapeCount => _addShapes.Length + _subtractShapes.Length + _intersectShapes.Length;
 
-    public bool HasUnsupportedShapes { get; }
+     public bool HasUnsupportedShapes { get; }
 
     public SdfSceneSnapshot(Transform root, List<VolumeObject> objects)
     {

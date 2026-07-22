@@ -1,3 +1,5 @@
+using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 
 public class InitialBufferBuilder
@@ -110,5 +112,104 @@ public class InitialBufferBuilder
         }
 
         buffer.SyncState = BufferSyncState.CpuDirty;
+    }
+
+    /// <summary>Burst-compiled full SDF sampling — replaces managed Build() for supported shapes.</summary>
+    public void BuildBurst(SdfSceneSnapshot snapshot, IVolumeBuffer buffer)
+    {
+        if (snapshot == null || buffer == null || snapshot.HasUnsupportedShapes)
+            return;
+
+        NativeArray<BurstShapeData> shapes = CreateBurstShapes(snapshot, Allocator.TempJob);
+
+        int rx = _layout.Resolution.x;
+        int ry = _layout.Resolution.y;
+        int rz = _layout.Resolution.z;
+        int totalCells = rx * ry * rz;
+
+        var job = new BurstSdfSamplingJob
+        {
+            Shapes = shapes,
+            ShapeCount = snapshot.ShapeCount,
+            Rx = rx, Ry = ry, Rz = rz,
+            MinX = 0, MaxX = rx - 1, MinY = 0, MaxY = ry - 1, MinZ = 0, MaxZ = rz - 1,
+            CellSize = _layout.CellSize,
+            WorldMinX = _layout.Origin.x, WorldMinY = _layout.Origin.y, WorldMinZ = _layout.Origin.z,
+            Density = buffer.DensityCpu,
+            Material = buffer.MaterialCpu,
+            OutRowStride = rx,
+            OutSliceStride = rx * ry,
+        };
+
+        JobHandle handle = job.Schedule(totalCells, 4096);
+        handle.Complete();
+        shapes.Dispose();
+
+        buffer.SyncState = BufferSyncState.CpuDirty;
+    }
+
+    /// <summary>Burst-compiled partial SDF sampling — replaces managed BuildPartial() for supported shapes.</summary>
+    public void BuildPartialBurst(SdfSceneSnapshot snapshot, IVolumeBuffer buffer, BoundsInt region)
+    {
+        if (snapshot == null || buffer == null || snapshot.HasUnsupportedShapes)
+            return;
+
+        NativeArray<BurstShapeData> shapes = CreateBurstShapes(snapshot, Allocator.TempJob);
+
+        int rx = _layout.Resolution.x;
+        int ry = _layout.Resolution.y;
+        int rz = _layout.Resolution.z;
+
+        // Clamp region to grid bounds
+        int minX = Mathf.Max(0, Mathf.Min(rx, region.position.x));
+        int maxX = Mathf.Max(0, Mathf.Min(rx, region.position.x + region.size.x)) - 1;
+        int minY = Mathf.Max(0, Mathf.Min(ry, region.position.y));
+        int maxY = Mathf.Max(0, Mathf.Min(ry, region.position.y + region.size.y)) - 1;
+        int minZ = Mathf.Max(0, Mathf.Min(rz, region.position.z));
+        int maxZ = Mathf.Max(0, Mathf.Min(rz, region.position.z + region.size.z)) - 1;
+
+        if (minX > maxX || minY > maxY || minZ > maxZ)
+        {
+            shapes.Dispose();
+            return;
+        }
+
+        int sx = maxX - minX + 1;
+        int sy = maxY - minY + 1;
+        int sz = maxZ - minZ + 1;
+        long regionCells = (long)sx * sy * sz;
+
+        var job = new BurstSdfSamplingJob
+        {
+            Shapes = shapes,
+            ShapeCount = snapshot.ShapeCount,
+            Rx = rx, Ry = ry, Rz = rz,
+            MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, MinZ = minZ, MaxZ = maxZ,
+            CellSize = _layout.CellSize,
+            WorldMinX = _layout.Origin.x, WorldMinY = _layout.Origin.y, WorldMinZ = _layout.Origin.z,
+            Density = buffer.DensityCpu,
+            Material = buffer.MaterialCpu,
+            OutRowStride = rx,
+            OutSliceStride = rx * ry,
+        };
+
+        JobHandle handle = job.Schedule((int)regionCells, 4096);
+        handle.Complete();
+        shapes.Dispose();
+
+        buffer.SyncState = BufferSyncState.CpuDirty;
+    }
+
+    private NativeArray<BurstShapeData> CreateBurstShapes(SdfSceneSnapshot snapshot, Allocator allocator)
+    {
+        NativeArray<BurstShapeData> shapes = new NativeArray<BurstShapeData>(snapshot.ShapeCount, allocator);
+        int idx = 0;
+        foreach (var s in snapshot.AddShapes)
+            shapes[idx++] = new BurstShapeData(s, (int)VolumeOperationRole.Add);
+        foreach (var s in snapshot.SubtractShapes)
+            shapes[idx++] = new BurstShapeData(s, (int)VolumeOperationRole.Subtract);
+        foreach (var s in snapshot.IntersectShapes)
+            shapes[idx++] = new BurstShapeData(s, (int)VolumeOperationRole.Intersect);
+        return shapes;
     }
 }
