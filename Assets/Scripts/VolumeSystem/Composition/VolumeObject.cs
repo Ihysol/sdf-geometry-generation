@@ -265,100 +265,196 @@ public class VolumeObject : MonoBehaviour
 #endif
 
     /// <summary>Samples this object's local SDF including optional grid cutters.</summary>
-    public float EvaluateLocal(Vector3 p)
-    {
-        float d = EvaluateShape(p);
+     public float EvaluateLocal(Vector3 p) => EvaluateLocal(p.x, p.y, p.z);
 
-        if (gridType != VolumeGridType.None)
-        {
-            float cutter = EvaluateGridCutter(p, d);
-            d = Mathf.Max(d, -cutter);
-        }
+     /// <summary>Zero-allocation scalar overload — avoids Vector3 construction in hot loops.</summary>
+     public float EvaluateLocal(float px, float py, float pz)
+     {
+         float d = EvaluateShapeScalar(px, py, pz);
 
-        return d;
-    }
+         if (gridType != VolumeGridType.None)
+         {
+             float cutter = EvaluateGridCutterScalar(px, py, pz, d);
+             d = Mathf.Max(d, -cutter);
+         }
 
-    /// <summary>Samples the base primitive or custom SDF in local space.</summary>
-    private float EvaluateShape(Vector3 p)
-    {
-        switch (shapeType)
-        {
-            case VolumeShapeType.Box:
-                return Box(p, boxHalfExtents);
+         return d;
+     }
 
-            case VolumeShapeType.Torus:
-                {
-                    Vector2 q = new Vector2(
-                        new Vector2(p.x, p.z).magnitude - torusMajorRadius,
-                        p.y
-                    );
+     /// <summary>Samples the base primitive or custom SDF in local space.</summary>
+     private float EvaluateShape(Vector3 p) => EvaluateShapeScalar(p.x, p.y, p.z);
 
-                    return q.magnitude - torusMinorRadius;
-                }
+     private float EvaluateShapeScalar(float px, float py, float pz)
+     {
+         switch (shapeType)
+         {
+             case VolumeShapeType.Box:
+                 return BoxScalar(px, py, pz, boxHalfExtents.x, boxHalfExtents.y, boxHalfExtents.z);
 
-            case VolumeShapeType.Hyperboloid:
-                {
-                    float a = Mathf.Max(0.0001f, hyperboloidA);
-                    float b = Mathf.Max(0.0001f, hyperboloidB);
-                    float c = Mathf.Max(0.0001f, hyperboloidC);
+             case VolumeShapeType.Torus:
+             {
+                 float radial = Mathf.Sqrt(px * px + pz * pz) - torusMajorRadius;
+                 return Mathf.Sqrt(radial * radial + py * py) - torusMinorRadius;
+             }
 
-                    return
-                        (p.x * p.x) / (a * a) +
-                        (p.z * p.z) / (b * b) -
-                        (p.y * p.y) / (c * c) -
-                        1f;
-                }
+             case VolumeShapeType.Hyperboloid:
+             {
+                 float a = Mathf.Max(0.0001f, hyperboloidA);
+                 float b = Mathf.Max(0.0001f, hyperboloidB);
+                 float c = Mathf.Max(0.0001f, hyperboloidC);
+                 return (px * px) / (a * a) + (pz * pz) / (b * b) - (py * py) / (c * c) - 1f;
+             }
 
-            case VolumeShapeType.CustomAsset:
-                return customAsset != null ? customAsset.Evaluate(p) : 1f;
+             case VolumeShapeType.CustomAsset:
+                 return customAsset != null ? customAsset.Evaluate(new Vector3(px, py, pz)) : 1f;
 
-            case VolumeShapeType.Sphere:
-            default:
-                return p.magnitude - sphereRadius;
-        }
-    }
+             case VolumeShapeType.Sphere:
+             default:
+                 return Mathf.Sqrt(px * px + py * py + pz * pz) - sphereRadius;
+         }
+     }
 
-    /// <summary>Evaluates the active grid cutter inside the surface shell.</summary>
-    private float EvaluateGridCutter(Vector3 p, float baseDistance)
-    {
-        GetEffectiveGridMetrics(out float width, out float depth);
+     private static float BoxScalar(float x, float y, float z, float hx, float hy, float hz)
+     {
+         float dx = Mathf.Abs(x) - hx;
+         float dy = Mathf.Abs(y) - hy;
+         float dz = Mathf.Abs(z) - hz;
+         float ox = Mathf.Max(dx, 0f), oy = Mathf.Max(dy, 0f), oz = Mathf.Max(dz, 0f);
+         float outside = Mathf.Sqrt(ox * ox + oy * oy + oz * oz);
+         float inside = Mathf.Min(Mathf.Max(dx, Mathf.Max(dy, dz)), 0f);
+         return outside + inside;
+     }
 
-        float shell = Mathf.Max(baseDistance, -baseDistance - depth);
+     /// <summary>Evaluates the active grid cutter inside the surface shell.</summary>
+      private float EvaluateGridCutter(Vector3 p, float baseDistance) => EvaluateGridCutterScalar(p.x, p.y, p.z, baseDistance);
 
-        float gridD = gridType switch
-        {
-            VolumeGridType.Global => EvaluateGlobalGrid(p, width),
-            VolumeGridType.Sphere => EvaluateSphereGrid(p, width),
-            VolumeGridType.Torus => EvaluateTorusGrid(p, width),
-            VolumeGridType.Hyperboloid => EvaluateHyperboloidGrid(p, width),
-            _ => 1f
-        };
+      private float EvaluateGridCutterScalar(float px, float py, float pz, float baseDistance)
+      {
+          GetEffectiveGridMetrics(out float width, out float depth);
+          float shell = Mathf.Max(baseDistance, -baseDistance - depth);
 
-        return Mathf.Max(gridD, shell);
-    }
+          float gridD = gridType switch
+          {
+              VolumeGridType.Global => EvaluateGlobalGridScalar(px, py, pz, width),
+              VolumeGridType.Sphere => EvaluateSphereGridScalar(px, py, pz, width),
+              VolumeGridType.Torus => EvaluateTorusGridScalar(px, py, pz, width),
+              VolumeGridType.Hyperboloid => EvaluateHyperboloidGridScalar(px, py, pz, width),
+              _ => 1f
+          };
 
-    /// <summary>Evaluates axis-aligned global grid grooves.</summary>
-    private float EvaluateGlobalGrid(Vector3 p, float width)
-    {
-        Vector3 samplePoint = globalGridInWorldSpace
-            ? transform.TransformPoint(p)
-            : p;
+          return Mathf.Max(gridD, shell);
+      }
 
-        Vector3 q = samplePoint + gridOffset;
+      /// <summary>Evaluates axis-aligned global grid grooves (scalar).</summary>
+      private float EvaluateGlobalGridScalar(float px, float py, float pz, float width)
+      {
+          if (globalGridInWorldSpace)
+          {
+              // Transform point to world space using localToWorldMatrix columns
+              Matrix4x4 m = transform.localToWorldMatrix;
+              px = m.m00 * px + m.m01 * py + m.m02 * pz + m.m03;
+              py = m.m10 * px + m.m11 * py + m.m12 * pz + m.m13;
+              pz = m.m20 * px + m.m21 * py + m.m22 * pz + m.m23;
+          }
 
-        float d = float.PositiveInfinity;
+          float qx = px + gridOffset.x;
+          float qy = py + gridOffset.y;
+          float qz = pz + gridOffset.z;
 
-        if (useXLines)
-            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.x, gridSpacing.x)) - width);
+          float d = float.PositiveInfinity;
 
-        if (useYLines)
-            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.y, gridSpacing.y)) - width);
+          if (useXLines)
+              d = Mathf.Min(d, Mathf.Abs(RepeatCentered(qx, gridSpacing.x)) - width);
 
-        if (useZLines)
-            d = Mathf.Min(d, Mathf.Abs(RepeatCentered(q.z, gridSpacing.z)) - width);
+          if (useYLines)
+              d = Mathf.Min(d, Mathf.Abs(RepeatCentered(qy, gridSpacing.y)) - width);
 
-        return d;
-    }
+          if (useZLines)
+              d = Mathf.Min(d, Mathf.Abs(RepeatCentered(qz, gridSpacing.z)) - width);
+
+          return d;
+      }
+
+      /// <summary>Evaluates longitude and latitude grooves on a sphere (scalar).</summary>
+      private float EvaluateSphereGridScalar(float px, float py, float pz, float width)
+      {
+          float r = Mathf.Sqrt(px * px + py * py + pz * pz);
+
+          if (r < 1e-6f)
+              return 1f;
+
+          float nx = px / r;
+          float ny = py / r;
+          float nz = pz / r;
+
+          float theta = Mathf.Atan2(nz, nx) + gridOffset.x;
+          float phi = Mathf.Acos(Mathf.Clamp(ny, -1f, 1f)) + gridOffset.y;
+
+          int lon = Mathf.Max(1, longitudeCount);
+          int lat = Mathf.Max(1, latitudeCount);
+
+          float lonSpacing = Mathf.PI * 2f / lon;
+          float latSpacing = Mathf.PI / lat;
+
+          float lonDist = Mathf.Abs(RepeatCentered(theta, lonSpacing)) * r * Mathf.Sin(phi);
+          float latDist = Mathf.Abs(RepeatCentered(phi, latSpacing)) * r;
+
+          return Mathf.Min(lonDist, latDist) - width;
+      }
+
+      /// <summary>Evaluates major and minor grooves on a torus (scalar).</summary>
+      private float EvaluateTorusGridScalar(float px, float py, float pz, float width)
+      {
+          float theta = Mathf.Atan2(pz, px) + gridOffset.x;
+
+          float radial = Mathf.Sqrt(px * px + pz * pz);
+          float phi = Mathf.Atan2(py, radial - torusMajorRadius) + gridOffset.y;
+
+          int major = Mathf.Max(1, torusMajorSegments);
+          int minor = Mathf.Max(1, torusMinorSegments);
+
+          float majorSpacing = Mathf.PI * 2f / major;
+          float minorSpacing = Mathf.PI * 2f / minor;
+
+          float majorDist = Mathf.Abs(RepeatCentered(theta, majorSpacing)) * Mathf.Max(0.0001f, torusMajorRadius);
+          float minorDist = Mathf.Abs(RepeatCentered(phi, minorSpacing)) * Mathf.Max(0.0001f, torusMinorRadius);
+
+          return Mathf.Min(majorDist, minorDist) - width;
+      }
+
+      /// <summary>Evaluates radial and height grooves on a hyperboloid (scalar).</summary>
+      private float EvaluateHyperboloidGridScalar(float px, float py, float pz, float width)
+      {
+          float safeA = Mathf.Max(0.0001f, hyperboloidA);
+          float safeB = Mathf.Max(0.0001f, hyperboloidB);
+
+          float theta = Mathf.Atan2(pz / safeB, px / safeA) + gridOffset.x;
+
+          int radial = Mathf.Max(1, hyperboloidRadialSegments);
+          int height = Mathf.Max(1, hyperboloidHeightSegments);
+
+          float radialSpacing = Mathf.PI * 2f / radial;
+          float heightSpacing = Mathf.Max(
+              0.0001f,
+              (hyperboloidHeightMax - hyperboloidHeightMin) / height
+          );
+
+          float rx = px / safeA;
+          float rz = pz / safeB;
+          float localRadius = Mathf.Sqrt(rx * rx + rz * rz);
+
+          float angularScale = Mathf.Max(
+              0.0001f,
+              localRadius * Mathf.Min(safeA, safeB)
+          );
+
+          float radialDist = Mathf.Abs(RepeatCentered(theta, radialSpacing)) * angularScale;
+          float heightDist = Mathf.Abs(
+              RepeatCentered(py - hyperboloidHeightMin + gridOffset.y, heightSpacing)
+          );
+
+          return Mathf.Min(radialDist, heightDist) - width;
+      }
 
     private void GetEffectiveGridMetrics(out float width, out float depth)
     {
@@ -413,85 +509,6 @@ public class VolumeObject : MonoBehaviour
             default:
                 return 0f;
         }
-    }
-
-    /// <summary>Evaluates longitude and latitude grooves on a sphere.</summary>
-    private float EvaluateSphereGrid(Vector3 p, float width)
-    {
-        float r = p.magnitude;
-
-        if (r < 1e-6f)
-            return 1f;
-
-        Vector3 n = p / r;
-
-        float theta = Mathf.Atan2(n.z, n.x) + gridOffset.x;
-        float phi = Mathf.Acos(Mathf.Clamp(n.y, -1f, 1f)) + gridOffset.y;
-
-        int lon = Mathf.Max(1, longitudeCount);
-        int lat = Mathf.Max(1, latitudeCount);
-
-        float lonSpacing = Mathf.PI * 2f / lon;
-        float latSpacing = Mathf.PI / lat;
-
-        float lonDist = Mathf.Abs(RepeatCentered(theta, lonSpacing)) * r * Mathf.Sin(phi);
-        float latDist = Mathf.Abs(RepeatCentered(phi, latSpacing)) * r;
-
-        return Mathf.Min(lonDist, latDist) - width;
-    }
-
-    /// <summary>Evaluates major and minor grooves on a torus.</summary>
-    private float EvaluateTorusGrid(Vector3 p, float width)
-    {
-        float theta = Mathf.Atan2(p.z, p.x) + gridOffset.x;
-
-        float radial = new Vector2(p.x, p.z).magnitude;
-        float phi = Mathf.Atan2(p.y, radial - torusMajorRadius) + gridOffset.y;
-
-        int major = Mathf.Max(1, torusMajorSegments);
-        int minor = Mathf.Max(1, torusMinorSegments);
-
-        float majorSpacing = Mathf.PI * 2f / major;
-        float minorSpacing = Mathf.PI * 2f / minor;
-
-        float majorDist = Mathf.Abs(RepeatCentered(theta, majorSpacing)) * Mathf.Max(0.0001f, torusMajorRadius);
-        float minorDist = Mathf.Abs(RepeatCentered(phi, minorSpacing)) * Mathf.Max(0.0001f, torusMinorRadius);
-
-        return Mathf.Min(majorDist, minorDist) - width;
-    }
-
-    /// <summary>Evaluates radial and height grooves on a hyperboloid.</summary>
-    private float EvaluateHyperboloidGrid(Vector3 p, float width)
-    {
-        float safeA = Mathf.Max(0.0001f, hyperboloidA);
-        float safeB = Mathf.Max(0.0001f, hyperboloidB);
-
-        float theta = Mathf.Atan2(p.z / safeB, p.x / safeA) + gridOffset.x;
-
-        int radial = Mathf.Max(1, hyperboloidRadialSegments);
-        int height = Mathf.Max(1, hyperboloidHeightSegments);
-
-        float radialSpacing = Mathf.PI * 2f / radial;
-        float heightSpacing = Mathf.Max(
-            0.0001f,
-            (hyperboloidHeightMax - hyperboloidHeightMin) / height
-        );
-
-        float rx = p.x / safeA;
-        float rz = p.z / safeB;
-        float localRadius = Mathf.Sqrt(rx * rx + rz * rz);
-
-        float angularScale = Mathf.Max(
-            0.0001f,
-            localRadius * Mathf.Min(safeA, safeB)
-        );
-
-        float radialDist = Mathf.Abs(RepeatCentered(theta, radialSpacing)) * angularScale;
-        float heightDist = Mathf.Abs(
-            RepeatCentered(p.y - hyperboloidHeightMin + gridOffset.y, heightSpacing)
-        );
-
-        return Mathf.Min(radialDist, heightDist) - width;
     }
 
     /// <summary>Repeats a coordinate around zero with the given spacing.</summary>

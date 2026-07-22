@@ -46,8 +46,6 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 
         _composite = new SceneCompositeSDF(transform, objects);
         _snapshot = new SdfSceneSnapshot(transform, objects);
-
-        Debug.Log($"[Composer] Rebuilt: {objects.Count} objects");
     }
 
     private Transform ObjectsRoot
@@ -102,61 +100,56 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     }
 
     public void MarkDirtyAndRebuild(Bounds dirtyBounds)
-     {
-         VolumeModel model = GetComponent<VolumeModel>();
+    {
+        VolumeModel model = GetComponent<VolumeModel>();
 
-         RebuildComposition();
+        if (model != null)
+        {
+            // Dirty bounds from VolumeObject are in Objects-parent-local space.
+            // Transform to world-space so WorldBoundsToIntBounds targets correct cells.
+            Bounds world = TransformBoundsToWorld(dirtyBounds);
+            model.MarkDirtyBounds(world);
+            model.RebuildDirty(); // RebuildDirty() already calls RebuildComposition() internally
+        }
+    }
 
-         if (model != null)
-         {
-             // Dirty bounds from VolumeObject are in Objects-parent-local space.
-             // Transform to world-space so WorldBoundsToIntBounds targets correct cells.
-             Bounds world = TransformBoundsToWorld(dirtyBounds);
-             model.MarkDirtyBounds(world);
-             model.RebuildDirty();
-         }
-     }
+    public void MarkDirtyAndRebuild(Bounds dirtyBounds, IReadOnlyList<Bounds> dirtyBoundsParts)
+    {
+        VolumeModel model = GetComponent<VolumeModel>();
 
-     public void MarkDirtyAndRebuild(Bounds dirtyBounds, IReadOnlyList<Bounds> dirtyBoundsParts)
-     {
-         VolumeModel model = GetComponent<VolumeModel>();
+        if (model != null)
+        {
+            // Encapsulate all parts in world space for accurate dirty region.
+            Bounds union = TransformBoundsToWorld(dirtyBounds);
+            if (dirtyBoundsParts != null)
+            {
+                for (int i = 0; i < dirtyBoundsParts.Count; i++)
+                    union.Encapsulate(TransformBoundsToWorld(dirtyBoundsParts[i]));
+            }
+            model.MarkDirtyBounds(union);
+            model.RebuildDirty(); // RebuildDirty() already calls RebuildComposition() internally
+        }
+    }
 
-         RebuildComposition();
+    /// <summary>Transform a bounds from Objects-parent-local space to world space.</summary>
+    Bounds TransformBoundsToWorld(Bounds local)
+    {
+        // Objects root is a child of this composer, so parent-local == Objects-local.
+        // Use corner-based transform for accuracy with non-uniform scale / rotation.
+        Vector3[] corners = new Vector3[8];
+        Vector3 half = local.size * 0.5f;
+        corners[0] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z - half.z));
+        corners[1] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z - half.z));
+        corners[2] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z - half.z));
+        corners[3] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z - half.z));
+        corners[4] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z + half.z));
+        corners[5] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z + half.z));
+        corners[6] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z + half.z));
+        corners[7] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z + half.z));
 
-         if (model != null)
-         {
-             // Encapsulate all parts in world space for accurate dirty region.
-             Bounds union = TransformBoundsToWorld(dirtyBounds);
-             if (dirtyBoundsParts != null)
-             {
-                 for (int i = 0; i < dirtyBoundsParts.Count; i++)
-                     union.Encapsulate(TransformBoundsToWorld(dirtyBoundsParts[i]));
-             }
-             model.MarkDirtyBounds(union);
-             model.RebuildDirty();
-         }
-     }
-
-     /// <summary>Transform a bounds from Objects-parent-local space to world space.</summary>
-     Bounds TransformBoundsToWorld(Bounds local)
-     {
-         // Objects root is a child of this composer, so parent-local == Objects-local.
-         // Use corner-based transform for accuracy with non-uniform scale / rotation.
-         Vector3[] corners = new Vector3[8];
-         Vector3 half = local.size * 0.5f;
-         corners[0] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z - half.z));
-         corners[1] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z - half.z));
-         corners[2] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z - half.z));
-         corners[3] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z - half.z));
-         corners[4] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z + half.z));
-         corners[5] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z + half.z));
-         corners[6] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z + half.z));
-         corners[7] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z + half.z));
-
-         Bounds world = new Bounds(corners[0], Vector3.zero);
-         for (int i = 1; i < 8; i++)
-             world.Encapsulate(corners[i]);
-         return world;
-     }
-
+        Bounds world = new Bounds(corners[0], Vector3.zero);
+        for (int i = 1; i < 8; i++)
+            world.Encapsulate(corners[i]);
+        return world;
+    }
 }
