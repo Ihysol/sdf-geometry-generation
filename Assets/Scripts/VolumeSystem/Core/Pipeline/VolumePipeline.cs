@@ -123,12 +123,12 @@ public class VolumePipeline
                return;
            }
            // Expand to cover all cells in affected chunks + neighbors so BuildPartial resamples
-           // every cell that any remeshed chunk (including ExpandNeighbors) might read.
-           BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
-           _builder.BuildPartial(Source, Buffer, sampleRegion);
-           // Mark the FULL expanded region dirty — neighbor chunks also got fresh SDF data and need remeshing.
-           DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
-           Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
+             // every cell that any remeshed chunk might read. MarkDirty also expands neighbors,
+             // giving ±2 total coverage — needed for dual contouring context at volume borders.
+             BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+             _builder.BuildPartial(Source, Buffer, sampleRegion);
+             DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
+             Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();

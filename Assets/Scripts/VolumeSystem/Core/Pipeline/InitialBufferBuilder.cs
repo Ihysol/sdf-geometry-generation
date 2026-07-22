@@ -18,18 +18,31 @@ public class InitialBufferBuilder
         var material = buffer.MaterialCpu;
 
         double buildStart = Time.realtimeSinceStartup * 1000.0;
-        int totalCells = _layout.Resolution.x * _layout.Resolution.y * _layout.Resolution.z;
+        int rx = _layout.Resolution.x;
+        int ry = _layout.Resolution.y;
+        int rz = _layout.Resolution.z;
+        float cellSize = _layout.CellSize;
+        float ox = _layout.Origin.x;
+        float oy = _layout.Origin.y;
+        float oz = _layout.Origin.z;
 
-        for (int z = 0; z < _layout.Resolution.z; z++)
+        // Precompute strides to avoid multiplication in inner loop
+        int rowStride = rx;
+        int sliceStride = rx * ry;
+
+        for (int z = 0; z < rz; z++)
         {
-            for (int y = 0; y < _layout.Resolution.y; y++)
+            float wz = oz + z * cellSize;
+            int zOffset = z * sliceStride;
+            for (int y = 0; y < ry; y++)
             {
-                for (int x = 0; x < _layout.Resolution.x; x++)
+                float wy = oy + y * cellSize;
+                int yOffset = zOffset + y * rowStride;
+                for (int x = 0; x < rx; x++)
                 {
-                    Vector3Int index = new Vector3Int(x, y, z);
-                    Vector3 world = _layout.IndexToWorld(index);
-
-                    int offset = _layout.IndexToOffset(index);
+                    float wx = ox + x * cellSize;
+                    Vector3 world = new(wx, wy, wz);
+                    int offset = yOffset + x;
                     float val = source.Sample(world);
                     if (float.IsInfinity(val) || float.IsNaN(val))
                         val = 1f;
@@ -42,6 +55,7 @@ public class InitialBufferBuilder
         buffer.SyncState = BufferSyncState.CpuDirty;
 
         double elapsed = (Time.realtimeSinceStartup * 1000.0) - buildStart;
+        int totalCells = rx * ry * rz;
         Debug.Log($"[Buffer] Build complete: {totalCells} cells, {elapsed:F0}ms");
     }
 
@@ -53,20 +67,42 @@ public class InitialBufferBuilder
         var density = buffer.DensityCpu;
         var material = buffer.MaterialCpu;
 
-        for (int z = region.position.z; z < region.position.z + region.size.z; z++)
+        int rx = _layout.Resolution.x;
+        int ry = _layout.Resolution.y;
+        int rz = _layout.Resolution.z;
+        float cellSize = _layout.CellSize;
+        float ox = _layout.Origin.x;
+        float oy = _layout.Origin.y;
+        float oz = _layout.Origin.z;
+
+        int rowStride = rx;
+        int sliceStride = rx * ry;
+
+        // Clamp region bounds once upfront - eliminates per-cell checks
+        int pz = Mathf.Max(0, Mathf.Min(rz, region.position.z));
+        int sz = Mathf.Max(0, Mathf.Min(rz, region.position.z + region.size.z)) - pz;
+        int py = Mathf.Max(0, Mathf.Min(ry, region.position.y));
+        int sy = Mathf.Max(0, Mathf.Min(ry, region.position.y + region.size.y)) - py;
+        int px = Mathf.Max(0, Mathf.Min(rx, region.position.x));
+        int sx = Mathf.Max(0, Mathf.Min(rx, region.position.x + region.size.x)) - px;
+
+        for (int k = 0; k < sz; k++)
         {
-            if (z < 0 || z >= _layout.Resolution.z) continue;
-            for (int y = region.position.y; y < region.position.y + region.size.y; y++)
+            int z = pz + k;
+            float wz = oz + z * cellSize;
+            int zOffset = z * sliceStride;
+            for (int j = 0; j < sy; j++)
             {
-                if (y < 0 || y >= _layout.Resolution.y) continue;
-                for (int x = region.position.x; x < region.position.x + region.size.x; x++)
+                int y = py + j;
+                float wy = oy + y * cellSize;
+                int yOffset = zOffset + y * rowStride;
+                for (int i = 0; i < sx; i++)
                 {
-                    if (x < 0 || x >= _layout.Resolution.x) continue;
+                    int x = px + i;
+                    float wx = ox + x * cellSize;
+                    Vector3 world = new(wx, wy, wz);
 
-                    Vector3Int index = new Vector3Int(x, y, z);
-                    Vector3 world = _layout.IndexToWorld(index);
-
-                    int offset = _layout.IndexToOffset(index);
+                    int offset = yOffset + x;
                     float val = source.Sample(world);
                     if (float.IsInfinity(val) || float.IsNaN(val))
                         val = 1f;
