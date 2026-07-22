@@ -9,7 +9,6 @@ public class DirtyChunkSystem
     private int[] _versions;
     private int _gridX, _gridY, _gridZ;
 
-    private readonly HashSet<ChunkCoord> _affectedChunks = new();
     private List<RemeshEntry> _remeshQueue = new();
 
     public int QueueCount => _remeshQueue.Count;
@@ -47,35 +46,24 @@ public class DirtyChunkSystem
         int maxCy = Mathf.Min(_gridY - 1, (region.position.y + region.size.y - 1) / chunkSize);
         int maxCz = Mathf.Min(_gridZ - 1, (region.position.z + region.size.z - 1) / chunkSize);
 
-        // Collect affected chunks + neighbors in a single pass
-        _affectedChunks.Clear();
-        for (int cz = minCz; cz <= maxCz; cz++)
+        // Expand chunk range by 1 in each direction for neighbor coverage
+        int expMinCx = Mathf.Max(0, minCx - 1);
+        int expMinCy = Mathf.Max(0, minCy - 1);
+        int expMinCz = Mathf.Max(0, minCz - 1);
+        int expMaxCx = Mathf.Min(_gridX - 1, maxCx + 1);
+        int expMaxCy = Mathf.Min(_gridY - 1, maxCy + 1);
+        int expMaxCz = Mathf.Min(_gridZ - 1, maxCz + 1);
+
+        // Mark chunks dirty (expanded range covers affected + neighbors)
+        for (int cz = expMinCz; cz <= expMaxCz; cz++)
         {
-            for (int cy = minCy; cy <= maxCy; cy++)
+            for (int cy = expMinCy; cy <= expMaxCy; cy++)
             {
-                for (int cx = minCx; cx <= maxCx; cx++)
+                for (int cx = expMinCx; cx <= expMaxCx; cx++)
                 {
-                    _affectedChunks.Add(new ChunkCoord(cx, cy, cz));
+                    MarkChunk(cx, cy, cz, reason);
                 }
             }
-        }
-
-        // Expand neighbors inline - no allocation
-        foreach (ChunkCoord c in _affectedChunks)
-        {
-            int x = c.X, y = c.Y, z = c.Z;
-            if (x > 0) _affectedChunks.Add(new ChunkCoord(x - 1, y, z));
-            if (x < _gridX - 1) _affectedChunks.Add(new ChunkCoord(x + 1, y, z));
-            if (y > 0) _affectedChunks.Add(new ChunkCoord(x, y - 1, z));
-            if (y < _gridY - 1) _affectedChunks.Add(new ChunkCoord(x, y + 1, z));
-            if (z > 0) _affectedChunks.Add(new ChunkCoord(x, y, z - 1));
-            if (z < _gridZ - 1) _affectedChunks.Add(new ChunkCoord(x, y, z + 1));
-        }
-
-        // Mark chunks dirty
-        foreach (ChunkCoord c in _affectedChunks)
-        {
-            MarkChunk(c.X, c.Y, c.Z, reason);
         }
     }
 
