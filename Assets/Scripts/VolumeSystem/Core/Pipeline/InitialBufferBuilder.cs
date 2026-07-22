@@ -41,13 +41,12 @@ public class InitialBufferBuilder
                 for (int x = 0; x < rx; x++)
                 {
                     float wx = ox + x * cellSize;
-                    Vector3 world = new(wx, wy, wz);
                     int offset = yOffset + x;
-                    float val = source.Sample(world);
+                    float val = source.Sample(wx, wy, wz);
                     if (float.IsInfinity(val) || float.IsNaN(val))
                         val = 1f;
                     density[offset] = val;
-                    material[offset] = source.GetMaterial(world);
+                    material[offset] = source.GetMaterial(wx, wy, wz);
                 }
             }
         }
@@ -69,7 +68,6 @@ public class InitialBufferBuilder
 
         int rx = _layout.Resolution.x;
         int ry = _layout.Resolution.y;
-        int rz = _layout.Resolution.z;
         float cellSize = _layout.CellSize;
         float ox = _layout.Origin.x;
         float oy = _layout.Origin.y;
@@ -79,10 +77,10 @@ public class InitialBufferBuilder
         int sliceStride = rx * ry;
 
         // Clamp region bounds once upfront - eliminates per-cell checks
-        int pz = Mathf.Max(0, Mathf.Min(rz, region.position.z));
-        int sz = Mathf.Max(0, Mathf.Min(rz, region.position.z + region.size.z)) - pz;
-        int py = Mathf.Max(0, Mathf.Min(ry, region.position.y));
-        int sy = Mathf.Max(0, Mathf.Min(ry, region.position.y + region.size.y)) - py;
+        int pz = Mathf.Max(0, Mathf.Min(_layout.Resolution.z, region.position.z));
+        int sz = Mathf.Max(0, Mathf.Min(_layout.Resolution.z, region.position.z + region.size.z)) - pz;
+        int py = Mathf.Max(0, Mathf.Min(_layout.Resolution.y, region.position.y));
+        int sy = Mathf.Max(0, Mathf.Min(_layout.Resolution.y, region.position.y + region.size.y)) - py;
         int px = Mathf.Max(0, Mathf.Min(rx, region.position.x));
         int sx = Mathf.Max(0, Mathf.Min(rx, region.position.x + region.size.x)) - px;
 
@@ -100,14 +98,13 @@ public class InitialBufferBuilder
                 {
                     int x = px + i;
                     float wx = ox + x * cellSize;
-                    Vector3 world = new(wx, wy, wz);
 
                     int offset = yOffset + x;
-                    float val = source.Sample(world);
+                    float val = source.Sample(wx, wy, wz);
                     if (float.IsInfinity(val) || float.IsNaN(val))
                         val = 1f;
                     density[offset] = val;
-                    material[offset] = source.GetMaterial(world);
+                    material[offset] = source.GetMaterial(wx, wy, wz);
                 }
             }
         }
