@@ -716,21 +716,28 @@ public class VolumeObject : MonoBehaviour
 #endif
 
     private Bounds GetEstimatedLocalBoundsForTransform(Vector3 localPosition, Quaternion localRotation, Vector3 localScale)
-      {
-          Vector3 halfExtents = GetApproximateShapeHalfExtents();
+     {
+         Vector3 halfExtents = GetApproximateShapeHalfExtents();
 
-          // Return AABB in Objects-parent-local space (axis-aligned).
-          // Rotation is handled by TransformBoundsToWorld() in the composer.
-          // We only apply scale here — rotation would create a hybrid space that
-          // breaks when TransformBoundsToWorld() transforms it again.
-          Vector3 scaled = new Vector3(
-              Mathf.Abs(halfExtents.x * localScale.x),
-              Mathf.Abs(halfExtents.y * localScale.y),
-              Mathf.Abs(halfExtents.z * localScale.z)
-          );
+         // Apply scale then rotation to get AABB of the rotated shape.
+         // TransformBoundsToWorld() corner-transforms this to world space —
+         // with identity parent rotation (common case), this is exact.
+         // With non-identity parent rotation, it overestimates slightly (still safe).
+         Vector3 scaled = new Vector3(
+             Mathf.Abs(halfExtents.x * localScale.x),
+             Mathf.Abs(halfExtents.y * localScale.y),
+             Mathf.Abs(halfExtents.z * localScale.z)
+         );
 
-          return new Bounds(localPosition, scaled * 2f);
-      }
+         Matrix4x4 r = Matrix4x4.Rotate(localRotation);
+         Vector3 rotatedHalf = new Vector3(
+             Mathf.Abs(r.m00) * scaled.x + Mathf.Abs(r.m01) * scaled.y + Mathf.Abs(r.m02) * scaled.z,
+             Mathf.Abs(r.m10) * scaled.x + Mathf.Abs(r.m11) * scaled.y + Mathf.Abs(r.m12) * scaled.z,
+             Mathf.Abs(r.m20) * scaled.x + Mathf.Abs(r.m21) * scaled.y + Mathf.Abs(r.m22) * scaled.z
+         );
+
+         return new Bounds(localPosition, rotatedHalf * 2f);
+     }
 
     private Vector3 GetApproximateShapeHalfExtents()
     {
