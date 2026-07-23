@@ -148,6 +148,18 @@ public class VolumePipeline
 
         BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
 
+        // Expand sampling region by ±1 cell so dual contouring at the boundary
+        // reads fresh SDF values (not stale data from before this partial rebuild).
+        sampleRegion.position.x = Mathf.Max(0, sampleRegion.position.x - 1);
+        sampleRegion.position.y = Mathf.Max(0, sampleRegion.position.y - 1);
+        sampleRegion.position.z = Mathf.Max(0, sampleRegion.position.z - 1);
+        sampleRegion.size.x = Mathf.Min(_layout.Resolution.x - sampleRegion.position.x,
+            sampleRegion.size.x + 2);
+        sampleRegion.size.y = Mathf.Min(_layout.Resolution.y - sampleRegion.position.y,
+            sampleRegion.size.y + 2);
+        sampleRegion.size.z = Mathf.Min(_layout.Resolution.z - sampleRegion.position.z,
+            sampleRegion.size.z + 2);
+
         // Burst-compiled partial sampling
         if (TryGetSnapshot(sdfSource, out var burstSnapshot))
         {
@@ -158,7 +170,9 @@ public class VolumePipeline
             _builder.BuildPartial(Source, Buffer, sampleRegion);
         }
 
-        DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
+        // Mark original dirty region for meshing — MarkDirty() expands ±1 chunk internally.
+        // Do NOT pass sampleRegion here (already expanded) — would double-expand neighbor coverage.
+        DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
         Debug.Log($"[VolumePipeline] Partial: dirty={dirtyRegion}, sample={sampleRegion}, chunks={DirtyChunks.QueueCount}");
 
         if (ActiveBackend == ComputeBackend.GPU)
@@ -274,4 +288,3 @@ public class VolumePipeline
         }
     }
 }
-

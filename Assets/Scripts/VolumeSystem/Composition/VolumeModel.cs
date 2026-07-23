@@ -37,7 +37,7 @@ public class VolumeModel : MonoBehaviour
     private Transform _chunksParent;
     private bool _initialized;
     private int _buildVersion;
-    private BoundsInt _dirtyBounds = new BoundsInt(Vector3Int.zero, Vector3Int.one);
+    private Bounds _dirtyBoundsWorld;
     private bool _hasDirtyBounds;
 
 #if UNITY_EDITOR
@@ -144,7 +144,7 @@ public class VolumeModel : MonoBehaviour
         bool isPartial = _hasDirtyBounds;
 
         if (isPartial)
-            _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+            _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
         else
             _pipeline.Rebuild(composer, isoLevel);
 
@@ -266,17 +266,10 @@ public class VolumeModel : MonoBehaviour
         Debug.Log($"[VolumeModel] RebuildModel done: {elapsed:F0}ms");
     }
 
-    public void MarkDirtyBounds(Bounds bounds)
+    public void MarkDirtyBounds(Bounds worldBounds)
     {
         _hasDirtyBounds = true;
-        _dirtyBounds.position = new Vector3Int(
-            Mathf.FloorToInt(bounds.min.x),
-            Mathf.FloorToInt(bounds.min.y),
-            Mathf.FloorToInt(bounds.min.z));
-        _dirtyBounds.size = new Vector3Int(
-            Mathf.CeilToInt(bounds.size.x),
-            Mathf.CeilToInt(bounds.size.y),
-            Mathf.CeilToInt(bounds.size.z));
+        _dirtyBoundsWorld = worldBounds;
 
         if (enablePipeline && _pipeline != null)
             _pipeline.MarkDirty();
@@ -300,7 +293,7 @@ public class VolumeModel : MonoBehaviour
         }
 
         if (_hasDirtyBounds)
-            _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+            _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
         else
             _pipeline.Rebuild(composer, isoLevel);
 
@@ -412,4 +405,3 @@ public class VolumeModel : MonoBehaviour
 
     private void OnDestroy() => Dispose();
 }
-
