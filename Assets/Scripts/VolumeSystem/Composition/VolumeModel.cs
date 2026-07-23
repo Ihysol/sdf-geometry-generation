@@ -39,6 +39,7 @@ public class VolumeModel : MonoBehaviour
     private int _buildVersion;
     private Bounds _dirtyBoundsWorld;
     private bool _hasDirtyBounds;
+    private Vector3 _lastPosition;
 
 #if UNITY_EDITOR
     private bool _editorUpdateRegistered;
@@ -60,6 +61,7 @@ public class VolumeModel : MonoBehaviour
     {
         if (_initialized) return;
         _initialized = true;
+        _lastPosition = transform.position;
         if (enablePipeline) InitializePipeline();
     }
 
@@ -111,6 +113,8 @@ public class VolumeModel : MonoBehaviour
 
     private void Update()
     {
+        CheckModelTransformChanged();
+
         if (_pipeline != null && enablePipeline)
         {
             // Budgeted scheduler tick in play mode — 8 chunks or 5ms budget
@@ -126,6 +130,25 @@ public class VolumeModel : MonoBehaviour
 
         if (_chunkRenderers != null && surfaceMaterial != null)
             _chunkRenderers.SetMaterial(surfaceMaterial);
+    }
+
+    /// <summary>Model origin moved → shift grid + full rebuild.</summary>
+    private void CheckModelTransformChanged()
+    {
+        if (!_initialized || _pipeline == null) return;
+
+        if (transform.position != _lastPosition)
+        {
+            Vector3 delta = transform.position - _lastPosition;
+            _lastPosition = transform.position;
+
+            // Grid must follow the model — shift origin by same delta.
+            _pipeline.Buffer.UpdateOrigin(_pipeline.Buffer.Layout.Origin + delta);
+
+            // Every cell is now at a different world coordinate → full rebuild.
+            _hasDirtyBounds = false;
+            _pipeline.MarkDirty();
+        }
     }
 
     private void RebuildPipeline()
@@ -388,6 +411,9 @@ public class VolumeModel : MonoBehaviour
     private void EditorTickScheduler()
     {
         if (_pipeline == null || !enablePipeline) return;
+
+        // Model origin change in editor — same as Update() path.
+        CheckModelTransformChanged();
 
         // Budgeted ticks in editor — 8 chunks or 5ms per editor update frame
         _pipeline.Scheduler.MaxChunksPerFrame = 8;

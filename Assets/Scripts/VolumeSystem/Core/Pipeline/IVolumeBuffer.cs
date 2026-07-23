@@ -4,6 +4,7 @@ using UnityEngine;
 public interface IVolumeBuffer
 {
     VolumeLayout Layout { get; }
+    void UpdateOrigin(Vector3 newOrigin);
     BufferSyncState SyncState { get; set; }
 
     void EnableComputeBuffers();
