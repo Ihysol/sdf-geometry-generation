@@ -57,88 +57,113 @@ public class VolumePipeline
         Scheduler?.SetChunkRenderers(renderers);
     }
 
+    /// <summary>Extract SdfSceneSnapshot from source if available (Burst path), otherwise wrap as adapter.</summary>
+    private bool TryGetSnapshot(IScalarFieldSource sdfSource, out SdfSceneSnapshot snapshot)
+    {
+        // Direct snapshot
+        if (sdfSource is SdfSceneSnapshot direct)
+        {
+            snapshot = direct;
+            return !snapshot.HasUnsupportedShapes;
+        }
+
+        // VolumeSceneComposer exposes TryGetBuiltInSnapshot
+        if (sdfSource is VolumeSceneComposer composer && composer.TryGetBuiltInSnapshot(out var cs))
+        {
+            snapshot = cs;
+            return true;
+        }
+
+        snapshot = null;
+        return false;
+    }
+
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
-     {
-         if (sdfSource != null)
-             Source = new SdfSourceAdapter(sdfSource);
+    {
+        if (sdfSource != null)
+            Source = new SdfSourceAdapter(sdfSource);
 
-         if (Source == null || Buffer == null || Mesher == null)
-         {
-             Debug.LogError("[VolumePipeline] Rebuild failed: missing Source/Buffer/Mesher");
-             return;
-         }
+        if (Source == null || Buffer == null || Mesher == null)
+        {
+            Debug.LogError("[VolumePipeline] Rebuild failed: missing Source/Buffer/Mesher");
+            return;
+        }
 
-         _layout.IsoLevel = isoLevel;
-         _dirty = false;
+        _layout.IsoLevel = isoLevel;
+        _dirty = false;
 
-         // Try Burst-compiled sampling when snapshot has only supported shapes
-         if (sdfSource is SdfSceneSnapshot snapshot && !snapshot.HasUnsupportedShapes)
-         {
-             _builder.BuildBurst(snapshot, Buffer);
-         }
-         else
-         {
-             _builder.Build(Source, Buffer);
-         }
+        // Burst-compiled sampling when snapshot has only supported shapes
+        if (TryGetSnapshot(sdfSource, out var snapshot))
+        {
+            _builder.BuildBurst(snapshot, Buffer);
+        }
+        else
+        {
+            _builder.Build(Source, Buffer);
+        }
 
-         // Diagnostic: sample center cell to verify SDF values
-         int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
-         float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
-         Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center density={centerVal:F3}, isoLevel={isoLevel}");
+        int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
+        float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
+        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center={centerVal:F3}, iso={isoLevel}");
 
-         // Clear scheduler pending list before marking dirty — prevents stale version mismatch
-         Scheduler.ClearPending();
-         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+        Scheduler.ClearPending();
+        DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
-         if (ActiveBackend == ComputeBackend.GPU)
-             Buffer.SyncCpuToGpu();
-     }
+        if (ActiveBackend == ComputeBackend.GPU)
+            Buffer.SyncCpuToGpu();
+    }
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds)
-     {
-         if (sdfSource != null)
-             Source = new SdfSourceAdapter(sdfSource);
+    {
+        if (sdfSource != null)
+            Source = new SdfSourceAdapter(sdfSource);
 
-         if (Source == null || Buffer == null || Mesher == null)
-         {
-             Debug.LogError("[VolumePipeline] Rebuild partial failed: missing Source/Buffer/Mesher");
-             return;
-         }
+        if (Source == null || Buffer == null || Mesher == null)
+        {
+            Debug.LogError("[VolumePipeline] Rebuild partial failed: missing Source/Buffer/Mesher");
+            return;
+        }
 
-         _layout.IsoLevel = isoLevel;
-         _dirty = false;
+        _layout.IsoLevel = isoLevel;
+        _dirty = false;
 
-         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
-         // If dirty region is empty (object outside volume), fall back to full rebuild.
-         if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
-         {
-             Debug.Log("[VolumePipeline] Partial rebuild: no overlap — falling back to full rebuild");
-             _builder.Build(Source, Buffer);
-             Scheduler.ClearPending();
-             DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
-             if (ActiveBackend == ComputeBackend.GPU)
-                 Buffer.SyncCpuToGpu();
-             return;
-         }
+        BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
 
-         BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+        // Empty region — fallback to full rebuild
+        if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
+        {
+            Debug.Log("[VolumePipeline] Partial: no overlap — fallback to full rebuild");
 
-         // Try Burst-compiled sampling when snapshot has only supported shapes
-         if (sdfSource is SdfSceneSnapshot burstSnapshot && !burstSnapshot.HasUnsupportedShapes)
-         {
-             _builder.BuildPartialBurst(burstSnapshot, Buffer, sampleRegion);
-         }
-         else
-         {
-             _builder.BuildPartial(Source, Buffer, sampleRegion);
-         }
+            if (TryGetSnapshot(sdfSource, out var snapshot))
+                _builder.BuildBurst(snapshot, Buffer);
+            else
+                _builder.Build(Source, Buffer);
 
-         DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
-         Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
+            Scheduler.ClearPending();
+            DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+            if (ActiveBackend == ComputeBackend.GPU)
+                Buffer.SyncCpuToGpu();
+            return;
+        }
 
-         if (ActiveBackend == ComputeBackend.GPU)
-             Buffer.SyncCpuToGpu();
-     }
+        BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+
+        // Burst-compiled partial sampling
+        if (TryGetSnapshot(sdfSource, out var burstSnapshot))
+        {
+            _builder.BuildPartialBurst(burstSnapshot, Buffer, sampleRegion);
+        }
+        else
+        {
+            _builder.BuildPartial(Source, Buffer, sampleRegion);
+        }
+
+        DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
+        Debug.Log($"[VolumePipeline] Partial: dirty={dirtyRegion}, sample={sampleRegion}, chunks={DirtyChunks.QueueCount}");
+
+        if (ActiveBackend == ComputeBackend.GPU)
+            Buffer.SyncCpuToGpu();
+    }
 
     public void RebuildGpu()
     {
@@ -156,13 +181,9 @@ public class VolumePipeline
         GpuMeshData meshData = Mesher.BuildGpu(Buffer, context);
 
         if (meshData.VertexCount > 0 && meshData.IndexCount > 0)
-        {
             Output.ApplyGpuMesh(meshData);
-        }
         else
-        {
             meshData.Dispose();
-        }
     }
 
     public int TickScheduler()
@@ -175,56 +196,56 @@ public class VolumePipeline
     }
 
     private static BoundsInt WorldBoundsToIntBounds(Bounds worldBounds, VolumeLayout layout)
-       {
-           Vector3Int minIndex = layout.WorldToIndex(worldBounds.min);
-           Vector3Int maxIndex = layout.WorldToIndex(worldBounds.max);
+    {
+        Vector3Int minIndex = layout.WorldToIndex(worldBounds.min);
+        Vector3Int maxIndex = layout.WorldToIndex(worldBounds.max);
 
-           int px = Mathf.Max(0, minIndex.x);
-           int py = Mathf.Max(0, minIndex.y);
-           int pz = Mathf.Max(0, minIndex.z);
-           int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
-           int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
-           int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
+        int px = Mathf.Max(0, minIndex.x);
+        int py = Mathf.Max(0, minIndex.y);
+        int pz = Mathf.Max(0, minIndex.z);
+        int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
+        int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
+        int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
 
-           return new BoundsInt(px, py, pz, sx, sy, sz);
-       }
+        return new BoundsInt(px, py, pz, sx, sy, sz);
+    }
 
-       /// <summary>Expand a region to cover all cells in affected chunks plus their 6-face neighbors.</summary>
-       private static BoundsInt ExpandToChunkRegions(BoundsInt region, VolumeLayout layout)
-       {
-           int cs = layout.ChunkSize;
-           if (cs <= 0) return region;
+    /// <summary>Expand a region to cover all cells in affected chunks plus their 6-face neighbors.</summary>
+    private static BoundsInt ExpandToChunkRegions(BoundsInt region, VolumeLayout layout)
+    {
+        int cs = layout.ChunkSize;
+        if (cs <= 0) return region;
 
-           // Find chunk range
-           int minCx = Mathf.FloorToInt(region.position.x / cs);
-           int minCy = Mathf.FloorToInt(region.position.y / cs);
-           int minCz = Mathf.FloorToInt(region.position.z / cs);
-           int maxCx = Mathf.FloorToInt((region.position.x + region.size.x - 1) / cs);
-           int maxCy = Mathf.FloorToInt((region.position.y + region.size.y - 1) / cs);
-           int maxCz = Mathf.FloorToInt((region.position.z + region.size.z - 1) / cs);
+        // Find chunk range
+        int minCx = Mathf.FloorToInt(region.position.x / cs);
+        int minCy = Mathf.FloorToInt(region.position.y / cs);
+        int minCz = Mathf.FloorToInt(region.position.z / cs);
+        int maxCx = Mathf.FloorToInt((region.position.x + region.size.x - 1) / cs);
+        int maxCy = Mathf.FloorToInt((region.position.y + region.size.y - 1) / cs);
+        int maxCz = Mathf.FloorToInt((region.position.z + region.size.z - 1) / cs);
 
-           // Add neighbor chunks (ExpandNeighbors in DirtyChunkSystem adds 6-face neighbors)
-           minCx--; minCy--; minCz--;
-           maxCx++; maxCy++; maxCz++;
+        // Add neighbor chunks for dual contouring context
+        minCx--; minCy--; minCz--;
+        maxCx++; maxCy++; maxCz++;
 
-           // Clamp to grid
-           Vector3Int res = layout.Resolution;
-           minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
-           int chunkGridMax = cs * Mathf.CeilToInt((float)res.x / cs) - 1;
-           maxCx = Mathf.Min(chunkGridMax, maxCx);
-           maxCy = Mathf.Min(cs * Mathf.CeilToInt((float)res.y / cs) - 1, maxCy);
-           maxCz = Mathf.Min(cs * Mathf.CeilToInt((float)res.z / cs) - 1, maxCz);
+        // Clamp to grid
+        Vector3Int res = layout.Resolution;
+        minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
+        int chunkGridMax = cs * Mathf.CeilToInt((float)res.x / cs) - 1;
+        maxCx = Mathf.Min(chunkGridMax, maxCx);
+        maxCy = Mathf.Min(cs * Mathf.CeilToInt((float)res.y / cs) - 1, maxCy);
+        maxCz = Mathf.Min(cs * Mathf.CeilToInt((float)res.z / cs) - 1, maxCz);
 
-           // Convert back to cell indices
-           int px = minCx * cs;
-           int py = minCy * cs;
-           int pz = minCz * cs;
-           int sx = Mathf.Min(res.x, (maxCx + 1) * cs) - px;
-           int sy = Mathf.Min(res.y, (maxCy + 1) * cs) - py;
-           int sz = Mathf.Min(res.z, (maxCz + 1) * cs) - pz;
+        // Convert back to cell indices
+        int px = minCx * cs;
+        int py = minCy * cs;
+        int pz = minCz * cs;
+        int sx = Mathf.Min(res.x, (maxCx + 1) * cs) - px;
+        int sy = Mathf.Min(res.y, (maxCy + 1) * cs) - py;
+        int sz = Mathf.Min(res.z, (maxCz + 1) * cs) - pz;
 
-           return new BoundsInt(px, py, pz, sx, sy, sz);
-       }
+        return new BoundsInt(px, py, pz, sx, sy, sz);
+    }
 
     public void ApplyOperation(IVolumeOperation operation)
     {
@@ -234,17 +255,12 @@ public class VolumePipeline
         Executor.Execute(operation, Buffer, ctx);
     }
 
-    public void MarkDirty()
-    {
-        _dirty = true;
-    }
-
+    public void MarkDirty() => _dirty = true;
     public bool IsDirty => _dirty;
 
     public void Clear()
     {
-        if (Output != null)
-            Output.Clear();
+        Output?.Clear();
         _dirty = false;
     }
 
@@ -258,3 +274,4 @@ public class VolumePipeline
         }
     }
 }
+

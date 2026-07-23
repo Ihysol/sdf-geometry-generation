@@ -238,7 +238,7 @@ public struct BurstSdfSamplingJob : IJobParallelFor
 
         for (int s = 0; s < ShapeCount; s++)
         {
-            ref readonly BurstShapeData shape = ref Shapes[s];
+            BurstShapeData shape = Shapes[s];
             float d = shape.Evaluate(wx, wy, wz);
 
             switch (shape.Role)
@@ -259,7 +259,7 @@ public struct BurstSdfSamplingJob : IJobParallelFor
         if (float.IsInfinity(result) || float.IsNaN(result))
             result = 1f;
 
-        int idx = dz * OutSliceStride + dy * OutRowStride + dx;
+        int idx = z * OutSliceStride + y * OutRowStride + x;
         Density[idx] = result;
         Material[idx] = (result <= 0f) ? 1 : 0;
     }

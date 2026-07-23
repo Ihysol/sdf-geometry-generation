@@ -106,16 +106,19 @@ public class VolumeModel : MonoBehaviour
         GameObject.DestroyImmediate(meshObj);
         _meshOutput = null;
 
-        Debug.Log($"[VolumeModel] Pipeline initialized: grid at {bounds.min:F1} to {bounds.max:F1}, center={transform.position:F1}");
+        Debug.Log($"[VolumeModel] Pipeline init: grid {bounds.min:F1}..{bounds.max:F1}, center={transform.position:F1}");
     }
 
     private void Update()
     {
         if (_pipeline != null && enablePipeline)
         {
+            // Budgeted scheduler tick in play mode — 8 chunks or 5ms budget
             _pipeline.Scheduler.MaxChunksPerFrame = 8;
+            _pipeline.Scheduler.UseTimeBudget = true;
 
-            if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
+            if (_pipeline.Scheduler.HasPendingWork)
+                _pipeline.TickScheduler();
 
             if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
                 RebuildPipeline();
@@ -134,26 +137,29 @@ public class VolumeModel : MonoBehaviour
 
         if (composer.objects.Count == 0)
         {
-            Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects in scene — nothing to mesh. Add a shape first.");
+            Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects — add a shape first.");
             return;
         }
 
-        if (_hasDirtyBounds)
-        {
+        bool isPartial = _hasDirtyBounds;
+
+        if (isPartial)
             _pipeline.Rebuild(composer, isoLevel, new Bounds((Vector3)_dirtyBounds.center, _dirtyBounds.size));
+        else
+            _pipeline.Rebuild(composer, isoLevel);
+
+        _hasDirtyBounds = false;
+
+        // Partial: drain sync for instant feedback. Full: async via scheduler budgeting.
+        if (isPartial)
+        {
+            DrainSync();
+            Debug.Log($"[VolumeModel] RebuildPipeline (partial) done");
         }
         else
         {
-            _pipeline.Rebuild(composer, isoLevel);
+            Debug.Log($"[VolumeModel] RebuildPipeline (full) queued, pending={_pipeline.Scheduler.PendingCount}");
         }
-        _hasDirtyBounds = false;
-
-        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-        _pipeline.Scheduler.UseTimeBudget = false;
-        int drained = _pipeline.TickScheduler();
-        _pipeline.Scheduler.UseTimeBudget = true;
-
-        Debug.Log($"[VolumeModel] RebuildPipeline done: drained {drained} chunks, IsDirty={_pipeline.IsDirty}, Scheduler pending={_pipeline.Scheduler.PendingCount}");
     }
 
     public void Rebuild()
@@ -165,32 +171,20 @@ public class VolumeModel : MonoBehaviour
 
     public void Dispose()
     {
-        if (_chunkRenderers != null)
-        {
-            _chunkRenderers.Dispose();
-            _chunkRenderers = null;
-        }
-        if (_pipeline != null)
-        {
-            _pipeline.Dispose();
-            _pipeline = null;
-        }
-        if (_meshOutput != null)
-            _meshOutput.Clear();
+        _chunkRenderers?.Dispose();
+        _chunkRenderers = null;
+        _pipeline?.Dispose();
+        _pipeline = null;
+        _meshOutput?.Clear();
         _initialized = false;
     }
 
-    public void TickScheduler()
-    {
-        if (_pipeline != null)
-            _pipeline.TickScheduler();
-    }
+    public void TickScheduler() => _pipeline?.TickScheduler();
 
     public void ExecuteOperation(IVolumeOperation operation)
     {
         if (!_initialized) Initialize();
-        if (_pipeline != null)
-            _pipeline.ApplyOperation(operation);
+        _pipeline?.ApplyOperation(operation);
     }
 
     public void AddSelectedObject() => AddObject(shapeToAdd, roleToAdd);
@@ -201,16 +195,15 @@ public class VolumeModel : MonoBehaviour
         child.transform.SetParent(ObjectsRoot, false);
         child.transform.localPosition = Vector3.zero;
 
-        VolumeObject volumeObject = child.AddComponent<VolumeObject>();
-        volumeObject.shapeType = shape;
-        volumeObject.role = role;
+        VolumeObject vo = child.AddComponent<VolumeObject>();
+        vo.shapeType = shape;
+        vo.role = role;
 
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-        if (composer != null && !composer.objects.Contains(volumeObject))
-            composer.objects.Add(volumeObject);
+        if (composer != null && !composer.objects.Contains(vo))
+            composer.objects.Add(vo);
 
-        Debug.Log($"[VolumeModel] Added {shape} ({role}) at center, total objects={composer.objects.Count}");
-
+        Debug.Log($"[VolumeModel] Added {shape} ({role}), total={composer.objects.Count}");
         RebuildModel();
     }
 
@@ -219,9 +212,7 @@ public class VolumeModel : MonoBehaviour
         Transform root = ObjectsRoot;
         if (root == null || root.childCount == 0) return;
 
-        int last = root.childCount - 1;
-        GameObject lastChild = root.GetChild(last).gameObject;
-
+        GameObject lastChild = root.GetChild(root.childCount - 1).gameObject;
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
         if (composer != null)
         {
@@ -237,10 +228,8 @@ public class VolumeModel : MonoBehaviour
     {
         Transform root = transform.Find("Objects");
         if (root != null)
-        {
             for (int i = root.childCount - 1; i >= 0; i--)
                 Object.DestroyImmediate(root.GetChild(i).gameObject);
-        }
 
         VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
         if (composer != null) composer.objects.Clear();
@@ -250,40 +239,31 @@ public class VolumeModel : MonoBehaviour
 
     public void RebuildModel()
     {
-        double rebuildStart = Time.realtimeSinceStartup * 1000.0;
+        double start = Time.realtimeSinceStartup * 1000.0;
 
         if (!_initialized) Initialize();
         _buildVersion++;
         _hasDirtyBounds = false;
 
-        Debug.Log($"[VolumeModel] RebuildModel called, initialized={_initialized}, enablePipeline={enablePipeline}, pipeline={(_pipeline != null)}");
+        Debug.Log($"[VolumeModel] RebuildModel called");
 
-        if (enablePipeline && _pipeline != null)
+        if (!enablePipeline || _pipeline == null) return;
+
+        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        if (composer == null) return;
+
+        composer.RebuildComposition();
+        if (composer.objects.Count == 0)
         {
-            VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
-            if (composer != null)
-            {
-                composer.RebuildComposition();
-                if (composer.objects.Count == 0)
-                {
-                    Debug.LogWarning("[VolumeModel] RebuildModel: no objects in scene — nothing to mesh. Add a shape first.");
-                    return;
-                }
-                _pipeline.Rebuild(composer, isoLevel);
-
-                _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-                _pipeline.Scheduler.UseTimeBudget = false;
-                int drained = _pipeline.TickScheduler();
-                _pipeline.Scheduler.UseTimeBudget = true;
-
-                double elapsed = (Time.realtimeSinceStartup * 1000.0) - rebuildStart;
-                Debug.Log($"[VolumeModel] RebuildModel done: drained {drained} chunks in {elapsed:F0}ms");
-            }
-            else
-            {
-                Debug.LogError("[VolumeModel] RebuildModel: VolumeSceneComposer is null!");
-            }
+            Debug.LogWarning("[VolumeModel] RebuildModel: no objects");
+            return;
         }
+
+        _pipeline.Rebuild(composer, isoLevel);
+        DrainSync();
+
+        double elapsed = (Time.realtimeSinceStartup * 1000.0) - start;
+        Debug.Log($"[VolumeModel] RebuildModel done: {elapsed:F0}ms");
     }
 
     public void MarkDirtyBounds(Bounds bounds)
@@ -302,7 +282,7 @@ public class VolumeModel : MonoBehaviour
             _pipeline.MarkDirty();
     }
 
-    /// <summary>Synchronous partial rebuild using the current dirty bounds. Call immediately after MarkDirtyBounds.</summary>
+    /// <summary>Synchronous partial rebuild using current dirty bounds.</summary>
     public void RebuildDirty()
     {
         if (!_initialized) Initialize();
@@ -325,13 +305,18 @@ public class VolumeModel : MonoBehaviour
             _pipeline.Rebuild(composer, isoLevel);
 
         _hasDirtyBounds = false;
+        DrainSync();
 
+        Debug.Log($"[VolumeModel] RebuildDirty done");
+    }
+
+    /// <summary>Drain all pending meshing synchronously (bypasses frame budget).</summary>
+    private void DrainSync()
+    {
         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
         _pipeline.Scheduler.UseTimeBudget = false;
-        int drained = _pipeline.TickScheduler();
+        _pipeline.TickScheduler();
         _pipeline.Scheduler.UseTimeBudget = true;
-
-        Debug.Log($"[VolumeModel] RebuildDirty done: drained {drained} chunks");
     }
 
     public VolumePipeline Pipeline => _pipeline;
@@ -375,7 +360,6 @@ public class VolumeModel : MonoBehaviour
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.6f);
         Gizmos.DrawWireCube(volBounds.center, volBounds.size);
 
-        // Grid origin marker (where the SDF grid starts)
         Vector3 origin = volBounds.min;
         Gizmos.color = new Color(1f, 0.85f, 0f, 0.9f);
         Gizmos.DrawWireSphere(origin, boundsExtent * 0.04f);
@@ -412,10 +396,13 @@ public class VolumeModel : MonoBehaviour
     {
         if (_pipeline == null || !enablePipeline) return;
 
-        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
-        _pipeline.Scheduler.UseTimeBudget = false;
+        // Budgeted ticks in editor — 8 chunks or 5ms per editor update frame
+        _pipeline.Scheduler.MaxChunksPerFrame = 8;
+        _pipeline.Scheduler.UseTimeBudget = true;
 
-        if (_pipeline.Scheduler.HasPendingWork) _pipeline.TickScheduler();
+        if (_pipeline.Scheduler.HasPendingWork)
+            _pipeline.TickScheduler();
+
         if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
             RebuildPipeline();
 
@@ -425,3 +412,4 @@ public class VolumeModel : MonoBehaviour
 
     private void OnDestroy() => Dispose();
 }
+
