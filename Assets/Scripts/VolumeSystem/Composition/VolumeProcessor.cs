@@ -17,6 +17,12 @@ public class VolumeProcessor : MonoBehaviour
     [SerializeField] public int chunkSize = 16;
     [SerializeField] public float boundsExtent = 4f;
 
+   [Header("Auto Expand")]
+    [Tooltip("Automatically resize grid when objects fall outside current bounds")]
+    [SerializeField] public bool autoExpand = false;
+    [Tooltip("Padding factor around object bounds (1.0 = tight, 1.25 = 25% margin)")]
+    [SerializeField] public float expandPaddingFactor = 1.25f;
+
     [Header("Core")]
     [SerializeField] public float isoLevel = 0f;
     [SerializeField] public Material surfaceMaterial;
@@ -174,6 +180,9 @@ public class VolumeProcessor : MonoBehaviour
             return;
         }
 
+        // ADR-002: Check if all objects fit within the current grid.
+        CheckBoundsFit(composer);
+
         bool isPartial = _hasDirtyBounds;
 
         if (isPartial)
@@ -193,6 +202,95 @@ public class VolumeProcessor : MonoBehaviour
         {
             Debug.Log($"[VolumeProcessor] RebuildPipeline (full) queued, pending={_pipeline.Scheduler.PendingCount}");
         }
+    }
+
+    /// <summary>ADR-002: Check whether all objects fit in the current grid; resize if needed. Returns false if resized.</summary>
+    private bool CheckBoundsFit(VolumeObjectRegistry composer)
+    {
+        Bounds total = composer.GetTotalBounds();
+        if (total.extents == Vector3.zero)
+            return true; // No objects to check
+
+        // Expand bounds by padding factor
+        total.Expand(total.size.x * (expandPaddingFactor - 1f));
+
+        // Current grid bounds in world space
+        VolumeLayout layout = _pipeline.Buffer.Layout;
+        Vector3 gridMin = layout.Origin;
+        Vector3 gridMax = layout.Origin + new Vector3(
+            layout.Resolution.x, layout.Resolution.y, layout.Resolution.z
+        ) * layout.CellSize;
+
+        // Check if total bounds fit inside grid
+        bool fits = gridMin.x <= total.min.x && gridMin.y <= total.min.y && gridMin.z <= total.min.z &&
+                     gridMax.x >= total.max.x && gridMax.y >= total.max.y && gridMax.z >= total.max.z;
+
+        if (fits)
+            return true;
+
+        if (!autoExpand)
+        {
+            Debug.LogWarning($"[VolumeProcessor] Objects exceed grid bounds! " +
+                $"Grid: {gridMin:F1}..{gridMax:F1}, Objects: {total.min:F1}..{total.max:F1}. " +
+                $"Enable autoExpand or manually increase boundsExtent.");
+            return true; // Don't block rebuild — user gets warning but pipeline continues
+        }
+
+        ResizeGrid(total);
+        return false; // Pipeline was recreated — caller should defer rebuild to next tick
+    }
+
+    /// <summary>ADR-002: Allocate a new grid large enough to contain the given bounds.</summary>
+    private void ResizeGrid(Bounds requiredBounds)
+    {
+        VolumeLayout oldLayout = _pipeline.Buffer.Layout;
+
+        // Compute new layout that fits the required bounds
+        float extent = Mathf.Max(requiredBounds.size.x, Mathf.Max(requiredBounds.size.y, requiredBounds.size.z));
+        Vector3 center = requiredBounds.center;
+
+        Bounds newBounds = new Bounds(center, new Vector3(extent, extent, extent));
+        VolumeLayout newLayout = new VolumeLayout
+        {
+            Resolution = resolution,
+            CellSize = newBounds.size.x / Mathf.Max(1, resolution.x),
+            Origin = newBounds.min,
+            ChunkSize = chunkSize,
+            IsoLevel = isoLevel
+        };
+
+        Debug.Log($"[VolumeProcessor] Resizing grid: {oldLayout.Resolution} @ {oldLayout.CellSize:F4} → " +
+            $"{newLayout.Resolution} @ {newLayout.CellSize:F4}, center={center:F1}");
+
+        // Dispose old pipeline state
+        _chunkRenderers?.Dispose();
+        _pipeline?.Dispose();
+
+        // Rebuild pipeline with new layout
+        IVolumeMesher mesher = MesherFactory.Create(pipelineMesherType);
+        _pipeline = new VolumePipeline(newLayout, mesher);
+
+        GameObject meshObj = new GameObject("PipelineMeshOutput");
+        meshObj.transform.SetParent(transform, false);
+        var mf = meshObj.AddComponent<MeshFilter>();
+        _meshRenderer = meshObj.AddComponent<MeshRenderer>();
+
+        _meshOutput = new UnityMeshOutput(mf, _meshRenderer, surfaceMaterial);
+        _pipeline.Initialize(_meshOutput);
+        _pipeline.SetBackend(computeBackend);
+
+        Vector3Int gridSize = _pipeline.Buffer.ChunkGridSize;
+        _chunkRenderers = new ChunkRenderManager();
+        _chunkRenderers.Initialize(_pipeline.Buffer.TotalChunks, gridSize, _chunksParent, newLayout);
+        _chunkRenderers.SetMaterial(surfaceMaterial);
+        _pipeline.SetChunkRenderers(_chunkRenderers);
+
+        GameObject.DestroyImmediate(meshObj);
+        _meshOutput = null;
+
+        // Force full rebuild
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+        _pipeline.MarkDirty();
     }
 
     public void Rebuild()
@@ -291,6 +389,10 @@ public class VolumeProcessor : MonoBehaviour
             Debug.LogWarning("[VolumeProcessor] RebuildModel: no objects");
             return;
         }
+
+        // ADR-002: Resize grid if objects exceed current bounds.
+        if (!CheckBoundsFit(composer))
+            return; // Resized — next tick will rebuild with new pipeline
 
         _pipeline.Rebuild(composer, isoLevel);
         DrainSync();

@@ -149,4 +149,32 @@ public class VolumeObjectRegistry : MonoBehaviour, IScalarFieldSource
 
         return new Bounds(worldCenter, worldExtents * 2f);
     }
+
+    /// <summary>Union of all registered object world-space bounds (zero-alloc). Returns default if no objects.</summary>
+    public Bounds GetTotalBounds()
+    {
+        bool first = true;
+        Bounds union = default;
+
+        for (int i = 0; i < objects.Count; i++)
+        {
+            VolumeObject obj = objects[i];
+            if (obj == null) continue;
+
+            Bounds local = obj.GetEstimatedLocalBounds();
+            Bounds world = TransformBoundsToWorld(local);
+
+            if (first)
+            {
+                union = world;
+                first = false;
+            }
+            else
+            {
+                union.Encapsulate(world);
+            }
+        }
+
+        return union;
+    }
 }

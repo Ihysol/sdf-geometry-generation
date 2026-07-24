@@ -650,7 +650,7 @@ public class VolumeObject : MonoBehaviour
         return model.drawChildGizmos;
     }
 
-    private Bounds GetEstimatedLocalBounds()
+    public Bounds GetEstimatedLocalBounds()
     {
         return GetEstimatedLocalBoundsForTransform(
             transform.localPosition,
