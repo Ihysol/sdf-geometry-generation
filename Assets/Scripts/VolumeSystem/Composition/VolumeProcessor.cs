@@ -51,6 +51,45 @@ public class VolumeProcessor : MonoBehaviour
     /// <summary>VisualOutput — user rotates/scales here, not the VolumeProcessor. See ADR-001.</summary>
     public Transform VisualOutput => _visualOutput;
 
+  // ---- Undo/Redo ----
+    private CommandStack _commandStack;
+
+    public CommandStack CommandStack
+    {
+        get
+        {
+            if (_commandStack == null)
+            {
+                _commandStack = new CommandStack(64);
+                _commandStack.OnStateChanged += OnUndoRedoStateChanged;
+            }
+            return _commandStack;
+        }
+    }
+
+    private void OnUndoRedoStateChanged(Bounds affectedBounds)
+    {
+        // Trigger partial rebuild for the affected region
+        if (affectedBounds.extents != Vector3.zero)
+            MarkDirtyBounds(affectedBounds);
+        else
+            RebuildModel(); // Full rebuild when bounds unknown
+    }
+
+#if UNITY_EDITOR
+    /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y.</summary>
+    public void ProcessUndoRedo()
+    {
+        if (Event.current == null) return;
+
+        if (Event.current.type == EventType.ValidateCommand && Event.current.commandName == "UndoRedoPerformed")
+        {
+            // Unity's built-in Undo already reverted the serialized state — we just need to rebuild.
+            RebuildModel();
+        }
+    }
+#endif
+
 #if UNITY_EDITOR
     private bool _editorUpdateRegistered;
 #endif
@@ -66,6 +105,9 @@ public class VolumeProcessor : MonoBehaviour
             return go.transform;
         }
     }
+
+    /// <summary>Expose for Undo commands — creates if missing.</summary>
+    internal Transform GetObjectsRoot() => ObjectsRoot;
 
     public void Initialize()
     {
@@ -339,6 +381,8 @@ public class VolumeProcessor : MonoBehaviour
         if (composer != null && !composer.objects.Contains(vo))
             composer.objects.Add(vo);
 
+        CommandStack.Push(new AddObjectCommand(this, composer?.objects.Count - 1 ?? 0, child));
+
         Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
         RebuildModel();
     }
@@ -350,13 +394,22 @@ public class VolumeProcessor : MonoBehaviour
 
         GameObject lastChild = root.GetChild(root.childCount - 1).gameObject;
         VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
-        if (composer != null)
-        {
-            VolumeObject vo = lastChild.GetComponent<VolumeObject>();
-            if (vo != null) composer.objects.Remove(vo);
-        }
+        VolumeObject vo = lastChild.GetComponent<VolumeObject>();
+        
+        // Save state for undo before destroying
+        string name = lastChild.name;
+        VolumeShapeType shape = vo?.shapeType ?? VolumeShapeType.Sphere;
+        VolumeOperationRole role = vo?.role ?? VolumeOperationRole.Add;
+        Vector3 localPos = lastChild.transform.localPosition;
 
+#if UNITY_EDITOR
+        Undo.DestroyObjectImmediate(lastChild);
+#else
         Object.DestroyImmediate(lastChild);
+#endif
+        if (composer != null && vo != null) composer.objects.Remove(vo);
+
+        CommandStack.Push(new RemoveObjectCommand(this, name, shape, role, localPos));
         RebuildModel();
     }
 
