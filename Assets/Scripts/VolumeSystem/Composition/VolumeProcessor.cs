@@ -181,7 +181,8 @@ public class VolumeProcessor : MonoBehaviour
         }
 
         // ADR-002: Check if all objects fit within the current grid.
-        CheckBoundsFit(composer);
+        if (!CheckBoundsFit(composer))
+            return; // Resized — _pipeline is new, next tick will rebuild
 
         bool isPartial = _hasDirtyBounds;
 
