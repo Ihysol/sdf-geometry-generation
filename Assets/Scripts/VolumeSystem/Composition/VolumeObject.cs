@@ -352,9 +352,10 @@ public class VolumeObject : MonoBehaviour
           {
               // Transform point to world space using localToWorldMatrix columns
               Matrix4x4 m = transform.localToWorldMatrix;
-              px = m.m00 * px + m.m01 * py + m.m02 * pz + m.m03;
-              py = m.m10 * px + m.m11 * py + m.m12 * pz + m.m13;
-              pz = m.m20 * px + m.m21 * py + m.m22 * pz + m.m23;
+              float wx = m.m00 * px + m.m01 * py + m.m02 * pz + m.m03;
+              float wy = m.m10 * px + m.m11 * py + m.m12 * pz + m.m13;
+              float wz = m.m20 * px + m.m21 * py + m.m22 * pz + m.m23;
+              px = wx; py = wy; pz = wz;
           }
 
           float qx = px + gridOffset.x;
