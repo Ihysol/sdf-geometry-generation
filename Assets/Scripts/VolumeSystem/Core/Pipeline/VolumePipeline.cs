@@ -150,15 +150,15 @@ public class VolumePipeline
 
         // Expand sampling region by ±1 cell so dual contouring at the boundary
         // reads fresh SDF values (not stale data from before this partial rebuild).
-        sampleRegion.position.x = Mathf.Max(0, sampleRegion.position.x - 1);
-        sampleRegion.position.y = Mathf.Max(0, sampleRegion.position.y - 1);
-        sampleRegion.position.z = Mathf.Max(0, sampleRegion.position.z - 1);
-        sampleRegion.size.x = Mathf.Min(_layout.Resolution.x - sampleRegion.position.x,
-            sampleRegion.size.x + 2);
-        sampleRegion.size.y = Mathf.Min(_layout.Resolution.y - sampleRegion.position.y,
-            sampleRegion.size.y + 2);
-        sampleRegion.size.z = Mathf.Min(_layout.Resolution.z - sampleRegion.position.z,
-            sampleRegion.size.z + 2);
+        Vector3Int pos = sampleRegion.position - Vector3Int.one;
+        pos.x = Mathf.Max(0, pos.x);
+        pos.y = Mathf.Max(0, pos.y);
+        pos.z = Mathf.Max(0, pos.z);
+        Vector3Int sz = sampleRegion.size + new Vector3Int(2, 2, 2);
+        sz.x = Mathf.Min(_layout.Resolution.x - pos.x, sz.x);
+        sz.y = Mathf.Min(_layout.Resolution.y - pos.y, sz.y);
+        sz.z = Mathf.Min(_layout.Resolution.z - pos.z, sz.z);
+        sampleRegion = new BoundsInt(pos, sz);
 
         // Burst-compiled partial sampling
         if (TryGetSnapshot(sdfSource, out var burstSnapshot))
