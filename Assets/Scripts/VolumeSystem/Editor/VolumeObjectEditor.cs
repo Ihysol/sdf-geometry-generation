@@ -22,6 +22,10 @@ public class VolumeObjectEditor : Editor
     private Vector3? _dragStartScl;
     private bool _trackingTransform;
 
+    /// <summary>Capture old float values before inspector changes for undo.</summary>
+    private bool _capturingOldValues;
+    private System.Collections.Generic.Dictionary<string, float> _oldFloats = new();
+
     public override void OnInspectorGUI()
     {
         serializedObject.Update();
@@ -40,6 +44,16 @@ public class VolumeObjectEditor : Editor
             _hyperboloidC = serializedObject.FindProperty("hyperboloidC");
             _gridType = serializedObject.FindProperty("gridType");
         }
+
+        // Capture old values before GUI changes
+        _oldFloats.Clear();
+        if (_sphereRadius != null) CaptureFloat(_sphereRadius, "sphereRadius");
+        if (_boxHalfExtents != null) CaptureVector3Floats(_boxHalfExtents, "boxHalfExtents");
+        if (_torusMajorRadius != null) CaptureFloat(_torusMajorRadius, "torusMajorRadius");
+        if (_torusMinorRadius != null) CaptureFloat(_torusMinorRadius, "torusMinorRadius");
+        if (_hyperboloidA != null) CaptureFloat(_hyperboloidA, "hyperboloidA");
+        if (_hyperboloidB != null) CaptureFloat(_hyperboloidB, "hyperboloidB");
+        if (_hyperboloidC != null) CaptureFloat(_hyperboloidC, "hyperboloidC");
 
         EditorGUI.BeginChangeCheck();
 
@@ -119,7 +133,26 @@ public class VolumeObjectEditor : Editor
             serializedObject.ApplyModifiedProperties();
             EditorUtility.SetDirty(target);
 
-            VolumeProcessor proc = ((VolumeObject)target).GetComponentInParent<VolumeProcessor>();
+            VolumeObject vo = (VolumeObject)target;
+            VolumeProcessor proc = vo.GetComponentInParent<VolumeProcessor>();
+
+            // Push ParameterCommands for changed float fields
+            if (proc != null && _oldFloats.Count > 0)
+            {
+                foreach (var kvp in _oldFloats)
+                {
+                    SerializedProperty prop = serializedObject.FindProperty(kvp.Key);
+                    if (prop != null && prop.propertyType == SerializedPropertyType.Float)
+                    {
+                        float newVal = prop.floatValue;
+                        if (newVal != kvp.Value)
+                        {
+                            proc.CommandStack.Push(new ParameterCommand(vo, kvp.Key, kvp.Value, newVal));
+                        }
+                    }
+                }
+            }
+
             if (proc != null && proc.ShouldAutoRebuildOnChange())
             {
                 proc.RebuildModel();
@@ -133,6 +166,23 @@ public class VolumeObjectEditor : Editor
 
         // Detect drag start via SceneView
         TrackTransformChanges();
+    }
+
+    private void CaptureFloat(SerializedProperty prop, string name)
+    {
+        if (prop.propertyType == SerializedPropertyType.Float)
+            _oldFloats[name] = prop.floatValue;
+    }
+
+    private void CaptureVector3Floats(SerializedProperty prop, string baseName)
+    {
+        // Vector3 fields: capture x/y/z as separate floats for granularity
+        if (prop.propertyType == SerializedPropertyType.Vector3)
+        {
+            _oldFloats[baseName + "x"] = prop.vector3Value.x;
+            _oldFloats[baseName + "y"] = prop.vector3Value.y;
+            _oldFloats[baseName + "z"] = prop.vector3Value.z;
+        }
     }
 
     private void OnEnable() => StartTracking();
