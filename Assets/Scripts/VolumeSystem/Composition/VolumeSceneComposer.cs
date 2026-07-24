@@ -91,12 +91,10 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     /// <summary>Refreshes the composition and asks the owning model to rebuild.</summary>
     public void MarkDirtyAndRebuild()
     {
-        RebuildComposition();
-
         VolumeModel model = GetComponent<VolumeModel>();
 
         if (model != null)
-            model.RebuildModel();
+            model.RebuildModel(); // RebuildModel() already calls RebuildComposition() internally
     }
 
     public void MarkDirtyAndRebuild(Bounds dirtyBounds)
