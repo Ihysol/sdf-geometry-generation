@@ -37,6 +37,9 @@ public class VolumeProcessorEditor : Editor
         }
 
         serializedObject.ApplyModifiedProperties();
+
+        // Handle Ctrl+Z / Ctrl+Y keyboard shortcuts
+        HandleUndoRedoShortcuts(model);
     }
 
     private void DrawPipelineSection(VolumeProcessor model)
@@ -131,15 +134,13 @@ public class VolumeProcessorEditor : Editor
         if (GUILayout.Button("Add Object", GUILayout.Height(30)))
         {
             serializedObject.ApplyModifiedProperties();
-            Undo.RecordObject(model, "Add SDF Object");
-            model.AddSelectedObject();
+            model.AddSelectedObject(); // Pushes command internally
             EditorUtility.SetDirty(model);
         }
         if (GUILayout.Button("Remove Last", GUILayout.Height(30)))
         {
             serializedObject.ApplyModifiedProperties();
-            Undo.RecordObject(model, "Remove Last SDF Object");
-            model.RemoveLastObject();
+            model.RemoveLastObject(); // Pushes command internally
             EditorUtility.SetDirty(model);
         }
         EditorGUILayout.EndHorizontal();
@@ -151,11 +152,61 @@ public class VolumeProcessorEditor : Editor
         if (GUILayout.Button("Clear All Objects", GUILayout.Height(35)))
         {
             serializedObject.ApplyModifiedProperties();
-            Undo.RecordObject(model, "Clear SDF Objects");
             model.ClearObjects();
             EditorUtility.SetDirty(model);
         }
         GUI.backgroundColor = oldColor;
+
+        // Undo/Redo buttons + status
+        EditorGUILayout.Space(8);
+        DrawUndoRedoBar(model);
+    }
+
+    private void DrawUndoRedoBar(VolumeProcessor model)
+    {
+        var stack = model.CommandStack;
+        EditorGUILayout.BeginHorizontal();
+
+        GUI.enabled = stack.CanUndo;
+        if (GUILayout.Button("Undo", GUILayout.Height(24)))
+            stack.Undo();
+
+        GUILayout.FlexibleSpace();
+
+        GUI.enabled = stack.CanRedo;
+        if (GUILayout.Button("Redo", GUILayout.Height(24)))
+            stack.Redo();
+
+        GUILayout.Label($"Stack: {stack.UndoCount} undo, {stack.RedoCount} redo", GUILayout.Width(130));
+
+        GUI.enabled = true;
+        EditorGUILayout.EndHorizontal();
+    }
+
+    /// <summary>Handle Ctrl+Z / Ctrl+Y keyboard shortcuts in the inspector.</summary>
+    private void HandleUndoRedoShortcuts(VolumeProcessor model)
+    {
+        Event e = Event.current;
+        if (e.type == EventType.ValidateCommand && e.commandName == "UndoRedoPerformed")
+        {
+            // Unity's native undo triggered — rebuild pipeline to reflect reverted state.
+            model.RebuildModel();
+        }
+
+        // Custom Ctrl+Z / Ctrl+Y for our CommandStack
+        if (e.type == EventType.KeyDown && e.control)
+        {
+            if (e.keyCode == KeyCode.Z)
+            {
+                if (model.CommandStack.Undo())
+                    e.Use();
+            }
+            else if (e.keyCode == KeyCode.Y)
+            {
+                if (model.CommandStack.Redo())
+                    e.Use();
+            }
+        }
     }
 
     private void DrawDebugSection(VolumeProcessor model)
@@ -169,6 +220,9 @@ public class VolumeProcessorEditor : Editor
         model.rebuildOnMoveRelease = EditorGUILayout.Toggle("Rebuild On Move Release", model.rebuildOnMoveRelease);
         if (model.rebuildOnMoveRelease)
             model.moveReleaseDelaySeconds = EditorGUILayout.FloatField("Move Release Delay (s)", Mathf.Max(0f, model.moveReleaseDelaySeconds));
+
+        var stack = model.CommandStack;
+        EditorGUILayout.LabelField($"Command Stack: {stack.UndoCount} undo / {stack.RedoCount} redo");
     }
 
     private void DrawRebuildButton(VolumeProcessor model)
