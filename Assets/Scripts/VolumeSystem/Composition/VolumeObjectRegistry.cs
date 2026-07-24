@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
+public class VolumeObjectRegistry : MonoBehaviour, IScalarFieldSource
 {
     public List<VolumeObject> objects = new();
 
@@ -91,7 +91,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     /// <summary>Refreshes the composition and asks the owning model to rebuild.</summary>
     public void MarkDirtyAndRebuild()
     {
-        VolumeModel model = GetComponent<VolumeModel>();
+        VolumeProcessor model = GetComponent<VolumeProcessor>();
 
         if (model != null)
             model.RebuildModel(); // RebuildModel() already calls RebuildComposition() internally
@@ -99,7 +99,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 
     public void MarkDirtyAndRebuild(Bounds dirtyBounds)
     {
-        VolumeModel model = GetComponent<VolumeModel>();
+        VolumeProcessor model = GetComponent<VolumeProcessor>();
 
         if (model != null)
         {
@@ -113,7 +113,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 
     public void MarkDirtyAndRebuild(Bounds dirtyBounds, IReadOnlyList<Bounds> dirtyBoundsParts)
     {
-        VolumeModel model = GetComponent<VolumeModel>();
+        VolumeProcessor model = GetComponent<VolumeProcessor>();
 
         if (model != null)
         {

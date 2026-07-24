@@ -7,7 +7,7 @@ public abstract class VolumeChunkBase : MonoBehaviour
 
     /// <summary>Regenerates this chunk mesh from the model and scalar field.</summary>
     public abstract void Rebuild(
-        VolumeModel model,
+        VolumeProcessor model,
         IScalarFieldSource source
     );
 

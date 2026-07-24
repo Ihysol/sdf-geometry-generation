@@ -1,15 +1,15 @@
 using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(VolumeSceneComposer))]
-public class VolumeSceneComposerEditor : Editor
+[CustomEditor(typeof(VolumeObjectRegistry))]
+public class VolumeObjectRegistryEditor : Editor
 {
     /// <summary>Draws composer object-list and maintenance controls.</summary>
     public override void OnInspectorGUI()
     {
         serializedObject.Update();
 
-        VolumeSceneComposer composer = (VolumeSceneComposer)target;
+        VolumeObjectRegistry composer = (VolumeObjectRegistry)target;
 
         EditorGUILayout.PropertyField(
             serializedObject.FindProperty("objects"),

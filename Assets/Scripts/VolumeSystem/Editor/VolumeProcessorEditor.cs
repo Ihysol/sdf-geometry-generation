@@ -1,8 +1,8 @@
 ﻿using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(VolumeModel))]
-public class VolumeModelEditor : Editor
+[CustomEditor(typeof(VolumeProcessor))]
+public class VolumeProcessorEditor : Editor
 {
     private bool _showPipeline = true;
     private bool _showObjects = true;
@@ -18,7 +18,7 @@ public class VolumeModelEditor : Editor
     {
         serializedObject.Update();
 
-        VolumeModel model = (VolumeModel)target;
+        VolumeProcessor model = (VolumeProcessor)target;
         EditorGUI.BeginChangeCheck();
 
         DrawPipelineSection(model);
@@ -39,7 +39,7 @@ public class VolumeModelEditor : Editor
         serializedObject.ApplyModifiedProperties();
     }
 
-    private void DrawPipelineSection(VolumeModel model)
+    private void DrawPipelineSection(VolumeProcessor model)
     {
         _showPipeline = EditorGUILayout.Foldout(_showPipeline, "Pipeline", true);
         if (!_showPipeline) return;
@@ -106,7 +106,7 @@ public class VolumeModelEditor : Editor
         }
     }
 
-    private void ExecuteOp(VolumeModel model, IVolumeOperation op)
+    private void ExecuteOp(VolumeProcessor model, IVolumeOperation op)
     {
         if (!model.enablePipeline || !model.Initialized)
             model.Initialize();
@@ -115,7 +115,7 @@ public class VolumeModelEditor : Editor
         EditorUtility.SetDirty(model);
     }
 
-    private void DrawObjectsSection(VolumeModel model)
+    private void DrawObjectsSection(VolumeProcessor model)
     {
         _showObjects = EditorGUILayout.Foldout(_showObjects, "Objects", true);
         if (!_showObjects) return;
@@ -158,7 +158,7 @@ public class VolumeModelEditor : Editor
         GUI.backgroundColor = oldColor;
     }
 
-    private void DrawDebugSection(VolumeModel model)
+    private void DrawDebugSection(VolumeProcessor model)
     {
         _showDebug = EditorGUILayout.Foldout(_showDebug, "Debug", true);
         if (!_showDebug) return;
@@ -171,7 +171,7 @@ public class VolumeModelEditor : Editor
             model.moveReleaseDelaySeconds = EditorGUILayout.FloatField("Move Release Delay (s)", Mathf.Max(0f, model.moveReleaseDelaySeconds));
     }
 
-    private void DrawRebuildButton(VolumeModel model)
+    private void DrawRebuildButton(VolumeProcessor model)
     {
         if (GUILayout.Button("Rebuild Model", GUILayout.Height(30)))
         {

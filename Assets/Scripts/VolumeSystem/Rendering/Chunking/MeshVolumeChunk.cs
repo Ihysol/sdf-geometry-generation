@@ -14,12 +14,12 @@ public class MeshVolumeChunk : VolumeChunkBase
     private readonly VoxelGridChunkMesher _voxelGridChunkMesher = new();
 
     /// <summary>Rebuilds this chunk by meshing only the grid edges owned by its bounds.</summary>
-    public override void Rebuild(VolumeModel model, IScalarFieldSource source)
+    public override void Rebuild(VolumeProcessor model, IScalarFieldSource source)
     {
         Rebuild(model, source, null);
     }
 
-    public void ApplyMeshData(MeshData meshData, VolumeModel model)
+    public void ApplyMeshData(MeshData meshData, VolumeProcessor model)
     {
         EnsureSetup();
 
@@ -40,7 +40,7 @@ public class MeshVolumeChunk : VolumeChunkBase
         }
     }
 
-    public void Rebuild(VolumeModel model, IScalarFieldSource source, OctreeChunkMesher sharedOctreeChunkMesher)
+    public void Rebuild(VolumeProcessor model, IScalarFieldSource source, OctreeChunkMesher sharedOctreeChunkMesher)
     {
         EnsureSetup();
 
@@ -182,7 +182,7 @@ public class MeshVolumeChunk : VolumeChunkBase
 
     private bool ShouldDrawChunkGizmos(bool alwaysOnly)
     {
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model == null)
             return !alwaysOnly;

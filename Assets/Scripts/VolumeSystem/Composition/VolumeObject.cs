@@ -105,7 +105,7 @@ public class VolumeObject : MonoBehaviour
 
         // Kein QueueComposerRebuild hier:
         // OnValidate feuert auch bei Parent-/Inspector-Änderungen.
-        // Rebuild läuft über lokalen Transform-Check oder VolumeModelEditor.
+        // Rebuild läuft über lokalen Transform-Check oder VolumeProcessorEditor.
 #endif
     }
 
@@ -129,7 +129,7 @@ public class VolumeObject : MonoBehaviour
 
         Bounds currentBounds = GetEstimatedLocalBounds();
 
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
         if (model == null || !model.ShouldAutoRebuildOnTransformChange())
             return;
 
@@ -185,7 +185,7 @@ public class VolumeObject : MonoBehaviour
         if (this == null)
             return;
 
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model != null && !model.ShouldAutoRebuildOnTransformChange())
         {
@@ -227,7 +227,7 @@ public class VolumeObject : MonoBehaviour
 
         _rebuildQueued = false;
 
-        VolumeSceneComposer composer = GetComponentInParent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponentInParent<VolumeObjectRegistry>();
 
         if (composer != null)
         {
@@ -476,7 +476,7 @@ public class VolumeObject : MonoBehaviour
 
     private float EstimateMinSamplingCellSize()
     {
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model == null)
             return 0f;
@@ -642,7 +642,7 @@ public class VolumeObject : MonoBehaviour
     /// <summary>Checks the parent model setting that controls child gizmos.</summary>
     private bool ShouldDrawGizmos()
     {
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model == null)
             return true;

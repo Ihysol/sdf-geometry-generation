@@ -4,7 +4,7 @@ public interface IChunkMesher<TVolume>
     where TVolume : class, IVolumeData
 {
     void BuildChunk(
-        VolumeModel model,
+        VolumeProcessor model,
         IScalarFieldSource source,
         TVolume volume,
         Bounds coreBounds,

@@ -227,7 +227,7 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
     public SdfSceneSnapshot(Transform root, List<VolumeObject> objects)
     {
         _rootLocalToWorld = root.localToWorldMatrix;
-        float minSamplingCellSize = EstimateMinSamplingCellSize(root.GetComponent<VolumeModel>());
+        float minSamplingCellSize = EstimateMinSamplingCellSize(root.GetComponent<VolumeProcessor>());
         List<ShapeData> addShapes = new();
         List<ShapeData> subtractShapes = new();
         List<ShapeData> intersectShapes = new();
@@ -279,7 +279,7 @@ public sealed class SdfSceneSnapshot : IScalarFieldSource
         return result;
     }
 
-    private static float EstimateMinSamplingCellSize(VolumeModel model)
+    private static float EstimateMinSamplingCellSize(VolumeProcessor model)
     {
         if (model == null)
             return 0f;

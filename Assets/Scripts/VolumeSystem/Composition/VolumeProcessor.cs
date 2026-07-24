@@ -4,8 +4,8 @@ using UnityEditor;
 #endif
 
 [DisallowMultipleComponent]
-[RequireComponent(typeof(VolumeSceneComposer))]
-public class VolumeModel : MonoBehaviour
+[RequireComponent(typeof(VolumeObjectRegistry))]
+public class VolumeProcessor : MonoBehaviour
 {
     [Header("Pipeline")]
     [SerializeField] public bool enablePipeline = true;
@@ -42,7 +42,7 @@ public class VolumeModel : MonoBehaviour
     private bool _hasDirtyBounds;
     private Vector3 _lastPosition;
 
-    /// <summary>VisualOutput — user rotates/scales here, not the VolumeModel. See ADR-001.</summary>
+    /// <summary>VisualOutput — user rotates/scales here, not the VolumeProcessor. See ADR-001.</summary>
     public Transform VisualOutput => _visualOutput;
 
 #if UNITY_EDITOR
@@ -101,7 +101,7 @@ public class VolumeModel : MonoBehaviour
         _pipeline.SetBackend(computeBackend);
 
         // ADR-001: Create visual output wrapper for user-facing rotation/scale.
-        // VolumeModel stays identity; _visualOutput handles all visual transforms.
+        // VolumeProcessor stays identity; _visualOutput handles all visual transforms.
         GameObject voObj = new GameObject("VisualOutput");
         voObj.transform.SetParent(transform, false);
         _visualOutput = voObj.transform;
@@ -118,7 +118,7 @@ public class VolumeModel : MonoBehaviour
         GameObject.DestroyImmediate(meshObj);
         _meshOutput = null;
 
-        Debug.Log($"[VolumeModel] Pipeline init: grid {bounds.min:F1}..{bounds.max:F1}, center={transform.position:F1}");
+        Debug.Log($"[VolumeProcessor] Pipeline init: grid {bounds.min:F1}..{bounds.max:F1}, center={transform.position:F1}");
     }
 
     private void Update()
@@ -163,14 +163,14 @@ public class VolumeModel : MonoBehaviour
 
     private void RebuildPipeline()
     {
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer == null || _pipeline == null) return;
 
         composer.RebuildComposition();
 
         if (composer.objects.Count == 0)
         {
-            Debug.LogWarning("[VolumeModel] RebuildPipeline: no objects — add a shape first.");
+            Debug.LogWarning("[VolumeProcessor] RebuildPipeline: no objects — add a shape first.");
             return;
         }
 
@@ -187,11 +187,11 @@ public class VolumeModel : MonoBehaviour
         if (isPartial)
         {
             DrainSync();
-            Debug.Log($"[VolumeModel] RebuildPipeline (partial) done");
+            Debug.Log($"[VolumeProcessor] RebuildPipeline (partial) done");
         }
         else
         {
-            Debug.Log($"[VolumeModel] RebuildPipeline (full) queued, pending={_pipeline.Scheduler.PendingCount}");
+            Debug.Log($"[VolumeProcessor] RebuildPipeline (full) queued, pending={_pipeline.Scheduler.PendingCount}");
         }
     }
 
@@ -232,11 +232,11 @@ public class VolumeModel : MonoBehaviour
         vo.shapeType = shape;
         vo.role = role;
 
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer != null && !composer.objects.Contains(vo))
             composer.objects.Add(vo);
 
-        Debug.Log($"[VolumeModel] Added {shape} ({role}), total={composer.objects.Count}");
+        Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
         RebuildModel();
     }
 
@@ -246,7 +246,7 @@ public class VolumeModel : MonoBehaviour
         if (root == null || root.childCount == 0) return;
 
         GameObject lastChild = root.GetChild(root.childCount - 1).gameObject;
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer != null)
         {
             VolumeObject vo = lastChild.GetComponent<VolumeObject>();
@@ -264,7 +264,7 @@ public class VolumeModel : MonoBehaviour
             for (int i = root.childCount - 1; i >= 0; i--)
                 Object.DestroyImmediate(root.GetChild(i).gameObject);
 
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer != null) composer.objects.Clear();
 
         RebuildModel();
@@ -278,17 +278,17 @@ public class VolumeModel : MonoBehaviour
         _buildVersion++;
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
 
-        Debug.Log($"[VolumeModel] RebuildModel called");
+        Debug.Log($"[VolumeProcessor] RebuildModel called");
 
         if (!enablePipeline || _pipeline == null) return;
 
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer == null) return;
 
         composer.RebuildComposition();
         if (composer.objects.Count == 0)
         {
-            Debug.LogWarning("[VolumeModel] RebuildModel: no objects");
+            Debug.LogWarning("[VolumeProcessor] RebuildModel: no objects");
             return;
         }
 
@@ -296,7 +296,7 @@ public class VolumeModel : MonoBehaviour
         DrainSync();
 
         double elapsed = (Time.realtimeSinceStartup * 1000.0) - start;
-        Debug.Log($"[VolumeModel] RebuildModel done: {elapsed:F0}ms");
+        Debug.Log($"[VolumeProcessor] RebuildModel done: {elapsed:F0}ms");
     }
 
     public void MarkDirtyBounds(Bounds worldBounds)
@@ -317,7 +317,7 @@ public class VolumeModel : MonoBehaviour
         if (!_initialized) Initialize();
         if (_pipeline == null || !enablePipeline) return;
 
-        VolumeSceneComposer composer = GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer == null) return;
 
         composer.RebuildComposition();
@@ -336,7 +336,7 @@ public class VolumeModel : MonoBehaviour
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
         DrainSync();
 
-        Debug.Log($"[VolumeModel] RebuildDirty done");
+        Debug.Log($"[VolumeProcessor] RebuildDirty done");
     }
 
     /// <summary>Drain all pending meshing synchronously (bypasses frame budget).</summary>

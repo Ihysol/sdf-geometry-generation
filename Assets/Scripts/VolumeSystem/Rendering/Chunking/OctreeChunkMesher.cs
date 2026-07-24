@@ -15,7 +15,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
         public readonly bool QefEnableMultiHermite;
         public readonly int QefHermiteSamplesPerEdge;
 
-        public FlatDualContouringChunkSettings(VolumeModel model)
+        public FlatDualContouringChunkSettings(VolumeProcessor model)
         {
             IsoLevel = model.isoLevel;
             UseQefVertices = model.GetEffectiveUseQefVertices();
@@ -36,7 +36,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
     private readonly SurfaceNetsOctreeMesher _surfaceNetsMesher = new();
 
     public void BuildChunk(
-        VolumeModel model,
+        VolumeProcessor model,
         IScalarFieldSource source,
         OctreeVolume volume,
         Bounds coreBounds,
@@ -112,7 +112,7 @@ public class OctreeChunkMesher : IChunkMesher<OctreeVolume>
     }
 
     public bool TryBuildChunkData(
-        VolumeModel model,
+        VolumeProcessor model,
         OctreeVolume volume,
         Bounds coreBounds,
         out MeshData meshData)

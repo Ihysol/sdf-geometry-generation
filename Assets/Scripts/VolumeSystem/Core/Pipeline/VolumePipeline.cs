@@ -67,8 +67,8 @@ public class VolumePipeline
             return !snapshot.HasUnsupportedShapes;
         }
 
-        // VolumeSceneComposer exposes TryGetBuiltInSnapshot
-        if (sdfSource is VolumeSceneComposer composer && composer.TryGetBuiltInSnapshot(out var cs))
+        // VolumeObjectRegistry exposes TryGetBuiltInSnapshot
+        if (sdfSource is VolumeObjectRegistry composer && composer.TryGetBuiltInSnapshot(out var cs))
         {
             snapshot = cs;
             return true;
@@ -242,13 +242,13 @@ public class VolumePipeline
         minCx--; minCy--; minCz--;
         maxCx++; maxCy++; maxCz++;
 
-        // Clamp to grid
+        // Clamp to grid — last chunk index is (res-1)/cs, ensuring cell coords stay in bounds even
+        // when resolution is not an exact multiple of chunk size.
         Vector3Int res = layout.Resolution;
         minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
-        int chunkGridMax = cs * Mathf.CeilToInt((float)res.x / cs) - 1;
-        maxCx = Mathf.Min(chunkGridMax, maxCx);
-        maxCy = Mathf.Min(cs * Mathf.CeilToInt((float)res.y / cs) - 1, maxCy);
-        maxCz = Mathf.Min(cs * Mathf.CeilToInt((float)res.z / cs) - 1, maxCz);
+        maxCx = Mathf.Min((res.x - 1) / cs, maxCx);
+        maxCy = Mathf.Min((res.y - 1) / cs, maxCy);
+        maxCz = Mathf.Min((res.z - 1) / cs, maxCz);
 
         // Convert back to cell indices
         int px = minCx * cs;

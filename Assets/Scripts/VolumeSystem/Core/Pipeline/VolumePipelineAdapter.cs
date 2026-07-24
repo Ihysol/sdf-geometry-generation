@@ -1,6 +1,6 @@
 using UnityEngine;
 
-/// <summary>Connects the existing VolumeModel to the new modular pipeline.</summary>
+/// <summary>Connects the existing VolumeProcessor to the new modular pipeline.</summary>
 public class VolumePipelineAdapter : MonoBehaviour
 {
     [Header("Pipeline")]
@@ -22,10 +22,10 @@ public class VolumePipelineAdapter : MonoBehaviour
     {
         if (!enablePipeline) return;
 
-        var model = GetComponent<VolumeModel>();
+        var model = GetComponent<VolumeProcessor>();
         if (model == null)
         {
-            Debug.LogError("[VolumePipelineAdapter] VolumeModel component required.");
+            Debug.LogError("[VolumePipelineAdapter] VolumeProcessor component required.");
             enabled = false;
             return;
         }
@@ -74,7 +74,7 @@ public class VolumePipelineAdapter : MonoBehaviour
     {
         if (_pipeline == null || !enablePipeline) return;
 
-        var composer = GetComponent<VolumeSceneComposer>();
+        var composer = GetComponent<VolumeObjectRegistry>();
         if (composer == null) return;
 
         if (_pipeline.IsDirty || _needsRebuild)
@@ -111,7 +111,7 @@ public class VolumePipelineAdapter : MonoBehaviour
             _pipeline.MarkDirty();
     }
 
-    private Bounds GetBounds(VolumeModel model)
+    private Bounds GetBounds(VolumeProcessor model)
     {
         return new Bounds(Vector3.zero, Vector3.one * 4f);
     }
