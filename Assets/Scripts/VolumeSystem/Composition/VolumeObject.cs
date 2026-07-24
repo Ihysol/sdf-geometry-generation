@@ -754,11 +754,19 @@ public class VolumeObject : MonoBehaviour
                 return new Vector3(torusR, torusY, torusR);
 
             case VolumeShapeType.Hyperboloid:
+            {
+                // Hyperboloid: x²/a² + z²/b² - y²/c² = 1
+                // At height y, surface radius is sqrt(1 + y²/c²) · (a, b).
+                // Use max |y| to get tight-but-safe bounds.
+                float maxH = Mathf.Max(Mathf.Abs(hyperboloidHeightMin), Mathf.Abs(hyperboloidHeightMax));
+                float safeC = Mathf.Max(0.0001f, Mathf.Abs(hyperboloidC));
+                float scale = Mathf.Sqrt(1f + (maxH * maxH) / (safeC * safeC));
                 return new Vector3(
-                    Mathf.Abs(hyperboloidA),
-                    Mathf.Max(Mathf.Abs(hyperboloidHeightMin), Mathf.Abs(hyperboloidHeightMax)),
-                    Mathf.Abs(hyperboloidB)
+                    Mathf.Abs(hyperboloidA) * scale,
+                    maxH,
+                    Mathf.Abs(hyperboloidB) * scale
                 );
+            }
 
             case VolumeShapeType.CustomAsset:
                 return Vector3.one * 2f;
