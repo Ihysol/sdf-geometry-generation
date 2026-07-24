@@ -659,28 +659,25 @@ public class VolumeObject : MonoBehaviour
         );
     }
 
-  /// <summary>Returns estimated world-space bounds of this volume object.</summary>
+  /// <summary>Returns estimated world-space bounds of this volume object (zero-alloc OBB→AABB).</summary>
    public Bounds GetBounds()
    {
        Bounds local = GetEstimatedLocalBounds();
 
-       // Transform all 8 corners to world space for accurate bounds — avoids the
-       // lossyScale approximation which breaks with non-uniform or nested parent scales.
-       Vector3[] corners = new Vector3[8];
-       Vector3 half = local.size * 0.5f;
-       corners[0] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z - half.z));
-       corners[1] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z - half.z));
-       corners[2] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z - half.z));
-       corners[3] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z - half.z));
-       corners[4] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z + half.z));
-       corners[5] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z + half.z));
-       corners[6] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z + half.z));
-       corners[7] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z + half.z));
+       // OBB→AABB via matrix math: |M_rows| · halfExtents. No corner array allocation.
+       Matrix4x4 m = transform.localToWorldMatrix;
+       Vector3 center = new Vector3(
+           m.m00 * local.center.x + m.m01 * local.center.y + m.m02 * local.center.z + m.m03,
+           m.m10 * local.center.x + m.m11 * local.center.y + m.m12 * local.center.z + m.m13,
+           m.m20 * local.center.x + m.m21 * local.center.y + m.m22 * local.center.z + m.m23
+       );
 
-       Bounds world = new Bounds(corners[0], Vector3.zero);
-       for (int i = 1; i < 8; i++)
-           world.Encapsulate(corners[i]);
-       return world;
+       Vector3 half = local.extents;
+       float hx = Mathf.Abs(m.m00) * half.x + Mathf.Abs(m.m01) * half.y + Mathf.Abs(m.m02) * half.z;
+       float hy = Mathf.Abs(m.m10) * half.x + Mathf.Abs(m.m11) * half.y + Mathf.Abs(m.m12) * half.z;
+       float hz = Mathf.Abs(m.m20) * half.x + Mathf.Abs(m.m21) * half.y + Mathf.Abs(m.m22) * half.z;
+
+       return new Bounds(center, new Vector3(hx * 2f, hy * 2f, hz * 2f));
    }
 
     public Bounds EstimateLocalMoveDirtyBounds(Vector3 fromLocalPosition, Vector3 toLocalPosition)
