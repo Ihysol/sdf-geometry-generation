@@ -37,6 +37,13 @@ VolumeModel (identity — logischer Container)
 - `Bounds` Abfragen müssen über VisualOutput gehen (nicht am Model)
 - Screenshot/Gizmo Tools müssen beide Transforms berücksichtigen
 
+## Implementation Details
+
+- `_visualOutput` is `[SerializeField]` — survives domain reload, serialized in prefab.
+- `EnsureVisualOutput()` lazily creates the wrapper if deserialized as null.
+- `OnValidate()` enforces identity rotation/scale on VolumeProcessor to prevent accidental misuse.
+- Gizmos use `Gizmos.matrix` to follow VisualOutput transform.
+
 ## Constraints
 
 VolumeModel bleibt **immer identity** rotated und scaled. Diese Invariante wird in der Pipeline vorausgesetzt:
@@ -45,8 +52,8 @@ VolumeModel bleibt **immer identity** rotated und scaled. Diese Invariante wird 
 - Chunk-Vertex-Generierung outputet world-space coordinates
 
 ## TODO
-- [ ] `VisualOutput` GameObject in `InitializePipeline()` erstellen
-- [ ] Chunks unter VisualOutput parenten statt direkt unter VolumeModel
-- [ ] `VolumeModel.visualOutput` serialisierbar machen (Editor-Persistenz)
-- [ ] Gizmos am VisualOutput zeichnen statt am Model
-- [ ] OnValidate/OnEnable: sicherstellen, dass User versehentliche Rotation am Model abgefangen werden
+- [x] `VisualOutput` GameObject in `InitializePipeline()` erstellen
+- [x] Chunks unter VisualOutput parenten statt direkt unter VolumeModel
+- [x] `_visualOutput` serialisierbar machen (Editor-Persistenz) + `EnsureVisualOutput()` Recovery
+- [x] Gizmos am VisualOutput zeichnen statt am Model
+- [x] OnValidate: sicherstellen, dass User versehentliche Rotation am Model abgefangen werden

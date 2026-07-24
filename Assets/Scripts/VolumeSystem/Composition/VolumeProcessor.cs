@@ -41,17 +41,28 @@ public class VolumeProcessor : MonoBehaviour
     private MeshRenderer _meshRenderer;
     private ChunkRenderManager _chunkRenderers;
     private Transform _chunksParent;
-    [SerializeField] private Transform _visualOutput; // ADR-001: User-facing rotation/scale wrapper
     private bool _initialized;
     private int _buildVersion;
     private Bounds _dirtyBoundsWorld;
     private bool _hasDirtyBounds;
     private Vector3 _lastPosition;
+    [SerializeField] private Transform _visualOutput; // ADR-001: User-facing rotation/scale wrapper (serialized for persistence)
 
     /// <summary>VisualOutput — user rotates/scales here, not the VolumeProcessor. See ADR-001.</summary>
-    public Transform VisualOutput => _visualOutput;
+    public Transform VisualOutput => EnsureVisualOutput();
 
-  // ---- Undo/Redo ----
+    private Transform EnsureVisualOutput()
+    {
+        if (_visualOutput == null)
+        {
+            GameObject voObj = new GameObject("VisualOutput");
+            voObj.transform.SetParent(transform, false);
+            _visualOutput = voObj.transform;
+        }
+        return _visualOutput;
+    }
+
+    // ---- Undo/Redo ----
     private CommandStack _commandStack;
 
     public CommandStack CommandStack
@@ -547,6 +558,10 @@ public class VolumeProcessor : MonoBehaviour
 
     private void OnDrawGizmos()
     {
+        // ADR-001: Draw gizmos relative to VisualOutput so they follow rotation/scale.
+        Transform vo = _visualOutput;
+        if (vo == null) return;
+
         // ADR-002: Show actual grid bounds from pipeline, not inspector default.
         Bounds volBounds;
         if (_pipeline != null)
@@ -563,6 +578,12 @@ public class VolumeProcessor : MonoBehaviour
         {
             volBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
         }
+
+        // Apply VisualOutput transform to gizmo positions
+        Gizmos.matrix = vo.localToWorldMatrix;
+        if (vo.parent != null)
+            Gizmos.matrix *= vo.parent.worldToLocalMatrix;
+
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.12f);
         Gizmos.DrawCube(volBounds.center, volBounds.size);
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.6f);
@@ -571,6 +592,17 @@ public class VolumeProcessor : MonoBehaviour
         Vector3 origin = volBounds.min;
         Gizmos.color = new Color(1f, 0.85f, 0f, 0.9f);
         Gizmos.DrawWireSphere(origin, volBounds.size.x * 0.04f);
+        Gizmos.matrix = Matrix4x4.identity;
+    }
+
+    /// <summary>ADR-001: Prevent accidental rotation/scale on the VolumeProcessor itself.</summary>
+    private void OnValidate()
+    {
+        // Enforce identity rotation and scale — VisualOutput owns these transforms.
+        if (transform.rotation != Quaternion.identity)
+            transform.rotation = Quaternion.identity;
+        if (transform.localScale != Vector3.one)
+            transform.localScale = Vector3.one;
     }
 
 #if UNITY_EDITOR
