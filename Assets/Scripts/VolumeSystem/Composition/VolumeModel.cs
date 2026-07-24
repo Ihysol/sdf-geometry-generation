@@ -35,11 +35,15 @@ public class VolumeModel : MonoBehaviour
     private MeshRenderer _meshRenderer;
     private ChunkRenderManager _chunkRenderers;
     private Transform _chunksParent;
+    [SerializeField] private Transform _visualOutput; // ADR-001: User-facing rotation/scale wrapper
     private bool _initialized;
     private int _buildVersion;
     private Bounds _dirtyBoundsWorld;
     private bool _hasDirtyBounds;
     private Vector3 _lastPosition;
+
+    /// <summary>VisualOutput — user rotates/scales here, not the VolumeModel. See ADR-001.</summary>
+    public Transform VisualOutput => _visualOutput;
 
 #if UNITY_EDITOR
     private bool _editorUpdateRegistered;
@@ -96,8 +100,14 @@ public class VolumeModel : MonoBehaviour
         _pipeline.Initialize(_meshOutput);
         _pipeline.SetBackend(computeBackend);
 
+        // ADR-001: Create visual output wrapper for user-facing rotation/scale.
+        // VolumeModel stays identity; _visualOutput handles all visual transforms.
+        GameObject voObj = new GameObject("VisualOutput");
+        voObj.transform.SetParent(transform, false);
+        _visualOutput = voObj.transform;
+
         _chunksParent = new GameObject("Chunks").transform;
-        _chunksParent.SetParent(transform, false);
+        _chunksParent.SetParent(_visualOutput, false);
 
         Vector3Int gridSize = _pipeline.Buffer.ChunkGridSize;
         _chunkRenderers = new ChunkRenderManager();
