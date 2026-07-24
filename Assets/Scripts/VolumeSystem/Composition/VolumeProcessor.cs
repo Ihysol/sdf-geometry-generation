@@ -434,6 +434,10 @@ public class VolumeProcessor : MonoBehaviour
             return;
         }
 
+        // ADR-002: Ensure grid is large enough before partial rebuild.
+        if (!CheckBoundsFit(composer))
+            return; // Resized — defer to next tick
+
         if (_hasDirtyBounds)
             _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
         else
