@@ -156,7 +156,7 @@ public class VolumeModel : MonoBehaviour
             _pipeline.Buffer.UpdateOrigin(_pipeline.Buffer.Layout.Origin + delta);
 
             // Every cell is now at a different world coordinate → full rebuild.
-            _hasDirtyBounds = false;
+            _hasDirtyBounds = false; _dirtyBoundsWorld = default;
             _pipeline.MarkDirty();
         }
     }
@@ -181,7 +181,7 @@ public class VolumeModel : MonoBehaviour
         else
             _pipeline.Rebuild(composer, isoLevel);
 
-        _hasDirtyBounds = false;
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
 
         // Partial: drain sync for instant feedback. Full: async via scheduler budgeting.
         if (isPartial)
@@ -276,7 +276,7 @@ public class VolumeModel : MonoBehaviour
 
         if (!_initialized) Initialize();
         _buildVersion++;
-        _hasDirtyBounds = false;
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
 
         Debug.Log($"[VolumeModel] RebuildModel called");
 
@@ -302,7 +302,10 @@ public class VolumeModel : MonoBehaviour
     public void MarkDirtyBounds(Bounds worldBounds)
     {
         _hasDirtyBounds = true;
-        _dirtyBoundsWorld = worldBounds;
+        if (_dirtyBoundsWorld.extents == Vector3.zero)
+            _dirtyBoundsWorld = worldBounds;
+        else
+            _dirtyBoundsWorld.Encapsulate(worldBounds);
 
         if (enablePipeline && _pipeline != null)
             _pipeline.MarkDirty();
@@ -321,7 +324,7 @@ public class VolumeModel : MonoBehaviour
 
         if (composer.objects.Count == 0)
         {
-            _hasDirtyBounds = false;
+            _hasDirtyBounds = false; _dirtyBoundsWorld = default;
             return;
         }
 
@@ -330,7 +333,7 @@ public class VolumeModel : MonoBehaviour
         else
             _pipeline.Rebuild(composer, isoLevel);
 
-        _hasDirtyBounds = false;
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
         DrainSync();
 
         Debug.Log($"[VolumeModel] RebuildDirty done");
