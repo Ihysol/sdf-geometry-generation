@@ -493,7 +493,22 @@ public class VolumeProcessor : MonoBehaviour
 
     private void OnDrawGizmos()
     {
-        Bounds volBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
+        // ADR-002: Show actual grid bounds from pipeline, not inspector default.
+        Bounds volBounds;
+        if (_pipeline != null)
+        {
+            var layout = _pipeline.Buffer.Layout;
+            Vector3 size = new Vector3(
+                layout.Resolution.x * layout.CellSize,
+                layout.Resolution.y * layout.CellSize,
+                layout.Resolution.z * layout.CellSize
+            );
+            volBounds = new Bounds(layout.Origin + size * 0.5f, size);
+        }
+        else
+        {
+            volBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
+        }
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.12f);
         Gizmos.DrawCube(volBounds.center, volBounds.size);
         Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.6f);
