@@ -517,7 +517,7 @@ public class VolumeProcessor : MonoBehaviour
 
         Vector3 origin = volBounds.min;
         Gizmos.color = new Color(1f, 0.85f, 0f, 0.9f);
-        Gizmos.DrawWireSphere(origin, boundsExtent * 0.04f);
+        Gizmos.DrawWireSphere(origin, volBounds.size.x * 0.04f);
     }
 
 #if UNITY_EDITOR
