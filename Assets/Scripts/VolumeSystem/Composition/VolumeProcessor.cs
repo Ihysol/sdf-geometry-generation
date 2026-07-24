@@ -266,6 +266,10 @@ public class VolumeProcessor : MonoBehaviour
         _chunkRenderers?.Dispose();
         _pipeline?.Dispose();
 
+        // Clear orphaned chunk children from the shared parent
+        for (int i = _chunksParent.childCount - 1; i >= 0; i--)
+            GameObject.DestroyImmediate(_chunksParent.GetChild(i).gameObject);
+
         // Rebuild pipeline with new layout
         IVolumeMesher mesher = MesherFactory.Create(pipelineMesherType);
         _pipeline = new VolumePipeline(newLayout, mesher);
