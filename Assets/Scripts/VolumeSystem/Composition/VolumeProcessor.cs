@@ -608,16 +608,6 @@ public class VolumeProcessor : MonoBehaviour
         Gizmos.matrix = Matrix4x4.identity;
     }
 
-    /// <summary>ADR-001: Prevent accidental rotation/scale on the VolumeProcessor itself.</summary>
-    private void OnValidate()
-    {
-        // Enforce identity rotation and scale — VisualOutput owns these transforms.
-        if (transform.rotation != Quaternion.identity)
-            transform.rotation = Quaternion.identity;
-        if (transform.localScale != Vector3.one)
-            transform.localScale = Vector3.one;
-    }
-
 #if UNITY_EDITOR
     private void OnEnable()
     {
