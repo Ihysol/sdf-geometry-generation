@@ -68,6 +68,10 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
 
     public CpuMeshData BuildChunkCpu(IVolumeBuffer buffer, ChunkCoord coord, MeshingContext context)
     {
+#if UNITY_EDITOR
+        double chunkStart = Time.realtimeSinceStartup * 1000.0;
+#endif
+
         DualContouringSettings settings = Settings;
         CpuMeshData mesh = new CpuMeshData(Allocator.Temp);
         VolumeLayout layout = buffer.Layout;
@@ -292,6 +296,13 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
         {
             if (_cellVertexIndex.IsCreated) _cellVertexIndex.Dispose();
         }
+
+#if UNITY_EDITOR
+        double chunkElapsed = (Time.realtimeSinceStartup * 1000.0) - chunkStart;
+        // Log only slow chunks (>1ms) to avoid console spam on empty chunks
+        if (chunkElapsed > 1.0)
+            Debug.LogWarning($"[Mesher] Chunk {coord}: {mesh.VertexCount}v/{mesh.IndexCount/3}t, {chunkElapsed:F1}ms");
+#endif
 
         return mesh;
     }

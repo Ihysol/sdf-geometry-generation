@@ -88,6 +88,19 @@ public class VolumeProcessor : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    private void OnValidate()
+    {
+        // ADR-001: Prevent accidental rotation/scale on the VolumeProcessor itself.
+        // User should rotate/scale _visualOutput, not this GameObject.
+        if (transform.rotation != Quaternion.identity || transform.localScale != Vector3.one)
+        {
+            Debug.LogWarning($"[VolumeProcessor] Rotation/Scale detected on '{name}'! " +
+                $"Per ADR-001, apply transforms to 'VisualOutput' child instead. Resetting now.");
+            transform.rotation = Quaternion.identity;
+            transform.localScale = Vector3.one;
+        }
+    }
+
     /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y.</summary>
     public void ProcessUndoRedo()
     {

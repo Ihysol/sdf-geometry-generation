@@ -19,7 +19,11 @@ public class InitialBufferBuilder
         var density = buffer.DensityCpu;
         var material = buffer.MaterialCpu;
 
+#if UNITY_EDITOR
         double buildStart = Time.realtimeSinceStartup * 1000.0;
+#else
+        double buildStart = 0;
+#endif
         int rx = _layout.Resolution.x;
         int ry = _layout.Resolution.y;
         int rz = _layout.Resolution.z;
@@ -55,9 +59,11 @@ public class InitialBufferBuilder
 
         buffer.SyncState = BufferSyncState.CpuDirty;
 
+#if UNITY_EDITOR
         double elapsed = (Time.realtimeSinceStartup * 1000.0) - buildStart;
         int totalCells = rx * ry * rz;
         Debug.Log($"[Buffer] Build complete: {totalCells} cells, {elapsed:F0}ms");
+#endif
     }
 
     public void BuildPartial(IVolumeSource source, IVolumeBuffer buffer, BoundsInt region)
@@ -67,6 +73,10 @@ public class InitialBufferBuilder
 
         var density = buffer.DensityCpu;
         var material = buffer.MaterialCpu;
+
+#if UNITY_EDITOR
+        double partialStart = Time.realtimeSinceStartup * 1000.0;
+#endif
 
         int rx = _layout.Resolution.x;
         int ry = _layout.Resolution.y;
@@ -112,6 +122,11 @@ public class InitialBufferBuilder
         }
 
         buffer.SyncState = BufferSyncState.CpuDirty;
+
+#if UNITY_EDITOR
+        double partialElapsed = (Time.realtimeSinceStartup * 1000.0) - partialStart;
+        Debug.Log($"[Buffer] BuildPartial complete: {region.size.x*region.size.y*region.size.z} cells, {partialElapsed:F1}ms");
+#endif
     }
 
     /// <summary>Burst-compiled full SDF sampling — replaces managed Build() for supported shapes.</summary>
@@ -119,6 +134,10 @@ public class InitialBufferBuilder
     {
         if (snapshot == null || buffer == null || snapshot.HasUnsupportedShapes)
             return;
+
+#if UNITY_EDITOR
+        double burstStart = Time.realtimeSinceStartup * 1000.0;
+#endif
 
         NativeArray<BurstShapeData> shapes = CreateBurstShapes(snapshot, Allocator.TempJob);
 
@@ -146,6 +165,11 @@ public class InitialBufferBuilder
         shapes.Dispose();
 
         buffer.SyncState = BufferSyncState.CpuDirty;
+
+#if UNITY_EDITOR
+        double burstElapsed = (Time.realtimeSinceStartup * 1000.0) - burstStart;
+        Debug.Log($"[Buffer] BuildBurst complete: {totalCells} cells, {burstElapsed:F1}ms");
+#endif
     }
 
     /// <summary>Burst-compiled partial SDF sampling — replaces managed BuildPartial() for supported shapes.</summary>
@@ -153,6 +177,10 @@ public class InitialBufferBuilder
     {
         if (snapshot == null || buffer == null || snapshot.HasUnsupportedShapes)
             return;
+
+#if UNITY_EDITOR
+        double burstPartialStart = Time.realtimeSinceStartup * 1000.0;
+#endif
 
         NativeArray<BurstShapeData> shapes = CreateBurstShapes(snapshot, Allocator.TempJob);
 
@@ -198,6 +226,11 @@ public class InitialBufferBuilder
         shapes.Dispose();
 
         buffer.SyncState = BufferSyncState.CpuDirty;
+
+#if UNITY_EDITOR
+        double burstPartialElapsed = (Time.realtimeSinceStartup * 1000.0) - burstPartialStart;
+        Debug.Log($"[Buffer] BuildPartialBurst complete: {regionCells} cells, {burstPartialElapsed:F1}ms");
+#endif
     }
 
     private NativeArray<BurstShapeData> CreateBurstShapes(SdfSceneSnapshot snapshot, Allocator allocator)
