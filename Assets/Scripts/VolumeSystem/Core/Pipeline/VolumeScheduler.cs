@@ -52,12 +52,18 @@ public class VolumeScheduler
     public void CollectPending()
     {
         // Purge stale entries first — metadata version is the source of truth
+        int staleCount = 0;
         for (int i = _pending.Count - 1; i >= 0; i--)
         {
             int currentVersion = _dirtyChunks.GetChunkVersion(_pending[i].Coord);
             if (_pending[i].Version != currentVersion)
+            {
                 _pending.RemoveAt(i);
+                staleCount++;
+            }
         }
+        // ADR-004: Counter-based reporting instead of per-entry Debug.LogWarning (zero-alloc hotpath)
+        _dirtyChunks.StaleEntriesSkipped += staleCount;
 
         if (!_dirtyChunks.HasPendingWork) return;
 
@@ -84,6 +90,7 @@ public class VolumeScheduler
         bool chunked = _mesher is IChunkVolumeMesher;
 
         int processed = 0;
+        int staleCount = 0;
         double startTime = Time.realtimeSinceStartup * 1000.0;
 
         while (_pending.Count > 0 && processed < MaxChunksPerFrame)
@@ -96,8 +103,9 @@ public class VolumeScheduler
             int currentVersion = _dirtyChunks.GetChunkVersion(entry.Coord);
             if (currentVersion != entry.Version)
             {
-                Debug.LogWarning($"[Scheduler] Skipping stale chunk {entry.Coord} (entry={entry.Version}, meta={currentVersion})");
+                // ADR-004: Skip stale, no Debug.LogWarning in hotpath — log once at end.
                 _pending.RemoveAt(0);
+                staleCount++;
                 continue;
             }
 
@@ -105,7 +113,6 @@ public class VolumeScheduler
             if (chunked && _chunkRenderers != null)
             {
                 chunkMesh = ((IChunkVolumeMesher)_mesher).BuildChunkCpu(_buffer, entry.Coord, context);
-                Debug.Log($"[Scheduler] Chunk {entry.Coord}: {chunkMesh.VertexCount} verts, {chunkMesh.IndexCount} indices");
                 _chunkRenderers.Apply(entry.Coord, chunkMesh);
             }
             else if (!chunked)
@@ -119,6 +126,13 @@ public class VolumeScheduler
             _pending.RemoveAt(0);
             _dirtyChunks.CompleteRemesh(entry.Coord);
             processed++;
+        }
+
+        // ADR-004: Report stale entries once per Tick() cycle instead of per-entry
+        if (staleCount > 0)
+        {
+            Debug.LogWarning($"[Scheduler] Skipped {staleCount} stale chunk(s) this frame");
+            _dirtyChunks.StaleEntriesSkipped += staleCount;
         }
 
         return processed;
@@ -153,6 +167,7 @@ public class VolumeScheduler
         }
         else
         {
+            int staleCount = 0;
             while (_pending.Count > 0)
             {
                 RemeshEntry entry = _pending[0];
@@ -161,6 +176,7 @@ public class VolumeScheduler
                 if (currentVersion != entry.Version)
                 {
                     _pending.RemoveAt(0);
+                    staleCount++;
                     continue;
                 }
 
@@ -171,6 +187,13 @@ public class VolumeScheduler
 
                 _pending.RemoveAt(0);
                 processed++;
+            }
+
+            // ADR-004: Counter-based stale reporting in TickAll path too
+            if (staleCount > 0)
+            {
+                Debug.LogWarning($"[Scheduler] Skipped {staleCount} stale chunk(s) in full drain");
+                _dirtyChunks.StaleEntriesSkipped += staleCount;
             }
         }
 

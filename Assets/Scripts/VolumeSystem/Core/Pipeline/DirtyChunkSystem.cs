@@ -14,6 +14,9 @@ public class DirtyChunkSystem
     public int QueueCount => _remeshQueue.Count;
     public bool HasPendingWork => _remeshQueue.Count > 0;
 
+    /// <summary>ADR-004: Stale entries skipped during last scheduler cycle (for counter-based logging).</summary>
+    public int StaleEntriesSkipped { get; private set; }
+
     public void Initialize(IVolumeBuffer buffer)
     {
         _buffer = buffer;
@@ -72,8 +75,14 @@ public class DirtyChunkSystem
         int idx = CoordToIndex(x, y, z);
         chunkVersion++;
 
-        // Always bump version — even if already queued, a re-dirty means the
-        // current queue entry is stale and needs the fresher version.
+        // ADR-004: If already queued, just bump the version — the existing queue entry
+        // will pick up the new version when validated. No duplicate push needed.
+        if (_states[idx] == DirtyState.MeshingQueued)
+        {
+            _versions[idx] = chunkVersion;
+            return;
+        }
+
         _states[idx] = DirtyState.MeshingQueued;
         _versions[idx] = chunkVersion;
         _remeshQueue.Add(new RemeshEntry(new ChunkCoord(x, y, z), 0, reason, chunkVersion));
@@ -82,6 +91,7 @@ public class DirtyChunkSystem
     public void MarkAllDirty(DirtyReason reason = DirtyReason.FullRebuild)
     {
         _remeshQueue.Clear();
+        StaleEntriesSkipped = 0;
 
         int total = _gridX * _gridY * _gridZ;
         for (int i = 0; i < total; i++)
@@ -116,6 +126,7 @@ public class DirtyChunkSystem
     {
         _remeshQueue.Clear();
         System.Array.Fill(_states, DirtyState.Clean);
+        StaleEntriesSkipped = 0;
     }
 
     public int GetChunkVersion(ChunkCoord coord)

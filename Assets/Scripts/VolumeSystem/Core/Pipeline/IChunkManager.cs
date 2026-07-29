@@ -10,6 +10,4 @@ public interface IChunkManager
     bool TryGetChunk(int cx, int cy, int cz, out VolumeChunk chunk);
     int GetChunkIndex(int cx, int cy, int cz);
     Vector3Int GetChunkCoords(Vector3Int cellIndex);
-
-    void IncrementChunkVersion(int cx, int cy, int cz);
 }

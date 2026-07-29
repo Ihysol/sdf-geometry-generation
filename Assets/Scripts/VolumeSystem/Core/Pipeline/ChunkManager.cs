@@ -28,8 +28,7 @@ public class ChunkManager : IChunkManager
             _chunks[0] = new VolumeChunk
             {
                 ChunkIndex = Vector3Int.zero,
-                CellBounds = new BoundsInt(0, 0, 0, _layout.Resolution.x, _layout.Resolution.y, _layout.Resolution.z),
-                Version = 0
+                CellBounds = new BoundsInt(0, 0, 0, _layout.Resolution.x, _layout.Resolution.y, _layout.Resolution.z)
             };
             return;
         }
@@ -63,8 +62,7 @@ public class ChunkManager : IChunkManager
                     _chunks[index] = new VolumeChunk
                     {
                         ChunkIndex = chunkIndex,
-                        CellBounds = new BoundsInt(minX, minY, minZ, maxX - minX, maxY - minY, maxZ - minZ),
-                        Version = 0
+                        CellBounds = new BoundsInt(minX, minY, minZ, maxX - minX, maxY - minY, maxZ - minZ)
                     };
                 }
             }
@@ -101,26 +99,6 @@ public class ChunkManager : IChunkManager
             Mathf.FloorToInt(cellIndex.y / chunkSize),
             Mathf.FloorToInt(cellIndex.z / chunkSize)
         );
-    }
-
-    public void IncrementChunkVersion(int cx, int cy, int cz)
-    {
-        if (!IsValid(cx, cy, cz)) return;
-        int idx = GetFlattenedIndex(cx, cy, cz);
-        var chunk = _chunks[idx];
-        chunk.Version++;
-        _chunks[idx] = chunk;
-    }
-
-    public void ResetAllVersions()
-    {
-        if (_chunks == null) return;
-        for (int i = 0; i < _chunks.Length; i++)
-        {
-            var chunk = _chunks[i];
-            chunk.Version = 0;
-            _chunks[i] = chunk;
-        }
     }
 
     public bool IsValid(int cx, int cy, int cz)
