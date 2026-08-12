@@ -6,12 +6,18 @@ public class AddObjectCommand : ICommand
     private readonly VolumeProcessor _processor;
     private readonly int _insertIndex;
     private readonly GameObject _gameObject;
+    private readonly Bounds _affectedBounds;
 
-    public AddObjectCommand(VolumeProcessor processor, int insertIndex, GameObject gameObject)
+    public AddObjectCommand(
+        VolumeProcessor processor,
+        int insertIndex,
+        GameObject gameObject,
+        Bounds affectedBounds = default)
     {
         _processor = processor;
         _insertIndex = insertIndex;
         _gameObject = gameObject;
+        _affectedBounds = affectedBounds;
     }
 
     public void Execute()
@@ -31,7 +37,7 @@ public class AddObjectCommand : ICommand
         Object.DestroyImmediate(_gameObject);
     }
 
-    public Bounds AffectedBounds => default;
+    public Bounds AffectedBounds => _affectedBounds;
 }
 
 /// <summary>Undo for removing a VolumeObject from the scene.</summary>

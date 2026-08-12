@@ -71,6 +71,107 @@ public class VolumeProcessorAddObjectTests
     }
 
     [Test]
+    public void RebuildDirty_AfterAutoExpand_DoesNotResizeAgainForSmallMove()
+    {
+        _processor.autoExpand = true;
+        _processor.expandPaddingFactor = 1.25f;
+        _processor.Initialize();
+
+        VolumeObject moving = CreateObject(new Vector3(1.5f, 0f, 0f));
+        _processor.RebuildModel();
+
+        VolumePipeline expandedPipeline = _processor.Pipeline;
+        VolumeLayout expandedLayout = expandedPipeline.Buffer.Layout;
+
+        Bounds previousBounds = moving.GetEstimatedLocalBounds();
+        moving.transform.localPosition += new Vector3(0.05f, 0f, 0f);
+        Bounds currentBounds = moving.GetEstimatedLocalBounds();
+        previousBounds.Encapsulate(currentBounds);
+
+        _processor.MarkDirtyBounds(previousBounds);
+        _processor.RebuildDirty();
+
+        Assert.That(_processor.Pipeline, Is.SameAs(expandedPipeline),
+            "A small move inside the auto-expand reserve must stay on the partial rebuild path.");
+        Assert.That(_processor.Pipeline.Buffer.Layout.Origin, Is.EqualTo(expandedLayout.Origin));
+        Assert.That(_processor.Pipeline.Buffer.Layout.CellSize, Is.EqualTo(expandedLayout.CellSize));
+    }
+
+    [Test]
+    public void RebuildDirty_ForSmallMove_RemeshesFewerThanAllChunks()
+    {
+        _processor.autoExpand = false;
+        _processor.resolution = new Vector3Int(64, 64, 64);
+        _processor.chunkSize = 8;
+        _processor.boundsExtent = 8f;
+        _processor.Initialize();
+
+        VolumeObject moving = CreateObject(Vector3.zero);
+        moving.sphereRadius = 0.25f;
+        _processor.RebuildModel();
+
+        VolumePipeline pipeline = _processor.Pipeline;
+        IVolumeBuffer buffer = pipeline.Buffer;
+        Bounds previousBounds = moving.GetEstimatedLocalBounds();
+        moving.transform.localPosition += new Vector3(0.1f, 0f, 0f);
+        Bounds currentBounds = moving.GetEstimatedLocalBounds();
+        previousBounds.Encapsulate(currentBounds);
+
+        _processor.MarkDirtyBounds(previousBounds);
+        _processor.RebuildDirty();
+
+        Assert.That(_processor.Pipeline, Is.SameAs(pipeline));
+        Assert.That(_processor.Pipeline.Buffer, Is.SameAs(buffer));
+        Assert.That(_processor.LastRebuildWasPartial, Is.True);
+        Assert.That(_processor.LastRemeshedChunkCount, Is.GreaterThan(0));
+        Assert.That(_processor.LastRemeshedChunkCount, Is.LessThan(buffer.TotalChunks));
+    }
+
+    [Test]
+    public void AddObject_WhenBufferAlreadyExists_UsesPartialRebuild()
+    {
+        _processor.autoExpand = false;
+        _processor.resolution = new Vector3Int(64, 64, 64);
+        _processor.chunkSize = 8;
+        _processor.boundsExtent = 8f;
+        _processor.Initialize();
+
+        _processor.AddObject(VolumeShapeType.Sphere, VolumeOperationRole.Add);
+        VolumePipeline pipeline = _processor.Pipeline;
+        IVolumeBuffer buffer = pipeline.Buffer;
+        int versionBeforeSecondAdd = _processor.BuildVersion;
+
+        _processor.AddObject(VolumeShapeType.Sphere, VolumeOperationRole.Add);
+
+        Assert.That(_processor.Pipeline, Is.SameAs(pipeline));
+        Assert.That(_processor.Pipeline.Buffer, Is.SameAs(buffer));
+        Assert.That(_processor.BuildVersion, Is.EqualTo(versionBeforeSecondAdd + 1));
+        Assert.That(_processor.LastRebuildWasPartial, Is.True);
+        Assert.That(_processor.LastRemeshedChunkCount, Is.GreaterThan(0));
+        Assert.That(_processor.LastRemeshedChunkCount, Is.LessThan(buffer.TotalChunks));
+        Assert.That(_registry.objects, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void AddIntersectObject_WhenBufferAlreadyExists_UsesFullRebuild()
+    {
+        _processor.autoExpand = false;
+        _processor.resolution = new Vector3Int(32, 32, 32);
+        _processor.chunkSize = 8;
+        _processor.boundsExtent = 8f;
+        _processor.Initialize();
+
+        _processor.AddObject(VolumeShapeType.Sphere, VolumeOperationRole.Add);
+        IVolumeBuffer buffer = _processor.Pipeline.Buffer;
+
+        _processor.AddObject(VolumeShapeType.Sphere, VolumeOperationRole.Intersect);
+
+        Assert.That(_processor.Pipeline.Buffer, Is.SameAs(buffer));
+        Assert.That(_processor.LastRebuildWasPartial, Is.False);
+        Assert.That(_processor.LastRemeshedChunkCount, Is.EqualTo(buffer.TotalChunks));
+    }
+
+    [Test]
     public void AddObject_PerformsExactlyOneRebuild()
     {
         _processor.autoExpand = true;

@@ -45,6 +45,8 @@ public class VolumeProcessor : MonoBehaviour
     private int _buildVersion;
     private Bounds _dirtyBoundsWorld;
     private bool _hasDirtyBounds;
+    private bool _lastRebuildWasPartial;
+    private int _lastRemeshedChunkCount;
     private Vector3 _lastPosition;
     [SerializeField] private Transform _visualOutput; // ADR-001: User-facing rotation/scale wrapper (serialized for persistence)
 
@@ -249,11 +251,14 @@ public class VolumeProcessor : MonoBehaviour
         // Partial: drain sync for instant feedback. Full: async via scheduler budgeting.
         if (isPartial)
         {
-            DrainSync();
+            _lastRebuildWasPartial = true;
+            _lastRemeshedChunkCount = DrainSync();
             Debug.Log($"[VolumeProcessor] RebuildPipeline (partial) done");
         }
         else
         {
+            _lastRebuildWasPartial = false;
+            _lastRemeshedChunkCount = 0;
             Debug.Log($"[VolumeProcessor] RebuildPipeline (full) queued, pending={_pipeline.Scheduler.PendingCount}");
         }
     }
@@ -264,9 +269,6 @@ public class VolumeProcessor : MonoBehaviour
         Bounds total = composer.GetTotalBounds();
         if (total.extents == Vector3.zero)
             return true; // No objects to check
-
-        // Expand bounds by padding factor
-        total.Expand(total.size.x * (expandPaddingFactor - 1f));
 
         // Current grid bounds in world space
         VolumeLayout layout = _pipeline.Buffer.Layout;
@@ -299,8 +301,11 @@ public class VolumeProcessor : MonoBehaviour
     {
         VolumeLayout oldLayout = _pipeline.Buffer.Layout;
 
-        // Compute new layout that fits the required bounds
-        float extent = Mathf.Max(requiredBounds.size.x, Mathf.Max(requiredBounds.size.y, requiredBounds.size.z));
+        // Reserve movement headroom only when allocating a new grid. Checking the
+        // unpadded bounds above prevents tiny moves from repeatedly reallocating it.
+        float padding = Mathf.Max(1f, expandPaddingFactor);
+        Vector3 paddedSize = requiredBounds.size * padding;
+        float extent = Mathf.Max(paddedSize.x, Mathf.Max(paddedSize.y, paddedSize.z));
         Vector3 center = requiredBounds.center;
 
         Bounds newBounds = new Bounds(center, new Vector3(extent, extent, extent));
@@ -391,7 +396,22 @@ public class VolumeProcessor : MonoBehaviour
         if (composer != null && !composer.objects.Contains(vo))
             composer.objects.Add(vo);
 
-        CommandStack.Push(new AddObjectCommand(this, composer?.objects.Count - 1 ?? 0, child));
+        bool canRebuildPartially =
+            _initialized &&
+            _pipeline != null &&
+            composer != null &&
+            composer.objects.Count > 1 &&
+            role != VolumeOperationRole.Intersect;
+
+        Bounds affectedBounds = canRebuildPartially ? vo.GetBounds() : default;
+        CommandStack.Push(new AddObjectCommand(
+            this,
+            composer?.objects.Count - 1 ?? 0,
+            child,
+            affectedBounds));
+
+        if (canRebuildPartially)
+            RebuildDirty();
 
         Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
     }
@@ -462,7 +482,8 @@ public class VolumeProcessor : MonoBehaviour
             return;
 
         _pipeline.Rebuild(composer, isoLevel);
-        DrainSync();
+        _lastRebuildWasPartial = false;
+        _lastRemeshedChunkCount = DrainSync();
 
         double elapsed = (Time.realtimeSinceStartup * 1000.0) - start;
         Debug.Log($"[VolumeProcessor] RebuildModel done: {elapsed:F0}ms");
@@ -486,6 +507,8 @@ public class VolumeProcessor : MonoBehaviour
         if (!_initialized) Initialize();
         if (_pipeline == null || !enablePipeline) return;
 
+        _buildVersion++;
+
         VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         if (composer == null) return;
 
@@ -501,29 +524,34 @@ public class VolumeProcessor : MonoBehaviour
         if (!CheckBoundsFit(composer))
             return;
 
-        if (_hasDirtyBounds)
+        bool isPartial = _hasDirtyBounds;
+        if (isPartial)
             _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
         else
             _pipeline.Rebuild(composer, isoLevel);
 
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
-        DrainSync();
+        _lastRebuildWasPartial = isPartial;
+        _lastRemeshedChunkCount = DrainSync();
 
         Debug.Log($"[VolumeProcessor] RebuildDirty done");
     }
 
     /// <summary>Drain all pending meshing synchronously (bypasses frame budget).</summary>
-    private void DrainSync()
+    private int DrainSync()
     {
         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
         _pipeline.Scheduler.UseTimeBudget = false;
-        _pipeline.TickScheduler();
+        int processed = _pipeline.TickScheduler();
         _pipeline.Scheduler.UseTimeBudget = true;
+        return processed;
     }
 
     public VolumePipeline Pipeline => _pipeline;
     public bool Initialized => _initialized;
     public int BuildVersion => _buildVersion;
+    public bool LastRebuildWasPartial => _lastRebuildWasPartial;
+    public int LastRemeshedChunkCount => _lastRemeshedChunkCount;
 
     // ---- Legacy stubs ----
     public bool ShouldUseInteractionPreview() => false;
