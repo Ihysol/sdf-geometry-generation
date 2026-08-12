@@ -16,6 +16,62 @@ A single signed distance field primitive (sphere, box, torus, hyperboloid) or cu
 ### SDF Snapshot
 An immutable point-in-time capture of all volume objects and their transforms. Used as the read-only input for both CPU and Burst-compiled sampling paths. A new snapshot is built on every dirty event — there is no incremental diffing.
 
+### Authoring Composition
+The non-destructive definition of movable volume objects, their transforms, and boolean relationships. It is authoritative for object-level editing and can be sampled repeatedly without losing object identity.
+_Avoid_: Source scene, object buffer
+
+### Persistent Edit Layer
+The ordered set of replayable volume edits applied after sampling the Authoring Composition. It preserves destructive changes such as carving or painting across rebuilds of the underlying composition.
+_Avoid_: Runtime buffer, temporary edits
+
+### Persistent Edit Operation
+A semantic, ordered edit such as carving, filling, smoothing, or painting that can be replayed over a resampled region. Operations retain intent and form the recent, editable portion of the Persistent Edit Layer.
+_Avoid_: Scene command, mesh edit
+
+### Edit Checkpoint
+A materialized per-chunk snapshot of accumulated persistent edits used to bound replay cost. Operations newer than the checkpoint are replayed in order over it.
+_Avoid_: Savegame, full volume snapshot
+
+### Edit Transaction
+One logical user edit that may contain many ordered Persistent Edit Operations, such as all samples in a brush stroke. It is the unit committed to Edit History and reversed by a single undo action.
+_Avoid_: Frame update, individual brush sample
+
+### Edit History
+The undoable sequence of committed Edit Transactions that belongs to the Persistent Edit Layer. It is separate from Unity Undo, which owns Authoring Composition changes.
+_Avoid_: Unity Undo, command stack
+
+### Effective Volume
+The materialized volume state produced by sampling the Authoring Composition and applying the Persistent Edit Layer. Meshers and outputs read this state; they do not define or own it.
+_Avoid_: Mesh state, source of truth
+
+### Meshing Mode
+The independently selectable strategy that converts the Effective Volume into geometric data, such as Voxel, Greedy Voxel, Marching Cubes, Surface Nets, or Dual Contouring. It does not determine how that geometry is published or rendered.
+_Avoid_: Renderer, output mode
+
+### Output Mode
+The independently selectable strategy that publishes generated geometry or volume data, such as Unity Mesh, Procedural Draw, Raymarch Volume, or Debug output. It does not determine how surface geometry is extracted.
+_Avoid_: Mesher, meshing mode
+
+### Direct Volume Output
+An Output Mode that reads the Effective Volume directly without requesting surface extraction. Raymarching is a Direct Volume Output; the configured Meshing Mode remains selected but inactive while this output is used.
+_Avoid_: Mesher, raymarch meshing
+
+### Working Buffer
+The mutable, chunked materialization of the Effective Volume used for interactive operations, dirty-region updates, and meshing. Its initial implementation is a Chunked Flat Volume Buffer; it is not a persistence format.
+_Avoid_: Save format, sparse DAG
+
+### Volume View
+A storage-independent, read-only or writable view of volume channels and regions used at subsystem boundaries. It describes available data without exposing a concrete global array, GPU buffer, or persistence layout.
+_Avoid_: NativeArray buffer, job view
+
+### Volume Job View
+A short-lived, backend-specific struct view that exposes contiguous native data required by Burst jobs or other hot paths. It is derived from a Working Buffer or active chunk cache and is not the public storage contract.
+_Avoid_: Volume buffer interface, persistent view
+
+### Persistence Backend
+A storage, compression, or streaming representation that imports data into and exports data from the Working Buffer. A Sparse Voxel DAG belongs to this role and is not mutated directly by normal interactive edits.
+_Avoid_: Working buffer, meshing backend
+
 ### Dirty Region
 The minimal world-space AABB that covers geometry changes since the last rebuild. Encapsulates multiple object moves within a single frame to avoid undersampling. Translated to grid cell indices, then expanded to chunk boundaries + one-face neighbour padding before sampling.
 

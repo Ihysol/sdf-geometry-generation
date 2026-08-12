@@ -193,7 +193,7 @@ public class VolumeProcessor : MonoBehaviour
             _pipeline.Scheduler.UseTimeBudget = true;
 
             if (_pipeline.Scheduler.HasPendingWork)
-                _pipeline.TickScheduler();
+                TickScheduler();
 
             if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
                 RebuildPipeline();
@@ -248,12 +248,12 @@ public class VolumeProcessor : MonoBehaviour
 
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
 
-        // Partial: drain sync for instant feedback. Full: async via scheduler budgeting.
+        // Both partial and full meshing are processed by budgeted scheduler ticks.
         if (isPartial)
         {
             _lastRebuildWasPartial = true;
-            _lastRemeshedChunkCount = DrainSync();
-            Debug.Log($"[VolumeProcessor] RebuildPipeline (partial) done");
+            _lastRemeshedChunkCount = 0;
+            Debug.Log($"[VolumeProcessor] RebuildPipeline (partial) queued, pending={_pipeline.Scheduler.PendingCount}");
         }
         else
         {
@@ -372,7 +372,13 @@ public class VolumeProcessor : MonoBehaviour
         _initialized = false;
     }
 
-    public void TickScheduler() => _pipeline?.TickScheduler();
+    public int TickScheduler()
+    {
+        if (_pipeline == null) return 0;
+        int processed = _pipeline.TickScheduler();
+        _lastRemeshedChunkCount += processed;
+        return processed;
+    }
 
     public void ExecuteOperation(IVolumeOperation operation)
     {
@@ -501,7 +507,10 @@ public class VolumeProcessor : MonoBehaviour
             _pipeline.MarkDirty();
     }
 
-    /// <summary>Synchronous partial rebuild using current dirty bounds.</summary>
+    /// <summary>
+    /// Resamples the dirty SDF region synchronously, then queues chunk meshing for
+    /// budgeted editor/runtime ticks so interaction remains responsive.
+    /// </summary>
     public void RebuildDirty()
     {
         if (!_initialized) Initialize();
@@ -532,12 +541,12 @@ public class VolumeProcessor : MonoBehaviour
 
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
         _lastRebuildWasPartial = isPartial;
-        _lastRemeshedChunkCount = DrainSync();
+        _lastRemeshedChunkCount = 0;
 
-        Debug.Log($"[VolumeProcessor] RebuildDirty done");
+        Debug.Log($"[VolumeProcessor] RebuildDirty queued, pending={_pipeline.Scheduler.PendingCount}");
     }
 
-    /// <summary>Drain all pending meshing synchronously (bypasses frame budget).</summary>
+    /// <summary>Drain all pending meshing for explicit synchronous full rebuilds.</summary>
     private int DrainSync()
     {
         _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
@@ -671,7 +680,7 @@ public class VolumeProcessor : MonoBehaviour
         _pipeline.Scheduler.UseTimeBudget = true;
 
         if (_pipeline.Scheduler.HasPendingWork)
-            _pipeline.TickScheduler();
+            TickScheduler();
 
         if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
             RebuildPipeline();

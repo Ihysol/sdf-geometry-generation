@@ -1,6 +1,6 @@
 # ADR-003: Undo/Redo via Unity's Built-in Undo API
 
-**Status:** Accepted
+**Status:** Superseded in part by ADR-007
 **Date:** 2026-07-24
 
 ## Context
@@ -55,7 +55,7 @@ Unity's API already covers our cases:
 
 - No custom command stack / IRevoke pattern
 - No grid snapshots per step (64MB+ per snapshot at 128³)
-- No Undo for Pipeline-internal operations (Smooth, Paint — these are destructive by design)
+- Pipeline-internal operations were originally treated as destructive without Undo. ADR-007 supersedes this for Persistent Edit Operations while retaining Unity Undo for Authoring Composition changes.
 
 ## Consequences
 

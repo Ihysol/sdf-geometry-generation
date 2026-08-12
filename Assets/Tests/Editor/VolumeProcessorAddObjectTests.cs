@@ -98,6 +98,43 @@ public class VolumeProcessorAddObjectTests
     }
 
     [Test]
+    public void RebuildDirty_QueuesMeshingForBudgetedTicks()
+    {
+        _processor.autoExpand = false;
+        _processor.resolution = new Vector3Int(64, 64, 64);
+        _processor.chunkSize = 8;
+        _processor.boundsExtent = 8f;
+        _processor.Initialize();
+
+        VolumeObject moving = CreateObject(Vector3.zero);
+        moving.sphereRadius = 0.25f;
+        _processor.RebuildModel();
+        while (_processor.Pipeline.Scheduler.HasPendingWork)
+            _processor.Pipeline.Scheduler.TickAll();
+
+        Bounds dirtyBounds = moving.GetEstimatedLocalBounds();
+        moving.transform.localPosition += new Vector3(0.1f, 0f, 0f);
+        dirtyBounds.Encapsulate(moving.GetEstimatedLocalBounds());
+
+        _processor.MarkDirtyBounds(dirtyBounds);
+        _processor.RebuildDirty();
+
+        Assert.That(_processor.LastRemeshedChunkCount, Is.Zero,
+            "Interactive rebuild must not synchronously mesh chunks.");
+        Assert.That(_processor.Pipeline.Scheduler.PendingCount, Is.GreaterThan(1));
+
+        int pendingBeforeTick = _processor.Pipeline.Scheduler.PendingCount;
+        _processor.Pipeline.Scheduler.MaxChunksPerFrame = 1;
+        _processor.Pipeline.Scheduler.UseTimeBudget = false;
+        int processed = _processor.TickScheduler();
+
+        Assert.That(processed, Is.EqualTo(1));
+        Assert.That(_processor.LastRemeshedChunkCount, Is.EqualTo(1));
+        Assert.That(_processor.Pipeline.Scheduler.PendingCount, Is.LessThan(pendingBeforeTick));
+        Assert.That(_processor.Pipeline.Scheduler.HasPendingWork, Is.True);
+    }
+
+    [Test]
     public void RebuildDirty_ForSmallMove_RemeshesFewerThanAllChunks()
     {
         _processor.autoExpand = false;
@@ -123,8 +160,9 @@ public class VolumeProcessorAddObjectTests
         Assert.That(_processor.Pipeline, Is.SameAs(pipeline));
         Assert.That(_processor.Pipeline.Buffer, Is.SameAs(buffer));
         Assert.That(_processor.LastRebuildWasPartial, Is.True);
-        Assert.That(_processor.LastRemeshedChunkCount, Is.GreaterThan(0));
-        Assert.That(_processor.LastRemeshedChunkCount, Is.LessThan(buffer.TotalChunks));
+        Assert.That(_processor.LastRemeshedChunkCount, Is.Zero);
+        Assert.That(_processor.Pipeline.Scheduler.PendingCount, Is.GreaterThan(0));
+        Assert.That(_processor.Pipeline.Scheduler.PendingCount, Is.LessThan(buffer.TotalChunks));
     }
 
     [Test]
@@ -147,8 +185,9 @@ public class VolumeProcessorAddObjectTests
         Assert.That(_processor.Pipeline.Buffer, Is.SameAs(buffer));
         Assert.That(_processor.BuildVersion, Is.EqualTo(versionBeforeSecondAdd + 1));
         Assert.That(_processor.LastRebuildWasPartial, Is.True);
-        Assert.That(_processor.LastRemeshedChunkCount, Is.GreaterThan(0));
-        Assert.That(_processor.LastRemeshedChunkCount, Is.LessThan(buffer.TotalChunks));
+        Assert.That(_processor.LastRemeshedChunkCount, Is.Zero);
+        Assert.That(_processor.Pipeline.Scheduler.PendingCount, Is.GreaterThan(0));
+        Assert.That(_processor.Pipeline.Scheduler.PendingCount, Is.LessThan(buffer.TotalChunks));
         Assert.That(_registry.objects, Has.Count.EqualTo(2));
     }
 
