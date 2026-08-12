@@ -70,26 +70,25 @@ public class DirtyChunkSystem
     private void MarkChunk(int x, int y, int z, DirtyReason reason)
     {
         int idx = CoordToIndex(x, y, z);
-        if (_states[idx] != DirtyState.MeshingQueued)
-        {
-            chunkVersion++;
-            _states[idx] = DirtyState.MeshingQueued;
-            _versions[idx] = chunkVersion;
-            _remeshQueue.Add(new RemeshEntry(new ChunkCoord(x, y, z), 0, reason, chunkVersion));
-        }
+        chunkVersion++;
+
+        // Always bump version — even if already queued, a re-dirty means the
+        // current queue entry is stale and needs the fresher version.
+        _states[idx] = DirtyState.MeshingQueued;
+        _versions[idx] = chunkVersion;
+        _remeshQueue.Add(new RemeshEntry(new ChunkCoord(x, y, z), 0, reason, chunkVersion));
     }
 
     public void MarkAllDirty(DirtyReason reason = DirtyReason.FullRebuild)
     {
         _remeshQueue.Clear();
-        chunkVersion++;
 
         int total = _gridX * _gridY * _gridZ;
         for (int i = 0; i < total; i++)
         {
+            chunkVersion++; // Unique version per chunk — prevents stale check collision if re-dirtied during tick.
             _states[i] = DirtyState.MeshingQueued;
             _versions[i] = chunkVersion;
-            // Decode index back to coord
             int temp = i;
             int z = temp / (_gridX * _gridY);
             temp %= (_gridX * _gridY);

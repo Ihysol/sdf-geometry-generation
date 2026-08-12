@@ -1,8 +1,8 @@
 ﻿using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(VolumeModel))]
-public class VolumeModelEditor : Editor
+[CustomEditor(typeof(VolumeProcessor))]
+public class VolumeProcessorEditor : Editor
 {
     private bool _showPipeline = true;
     private bool _showObjects = true;
@@ -18,7 +18,7 @@ public class VolumeModelEditor : Editor
     {
         serializedObject.Update();
 
-        VolumeModel model = (VolumeModel)target;
+        VolumeProcessor model = (VolumeProcessor)target;
         EditorGUI.BeginChangeCheck();
 
         DrawPipelineSection(model);
@@ -37,9 +37,12 @@ public class VolumeModelEditor : Editor
         }
 
         serializedObject.ApplyModifiedProperties();
+
+        // Handle Ctrl+Z / Ctrl+Y keyboard shortcuts
+        HandleUndoRedoShortcuts(model);
     }
 
-    private void DrawPipelineSection(VolumeModel model)
+    private void DrawPipelineSection(VolumeProcessor model)
     {
         _showPipeline = EditorGUILayout.Foldout(_showPipeline, "Pipeline", true);
         if (!_showPipeline) return;
@@ -63,6 +66,16 @@ public class VolumeModelEditor : Editor
         model.resolution = EditorGUILayout.Vector3IntField("Resolution", model.resolution);
         model.chunkSize = EditorGUILayout.IntField("Chunk Size", Mathf.Max(1, model.chunkSize));
         model.boundsExtent = EditorGUILayout.FloatField("Bounds Extent", Mathf.Max(0.1f, model.boundsExtent));
+        model.autoExpand = EditorGUILayout.Toggle("Auto Expand", model.autoExpand);
+        if (!model.autoExpand)
+        {
+            EditorGUILayout.HelpBox(
+                "Objects outside Bounds Extent are not rebuilt. Existing geometry is preserved until the bounds are enlarged or Auto Expand is enabled.",
+                MessageType.Info);
+        }
+        model.expandPaddingFactor = EditorGUILayout.FloatField(
+            "Expand Padding Factor",
+            Mathf.Max(1f, model.expandPaddingFactor));
 
         EditorGUILayout.Space(4);
         EditorGUILayout.LabelField("Meshing", EditorStyles.boldLabel);
@@ -106,7 +119,7 @@ public class VolumeModelEditor : Editor
         }
     }
 
-    private void ExecuteOp(VolumeModel model, IVolumeOperation op)
+    private void ExecuteOp(VolumeProcessor model, IVolumeOperation op)
     {
         if (!model.enablePipeline || !model.Initialized)
             model.Initialize();
@@ -115,7 +128,7 @@ public class VolumeModelEditor : Editor
         EditorUtility.SetDirty(model);
     }
 
-    private void DrawObjectsSection(VolumeModel model)
+    private void DrawObjectsSection(VolumeProcessor model)
     {
         _showObjects = EditorGUILayout.Foldout(_showObjects, "Objects", true);
         if (!_showObjects) return;
@@ -131,15 +144,13 @@ public class VolumeModelEditor : Editor
         if (GUILayout.Button("Add Object", GUILayout.Height(30)))
         {
             serializedObject.ApplyModifiedProperties();
-            Undo.RecordObject(model, "Add SDF Object");
-            model.AddSelectedObject();
+            model.AddSelectedObject(); // Pushes command internally
             EditorUtility.SetDirty(model);
         }
         if (GUILayout.Button("Remove Last", GUILayout.Height(30)))
         {
             serializedObject.ApplyModifiedProperties();
-            Undo.RecordObject(model, "Remove Last SDF Object");
-            model.RemoveLastObject();
+            model.RemoveLastObject(); // Pushes command internally
             EditorUtility.SetDirty(model);
         }
         EditorGUILayout.EndHorizontal();
@@ -151,14 +162,64 @@ public class VolumeModelEditor : Editor
         if (GUILayout.Button("Clear All Objects", GUILayout.Height(35)))
         {
             serializedObject.ApplyModifiedProperties();
-            Undo.RecordObject(model, "Clear SDF Objects");
             model.ClearObjects();
             EditorUtility.SetDirty(model);
         }
         GUI.backgroundColor = oldColor;
+
+        // Undo/Redo buttons + status
+        EditorGUILayout.Space(8);
+        DrawUndoRedoBar(model);
     }
 
-    private void DrawDebugSection(VolumeModel model)
+    private void DrawUndoRedoBar(VolumeProcessor model)
+    {
+        var stack = model.CommandStack;
+        EditorGUILayout.BeginHorizontal();
+
+        GUI.enabled = stack.CanUndo;
+        if (GUILayout.Button("Undo", GUILayout.Height(24)))
+            stack.Undo();
+
+        GUILayout.FlexibleSpace();
+
+        GUI.enabled = stack.CanRedo;
+        if (GUILayout.Button("Redo", GUILayout.Height(24)))
+            stack.Redo();
+
+        GUILayout.Label($"Stack: {stack.UndoCount} undo, {stack.RedoCount} redo", GUILayout.Width(130));
+
+        GUI.enabled = true;
+        EditorGUILayout.EndHorizontal();
+    }
+
+    /// <summary>Handle Ctrl+Z / Ctrl+Y keyboard shortcuts in the inspector.</summary>
+    private void HandleUndoRedoShortcuts(VolumeProcessor model)
+    {
+        Event e = Event.current;
+        if (e.type == EventType.ValidateCommand && e.commandName == "UndoRedoPerformed")
+        {
+            // Unity's native undo triggered — rebuild pipeline to reflect reverted state.
+            model.RebuildModel();
+        }
+
+        // Custom Ctrl+Z / Ctrl+Y for our CommandStack
+        if (e.type == EventType.KeyDown && e.control)
+        {
+            if (e.keyCode == KeyCode.Z)
+            {
+                if (model.CommandStack.Undo())
+                    e.Use();
+            }
+            else if (e.keyCode == KeyCode.Y)
+            {
+                if (model.CommandStack.Redo())
+                    e.Use();
+            }
+        }
+    }
+
+    private void DrawDebugSection(VolumeProcessor model)
     {
         _showDebug = EditorGUILayout.Foldout(_showDebug, "Debug", true);
         if (!_showDebug) return;
@@ -169,9 +230,12 @@ public class VolumeModelEditor : Editor
         model.rebuildOnMoveRelease = EditorGUILayout.Toggle("Rebuild On Move Release", model.rebuildOnMoveRelease);
         if (model.rebuildOnMoveRelease)
             model.moveReleaseDelaySeconds = EditorGUILayout.FloatField("Move Release Delay (s)", Mathf.Max(0f, model.moveReleaseDelaySeconds));
+
+        var stack = model.CommandStack;
+        EditorGUILayout.LabelField($"Command Stack: {stack.UndoCount} undo / {stack.RedoCount} redo");
     }
 
-    private void DrawRebuildButton(VolumeModel model)
+    private void DrawRebuildButton(VolumeProcessor model)
     {
         if (GUILayout.Button("Rebuild Model", GUILayout.Height(30)))
         {

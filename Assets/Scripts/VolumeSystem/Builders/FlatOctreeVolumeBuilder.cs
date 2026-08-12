@@ -475,11 +475,11 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (_currentBuildHasDirtyBounds)
             return false;
 
-        VolumeSceneComposer composer = source as VolumeSceneComposer;
+        VolumeObjectRegistry composer = source as VolumeObjectRegistry;
         return composer != null && composer.TryGetBuiltInSnapshot(out snapshot);
     }
 
-    private bool ShouldUseBurstPreFill(IScalarFieldSource source, out VolumeSceneComposer composer)
+    private bool ShouldUseBurstPreFill(IScalarFieldSource source, out VolumeObjectRegistry composer)
     {
         composer = null;
         if (!useBurstPreFill)
@@ -488,7 +488,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         if (_currentBuildHasDirtyBounds)
             return false;
 
-        composer = source as VolumeSceneComposer;
+        composer = source as VolumeObjectRegistry;
         return composer != null;
     }
 
@@ -681,7 +681,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
 
         if (!useFrontier)
         {
-            if (ShouldUseBurstPreFill(source, out VolumeSceneComposer composer2))
+            if (ShouldUseBurstPreFill(source, out VolumeObjectRegistry composer2))
             {
                 BurstPreFillCornerCache(composer2, origin, cellSize);
             }
@@ -1982,7 +1982,7 @@ public class FlatOctreeVolumeBuilder : VolumeBuilderBase<OctreeVolume>
         return $"recursiveParts(nodePrep={stats.recursiveNodeReusePreparationMs:F2} ms, cornerCachePrep={stats.recursiveCornerCachePreparationMs:F2} ms, centerCachePrep={stats.recursiveCenterCachePreparationMs:F2} ms, crossingCachePrep={stats.recursiveCrossingCachePreparationMs:F2} ms, subtreeCopy={stats.recursiveSubtreeCopyMs:F2} ms, corner={stats.recursiveCornerSampleMs:F2} ms, center={stats.recursiveCenterDecisionMs:F2} ms, childCorner={stats.recursiveChildCornerMs:F2} ms, nodeRecord={stats.recursiveNodeRecordMs:F2} ms, other={stats.recursiveOtherMs:F2} ms)";
     }
 
-    private void BurstPreFillCornerCache(VolumeSceneComposer composer, Vector3 origin, Vector3 cellSize)
+    private void BurstPreFillCornerCache(VolumeObjectRegistry composer, Vector3 origin, Vector3 cellSize)
     {
         if (!composer.TryGetBuiltInSnapshot(out SdfSceneSnapshot snapshot))
             return;

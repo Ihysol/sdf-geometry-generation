@@ -37,9 +37,9 @@ public class VolumeMeshRendererClusterTests
     [Test]
     public void RebuildProfileSample_ExposesChunkRendererBreakdown()
     {
-        Assert.That(typeof(VolumeModel.RebuildProfileSample).GetField("rendererChunkClusterBuildMs"), Is.Not.Null);
-        Assert.That(typeof(VolumeModel.RebuildProfileSample).GetField("rendererChunkMeshBuildMs"), Is.Not.Null);
-        Assert.That(typeof(VolumeModel.RebuildProfileSample).GetField("rendererChunkApplyMeshMs"), Is.Not.Null);
+        Assert.That(typeof(VolumeProcessor.RebuildProfileSample).GetField("rendererChunkClusterBuildMs"), Is.Not.Null);
+        Assert.That(typeof(VolumeProcessor.RebuildProfileSample).GetField("rendererChunkMeshBuildMs"), Is.Not.Null);
+        Assert.That(typeof(VolumeProcessor.RebuildProfileSample).GetField("rendererChunkApplyMeshMs"), Is.Not.Null);
     }
 }
 

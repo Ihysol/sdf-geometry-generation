@@ -57,9 +57,29 @@ public class VolumePipeline
         Scheduler?.SetChunkRenderers(renderers);
     }
 
+    /// <summary>Extract SdfSceneSnapshot from source if available (Burst path), otherwise wrap as adapter.</summary>
+    private bool TryGetSnapshot(IScalarFieldSource sdfSource, out SdfSceneSnapshot snapshot)
+    {
+        // Direct snapshot
+        if (sdfSource is SdfSceneSnapshot direct)
+        {
+            snapshot = direct;
+            return !snapshot.HasUnsupportedShapes;
+        }
+
+        // VolumeObjectRegistry exposes TryGetBuiltInSnapshot
+        if (sdfSource is VolumeObjectRegistry composer && composer.TryGetBuiltInSnapshot(out var cs))
+        {
+            snapshot = cs;
+            return true;
+        }
+
+        snapshot = null;
+        return false;
+    }
+
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
     {
-        // Always create a fresh adapter — the SDF is a snapshot that must reflect current objects.
         if (sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
 
@@ -72,22 +92,20 @@ public class VolumePipeline
         _layout.IsoLevel = isoLevel;
         _dirty = false;
 
-        // Diagnostic: sample at layout center to verify SDF values
-        Vector3 centerWorld = _layout.Origin + new Vector3(
-            _layout.Resolution.x / 2f,
-            _layout.Resolution.y / 2f,
-            _layout.Resolution.z / 2f) * _layout.CellSize;
-        float testAtCenter = Source.Sample(centerWorld);
-        Debug.Log($"[VolumePipeline] Pre-build sample at layout center {centerWorld:F1}: {testAtCenter:F3}");
+        // Burst-compiled sampling when snapshot has only supported shapes
+        if (TryGetSnapshot(sdfSource, out var snapshot))
+        {
+            _builder.BuildBurst(snapshot, Buffer);
+        }
+        else
+        {
+            _builder.Build(Source, Buffer);
+        }
 
-        _builder.Build(Source, Buffer);
-
-        // Diagnostic: sample center cell to verify SDF values
         int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
         float centerVal = Buffer.DensityCpu[cx + _layout.Resolution.x * (cy + _layout.Resolution.y * cz)];
-        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center density={centerVal:F3}, isoLevel={isoLevel}");
+        Debug.Log($"[VolumePipeline] Rebuild full: {DirtyChunks.QueueCount} chunks, center={centerVal:F3}, iso={isoLevel}");
 
-        // Clear scheduler pending list before marking dirty — prevents stale version mismatch
         Scheduler.ClearPending();
         DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
 
@@ -97,7 +115,6 @@ public class VolumePipeline
 
     public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds)
     {
-        // Always create a fresh adapter — the SDF is a snapshot that must reflect current objects.
         if (sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
 
@@ -111,24 +128,52 @@ public class VolumePipeline
         _dirty = false;
 
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
-           // If dirty region is empty (object outside volume), fall back to full rebuild.
-           if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
-           {
-               Debug.Log("[VolumePipeline] Partial rebuild: no overlap — falling back to full rebuild");
-               _builder.Build(Source, Buffer);
-               Scheduler.ClearPending();
-               DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
-               if (ActiveBackend == ComputeBackend.GPU)
-                   Buffer.SyncCpuToGpu();
-               return;
-           }
-           // Expand to cover all cells in affected chunks + neighbors so BuildPartial resamples
-             // every cell that any remeshed chunk might read. MarkDirty also expands neighbors,
-             // giving ±2 total coverage — needed for dual contouring context at volume borders.
-             BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
-             _builder.BuildPartial(Source, Buffer, sampleRegion);
-             DirtyChunks.MarkDirty(sampleRegion, DirtyReason.Operation);
-             Debug.Log($"[VolumePipeline] Rebuild partial: dirty {dirtyRegion}, sample {sampleRegion}, {DirtyChunks.QueueCount} chunks marked dirty");
+
+        // Empty region — fallback to full rebuild
+        if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
+        {
+            Debug.Log("[VolumePipeline] Partial: no overlap — fallback to full rebuild");
+
+            if (TryGetSnapshot(sdfSource, out var snapshot))
+                _builder.BuildBurst(snapshot, Buffer);
+            else
+                _builder.Build(Source, Buffer);
+
+            Scheduler.ClearPending();
+            DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
+            if (ActiveBackend == ComputeBackend.GPU)
+                Buffer.SyncCpuToGpu();
+            return;
+        }
+
+        BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
+
+        // Expand sampling region by ±1 cell so dual contouring at the boundary
+        // reads fresh SDF values (not stale data from before this partial rebuild).
+        Vector3Int pos = sampleRegion.position - Vector3Int.one;
+        pos.x = Mathf.Max(0, pos.x);
+        pos.y = Mathf.Max(0, pos.y);
+        pos.z = Mathf.Max(0, pos.z);
+        Vector3Int sz = sampleRegion.size + new Vector3Int(2, 2, 2);
+        sz.x = Mathf.Min(_layout.Resolution.x - pos.x, sz.x);
+        sz.y = Mathf.Min(_layout.Resolution.y - pos.y, sz.y);
+        sz.z = Mathf.Min(_layout.Resolution.z - pos.z, sz.z);
+        sampleRegion = new BoundsInt(pos, sz);
+
+        // Burst-compiled partial sampling
+        if (TryGetSnapshot(sdfSource, out var burstSnapshot))
+        {
+            _builder.BuildPartialBurst(burstSnapshot, Buffer, sampleRegion);
+        }
+        else
+        {
+            _builder.BuildPartial(Source, Buffer, sampleRegion);
+        }
+
+        // Mark original dirty region for meshing — MarkDirty() expands ±1 chunk internally.
+        // Do NOT pass sampleRegion here (already expanded) — would double-expand neighbor coverage.
+        DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
+        Debug.Log($"[VolumePipeline] Partial: dirty={dirtyRegion}, sample={sampleRegion}, chunks={DirtyChunks.QueueCount}");
 
         if (ActiveBackend == ComputeBackend.GPU)
             Buffer.SyncCpuToGpu();
@@ -150,13 +195,9 @@ public class VolumePipeline
         GpuMeshData meshData = Mesher.BuildGpu(Buffer, context);
 
         if (meshData.VertexCount > 0 && meshData.IndexCount > 0)
-        {
             Output.ApplyGpuMesh(meshData);
-        }
         else
-        {
             meshData.Dispose();
-        }
     }
 
     public int TickScheduler()
@@ -169,56 +210,56 @@ public class VolumePipeline
     }
 
     private static BoundsInt WorldBoundsToIntBounds(Bounds worldBounds, VolumeLayout layout)
-       {
-           Vector3Int minIndex = layout.WorldToIndex(worldBounds.min);
-           Vector3Int maxIndex = layout.WorldToIndex(worldBounds.max);
+    {
+        Vector3Int minIndex = layout.WorldToIndex(worldBounds.min);
+        Vector3Int maxIndex = layout.WorldToIndex(worldBounds.max);
 
-           int px = Mathf.Max(0, minIndex.x);
-           int py = Mathf.Max(0, minIndex.y);
-           int pz = Mathf.Max(0, minIndex.z);
-           int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
-           int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
-           int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
+        int px = Mathf.Max(0, minIndex.x);
+        int py = Mathf.Max(0, minIndex.y);
+        int pz = Mathf.Max(0, minIndex.z);
+        int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
+        int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
+        int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
 
-           return new BoundsInt(px, py, pz, sx, sy, sz);
-       }
+        return new BoundsInt(px, py, pz, sx, sy, sz);
+    }
 
-       /// <summary>Expand a region to cover all cells in affected chunks plus their 6-face neighbors.</summary>
-       private static BoundsInt ExpandToChunkRegions(BoundsInt region, VolumeLayout layout)
-       {
-           int cs = layout.ChunkSize;
-           if (cs <= 0) return region;
+    /// <summary>Expand a region to cover all cells in affected chunks plus their 6-face neighbors.</summary>
+    private static BoundsInt ExpandToChunkRegions(BoundsInt region, VolumeLayout layout)
+    {
+        int cs = layout.ChunkSize;
+        if (cs <= 0) return region;
 
-           // Find chunk range
-           int minCx = Mathf.FloorToInt(region.position.x / cs);
-           int minCy = Mathf.FloorToInt(region.position.y / cs);
-           int minCz = Mathf.FloorToInt(region.position.z / cs);
-           int maxCx = Mathf.FloorToInt((region.position.x + region.size.x - 1) / cs);
-           int maxCy = Mathf.FloorToInt((region.position.y + region.size.y - 1) / cs);
-           int maxCz = Mathf.FloorToInt((region.position.z + region.size.z - 1) / cs);
+        // Find chunk range
+        int minCx = Mathf.FloorToInt(region.position.x / cs);
+        int minCy = Mathf.FloorToInt(region.position.y / cs);
+        int minCz = Mathf.FloorToInt(region.position.z / cs);
+        int maxCx = Mathf.FloorToInt((region.position.x + region.size.x - 1) / cs);
+        int maxCy = Mathf.FloorToInt((region.position.y + region.size.y - 1) / cs);
+        int maxCz = Mathf.FloorToInt((region.position.z + region.size.z - 1) / cs);
 
-           // Add neighbor chunks (ExpandNeighbors in DirtyChunkSystem adds 6-face neighbors)
-           minCx--; minCy--; minCz--;
-           maxCx++; maxCy++; maxCz++;
+        // Add neighbor chunks for dual contouring context
+        minCx--; minCy--; minCz--;
+        maxCx++; maxCy++; maxCz++;
 
-           // Clamp to grid
-           Vector3Int res = layout.Resolution;
-           minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
-           int chunkGridMax = cs * Mathf.CeilToInt((float)res.x / cs) - 1;
-           maxCx = Mathf.Min(chunkGridMax, maxCx);
-           maxCy = Mathf.Min(cs * Mathf.CeilToInt((float)res.y / cs) - 1, maxCy);
-           maxCz = Mathf.Min(cs * Mathf.CeilToInt((float)res.z / cs) - 1, maxCz);
+        // Clamp to grid — last chunk index is (res-1)/cs, ensuring cell coords stay in bounds even
+        // when resolution is not an exact multiple of chunk size.
+        Vector3Int res = layout.Resolution;
+        minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
+        maxCx = Mathf.Min((res.x - 1) / cs, maxCx);
+        maxCy = Mathf.Min((res.y - 1) / cs, maxCy);
+        maxCz = Mathf.Min((res.z - 1) / cs, maxCz);
 
-           // Convert back to cell indices
-           int px = minCx * cs;
-           int py = minCy * cs;
-           int pz = minCz * cs;
-           int sx = Mathf.Min(res.x, (maxCx + 1) * cs) - px;
-           int sy = Mathf.Min(res.y, (maxCy + 1) * cs) - py;
-           int sz = Mathf.Min(res.z, (maxCz + 1) * cs) - pz;
+        // Convert back to cell indices
+        int px = minCx * cs;
+        int py = minCy * cs;
+        int pz = minCz * cs;
+        int sx = Mathf.Min(res.x, (maxCx + 1) * cs) - px;
+        int sy = Mathf.Min(res.y, (maxCy + 1) * cs) - py;
+        int sz = Mathf.Min(res.z, (maxCz + 1) * cs) - pz;
 
-           return new BoundsInt(px, py, pz, sx, sy, sz);
-       }
+        return new BoundsInt(px, py, pz, sx, sy, sz);
+    }
 
     public void ApplyOperation(IVolumeOperation operation)
     {
@@ -228,17 +269,12 @@ public class VolumePipeline
         Executor.Execute(operation, Buffer, ctx);
     }
 
-    public void MarkDirty()
-    {
-        _dirty = true;
-    }
-
+    public void MarkDirty() => _dirty = true;
     public bool IsDirty => _dirty;
 
     public void Clear()
     {
-        if (Output != null)
-            Output.Clear();
+        Output?.Clear();
         _dirty = false;
     }
 

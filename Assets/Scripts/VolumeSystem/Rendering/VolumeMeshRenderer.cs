@@ -92,8 +92,8 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     private readonly List<int> _dirtyChunkScratch = new();
     private readonly List<int> _neighborFrontierScratch = new();
     private readonly List<int> _neighborNextFrontierScratch = new();
-    private VolumeModel _activeChunkModel;
-    private VolumeSceneComposer _activeChunkComposer;
+    private VolumeProcessor _activeChunkModel;
+    private VolumeObjectRegistry _activeChunkComposer;
     private readonly List<Bounds> _activeChunkBounds = new();
     private IVolumeData _lastActiveVolumeData;
     private bool _chunkCycleActive;
@@ -138,7 +138,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     public RenderStats LastRenderStats { get; private set; }
 
     /// <summary>Regenerates the single-mesh output for the model.</summary>
-    public void Rebuild(VolumeModel model)
+    public void Rebuild(VolumeProcessor model)
     {
         if (model == null)
             return;
@@ -165,7 +165,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     }
 
     /// <summary>Builds the active volume data structure into one Unity mesh.</summary>
-    public void RebuildSingle(VolumeModel model)
+    public void RebuildSingle(VolumeProcessor model)
     {
         ClearChunks();
         EnsureSetup();
@@ -192,7 +192,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         LastRenderStats = new RenderStats(0d, 0d, 0d, 0d, 0d, 0d, 0d, 1, 0, 1, 0);
     }
 
-    private void RebuildSingleVoxel(VolumeModel model)
+    private void RebuildSingleVoxel(VolumeProcessor model)
     {
         switch (model.octreeMesherType)
         {
@@ -217,7 +217,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             mesh.RecalculateBounds();
     }
 
-    private void RebuildSingleOctree(VolumeModel model)
+    private void RebuildSingleOctree(VolumeProcessor model)
     {
         switch (model.octreeMesherType)
         {
@@ -255,7 +255,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
     }
 
-    private void ConfigureOctreeMesher(VolumeModel model)
+    private void ConfigureOctreeMesher(VolumeProcessor model)
     {
         octreeMesher.enableDebugLog = false;
         octreeMesher.useQefVertices = model.GetEffectiveUseQefVertices();
@@ -269,7 +269,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         octreeMesher.edgeRefinementSteps = model.GetEffectiveEdgeRefinementSteps();
     }
 
-    private void ConfigureFlatOctreeMesher(VolumeModel model)
+    private void ConfigureFlatOctreeMesher(VolumeProcessor model)
     {
         flatOctreeMesher.enableDebugLog = false;
         flatOctreeMesher.useQefVertices = model.GetEffectiveUseQefVertices();
@@ -282,7 +282,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         flatOctreeMesher.qefHermiteSamplesPerEdge = model.qefHermiteSamplesPerEdge;
     }
 
-    public void RebuildChunked(VolumeModel model)
+    public void RebuildChunked(VolumeProcessor model)
     {
         double queueSetupMs = 0d;
         double chunkRebuildMs = 0d;
@@ -316,7 +316,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         EnsureChunks(bounds.Count);
         SetSurfaceMaterial(model.surfaceMaterial);
 
-        VolumeSceneComposer composer = model.GetComponent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = model.GetComponent<VolumeObjectRegistry>();
 
         if (composer == null)
             return;
@@ -735,7 +735,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         return false;
     }
 
-    private float GetDirtyHaloSize(VolumeModel model)
+    private float GetDirtyHaloSize(VolumeProcessor model)
     {
         if (model == null)
             return 0.01f;
@@ -931,7 +931,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         _editorChunkUpdateRegistered = false;
     }
 
-    private int GetChunkRebuildBudget(VolumeModel model, bool fullRebuildRequested)
+    private int GetChunkRebuildBudget(VolumeProcessor model, bool fullRebuildRequested)
     {
         if (model == null)
             return 1;
@@ -961,7 +961,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         return pending;
     }
 
-    private float GetChunkRebuildTimeBudgetMs(VolumeModel model, bool fullRebuildRequested)
+    private float GetChunkRebuildTimeBudgetMs(VolumeProcessor model, bool fullRebuildRequested)
     {
         if (model == null || Application.isPlaying)
             return -1f;
@@ -984,7 +984,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         return 24f;
     }
 
-    private static bool IsFlatOctreeDualContouring(VolumeModel model)
+    private static bool IsFlatOctreeDualContouring(VolumeProcessor model)
     {
         if (model == null)
             return false;
@@ -994,7 +994,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
                model.octreeMesherType == OctreeMesherType.DualContouring;
     }
 
-    private static void WarmupFlatOctreeRuntimeCache(VolumeModel model)
+    private static void WarmupFlatOctreeRuntimeCache(VolumeProcessor model)
     {
         IFlatAdaptiveVolumeData flatVolume = model.GetActiveFlatAdaptiveVolume();
         FlatOctreeLayout layout = flatVolume?.GetFlatLayout(includeCornerValues: true);
@@ -1074,7 +1074,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         return rebuilt;
     }
 
-    private bool ShouldUseParallelChunkMeshing(VolumeModel model)
+    private bool ShouldUseParallelChunkMeshing(VolumeProcessor model)
     {
         if (!enableParallelChunkMeshing || model == null)
             return false;
@@ -1090,7 +1090,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             pending <= GetMaxParallelChunkMeshingTasks();
     }
 
-    private bool ShouldUseChunkLocalVolumeBuild(VolumeModel model)
+    private bool ShouldUseChunkLocalVolumeBuild(VolumeProcessor model)
     {
         return enableChunkLocalVolumeBuild &&
             model != null &&
@@ -1098,7 +1098,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             IsFlatOctreeDualContouring(model);
     }
 
-    public bool CanBuildDirtyChunksLocally(VolumeModel model)
+    public bool CanBuildDirtyChunksLocally(VolumeProcessor model)
     {
         return ShouldUseChunkLocalVolumeBuild(model);
     }
@@ -1468,7 +1468,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         }
     }
 
-    private Bounds GetChunkLocalBuildBounds(VolumeModel model, Bounds coreBounds)
+    private Bounds GetChunkLocalBuildBounds(VolumeProcessor model, Bounds coreBounds)
     {
         Bounds buildBounds = coreBounds;
         float cellSize = GetActiveOctreeCellSize(model);
@@ -1478,7 +1478,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
         return buildBounds;
     }
 
-    private static float GetActiveOctreeCellSize(VolumeModel model)
+    private static float GetActiveOctreeCellSize(VolumeProcessor model)
     {
         OctreeVolume volume = model != null ? model.GetActiveOctreeVolume() : null;
         if (volume == null)
@@ -1548,7 +1548,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     }
 
     private static bool TryBuildChunkLocalMeshData(
-        VolumeModel model,
+        VolumeProcessor model,
         IScalarFieldSource source,
         Bounds coreBounds,
         Bounds buildBounds,
@@ -1570,7 +1570,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
     }
 
     private static bool TryBuildChunkLocalFlatVolume(
-        VolumeModel model,
+        VolumeProcessor model,
         IScalarFieldSource source,
         Bounds buildBounds,
         out IFlatAdaptiveVolumeData flatVolume,
@@ -1654,7 +1654,7 @@ public class VolumeMeshRenderer : MonoBehaviour, IVolumeRenderer
             _chunkCycleChunkMsMax = passChunkMs;
     }
 
-    private void TryFinalizeChunkCycle(VolumeModel model)
+    private void TryFinalizeChunkCycle(VolumeProcessor model)
     {
         if (!_chunkCycleActive || _pendingChunkQueue.Count > 0 || model == null || !model.logRebuildDuration)
             return;

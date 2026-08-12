@@ -105,7 +105,7 @@ public class VolumeObject : MonoBehaviour
 
         // Kein QueueComposerRebuild hier:
         // OnValidate feuert auch bei Parent-/Inspector-Änderungen.
-        // Rebuild läuft über lokalen Transform-Check oder VolumeModelEditor.
+        // Rebuild läuft über lokalen Transform-Check oder VolumeProcessorEditor.
 #endif
     }
 
@@ -129,7 +129,7 @@ public class VolumeObject : MonoBehaviour
 
         Bounds currentBounds = GetEstimatedLocalBounds();
 
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
         if (model == null || !model.ShouldAutoRebuildOnTransformChange())
             return;
 
@@ -185,7 +185,7 @@ public class VolumeObject : MonoBehaviour
         if (this == null)
             return;
 
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model != null && !model.ShouldAutoRebuildOnTransformChange())
         {
@@ -227,7 +227,7 @@ public class VolumeObject : MonoBehaviour
 
         _rebuildQueued = false;
 
-        VolumeSceneComposer composer = GetComponentInParent<VolumeSceneComposer>();
+        VolumeObjectRegistry composer = GetComponentInParent<VolumeObjectRegistry>();
 
         if (composer != null)
         {
@@ -352,9 +352,12 @@ public class VolumeObject : MonoBehaviour
           {
               // Transform point to world space using localToWorldMatrix columns
               Matrix4x4 m = transform.localToWorldMatrix;
-              px = m.m00 * px + m.m01 * py + m.m02 * pz + m.m03;
-              py = m.m10 * px + m.m11 * py + m.m12 * pz + m.m13;
-              pz = m.m20 * px + m.m21 * py + m.m22 * pz + m.m23;
+              float wx = m.m00 * px + m.m01 * py + m.m02 * pz + m.m03;
+              float wy = m.m10 * px + m.m11 * py + m.m12 * pz + m.m13;
+              float wz = m.m20 * px + m.m21 * py + m.m22 * pz + m.m23;
+              px = wx;
+              py = wy;
+              pz = wz;
           }
 
           float qx = px + gridOffset.x;
@@ -475,7 +478,7 @@ public class VolumeObject : MonoBehaviour
 
     private float EstimateMinSamplingCellSize()
     {
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model == null)
             return 0f;
@@ -641,7 +644,7 @@ public class VolumeObject : MonoBehaviour
     /// <summary>Checks the parent model setting that controls child gizmos.</summary>
     private bool ShouldDrawGizmos()
     {
-        VolumeModel model = GetComponentInParent<VolumeModel>();
+        VolumeProcessor model = GetComponentInParent<VolumeProcessor>();
 
         if (model == null)
             return true;
@@ -649,7 +652,7 @@ public class VolumeObject : MonoBehaviour
         return model.drawChildGizmos;
     }
 
-    private Bounds GetEstimatedLocalBounds()
+    public Bounds GetEstimatedLocalBounds()
     {
         return GetEstimatedLocalBoundsForTransform(
             transform.localPosition,
@@ -658,28 +661,25 @@ public class VolumeObject : MonoBehaviour
         );
     }
 
-  /// <summary>Returns estimated world-space bounds of this volume object.</summary>
+  /// <summary>Returns estimated world-space bounds of this volume object (zero-alloc OBB→AABB).</summary>
    public Bounds GetBounds()
    {
        Bounds local = GetEstimatedLocalBounds();
 
-       // Transform all 8 corners to world space for accurate bounds — avoids the
-       // lossyScale approximation which breaks with non-uniform or nested parent scales.
-       Vector3[] corners = new Vector3[8];
-       Vector3 half = local.size * 0.5f;
-       corners[0] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z - half.z));
-       corners[1] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z - half.z));
-       corners[2] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z - half.z));
-       corners[3] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z - half.z));
-       corners[4] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z + half.z));
-       corners[5] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z + half.z));
-       corners[6] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z + half.z));
-       corners[7] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z + half.z));
+       // OBB→AABB via matrix math: |M_rows| · halfExtents. No corner array allocation.
+       Matrix4x4 m = transform.localToWorldMatrix;
+       Vector3 center = new Vector3(
+           m.m00 * local.center.x + m.m01 * local.center.y + m.m02 * local.center.z + m.m03,
+           m.m10 * local.center.x + m.m11 * local.center.y + m.m12 * local.center.z + m.m13,
+           m.m20 * local.center.x + m.m21 * local.center.y + m.m22 * local.center.z + m.m23
+       );
 
-       Bounds world = new Bounds(corners[0], Vector3.zero);
-       for (int i = 1; i < 8; i++)
-           world.Encapsulate(corners[i]);
-       return world;
+       Vector3 half = local.extents;
+       float hx = Mathf.Abs(m.m00) * half.x + Mathf.Abs(m.m01) * half.y + Mathf.Abs(m.m02) * half.z;
+       float hy = Mathf.Abs(m.m10) * half.x + Mathf.Abs(m.m11) * half.y + Mathf.Abs(m.m12) * half.z;
+       float hz = Mathf.Abs(m.m20) * half.x + Mathf.Abs(m.m21) * half.y + Mathf.Abs(m.m22) * half.z;
+
+       return new Bounds(center, new Vector3(hx * 2f, hy * 2f, hz * 2f));
    }
 
     public Bounds EstimateLocalMoveDirtyBounds(Vector3 fromLocalPosition, Vector3 toLocalPosition)
@@ -716,25 +716,28 @@ public class VolumeObject : MonoBehaviour
 #endif
 
     private Bounds GetEstimatedLocalBoundsForTransform(Vector3 localPosition, Quaternion localRotation, Vector3 localScale)
-    {
-        Vector3 halfExtents = GetApproximateShapeHalfExtents();
+     {
+         Vector3 halfExtents = GetApproximateShapeHalfExtents();
 
-        Vector3 scaled = new Vector3(
-            Mathf.Abs(halfExtents.x * localScale.x),
-            Mathf.Abs(halfExtents.y * localScale.y),
-            Mathf.Abs(halfExtents.z * localScale.z)
-        );
+         // Apply scale then rotation to get AABB of the rotated shape.
+         // TransformBoundsToWorld() corner-transforms this to world space —
+         // with identity parent rotation (common case), this is exact.
+         // With non-identity parent rotation, it overestimates slightly (still safe).
+         Vector3 scaled = new Vector3(
+             Mathf.Abs(halfExtents.x * localScale.x),
+             Mathf.Abs(halfExtents.y * localScale.y),
+             Mathf.Abs(halfExtents.z * localScale.z)
+         );
 
-        Matrix4x4 r = Matrix4x4.Rotate(localRotation);
+         Matrix4x4 r = Matrix4x4.Rotate(localRotation);
+         Vector3 rotatedHalf = new Vector3(
+             Mathf.Abs(r.m00) * scaled.x + Mathf.Abs(r.m01) * scaled.y + Mathf.Abs(r.m02) * scaled.z,
+             Mathf.Abs(r.m10) * scaled.x + Mathf.Abs(r.m11) * scaled.y + Mathf.Abs(r.m12) * scaled.z,
+             Mathf.Abs(r.m20) * scaled.x + Mathf.Abs(r.m21) * scaled.y + Mathf.Abs(r.m22) * scaled.z
+         );
 
-        Vector3 worldHalf = new Vector3(
-            Mathf.Abs(r.m00) * scaled.x + Mathf.Abs(r.m01) * scaled.y + Mathf.Abs(r.m02) * scaled.z,
-            Mathf.Abs(r.m10) * scaled.x + Mathf.Abs(r.m11) * scaled.y + Mathf.Abs(r.m12) * scaled.z,
-            Mathf.Abs(r.m20) * scaled.x + Mathf.Abs(r.m21) * scaled.y + Mathf.Abs(r.m22) * scaled.z
-        );
-
-        return new Bounds(localPosition, worldHalf * 2f);
-    }
+         return new Bounds(localPosition, rotatedHalf * 2f);
+     }
 
     private Vector3 GetApproximateShapeHalfExtents()
     {
@@ -753,11 +756,19 @@ public class VolumeObject : MonoBehaviour
                 return new Vector3(torusR, torusY, torusR);
 
             case VolumeShapeType.Hyperboloid:
+            {
+                // Hyperboloid: x²/a² + z²/b² - y²/c² = 1
+                // At height y, surface radius is sqrt(1 + y²/c²) · (a, b).
+                // Use max |y| to get tight-but-safe bounds.
+                float maxH = Mathf.Max(Mathf.Abs(hyperboloidHeightMin), Mathf.Abs(hyperboloidHeightMax));
+                float safeC = Mathf.Max(0.0001f, Mathf.Abs(hyperboloidC));
+                float scale = Mathf.Sqrt(1f + (maxH * maxH) / (safeC * safeC));
                 return new Vector3(
-                    Mathf.Abs(hyperboloidA),
-                    Mathf.Max(Mathf.Abs(hyperboloidHeightMin), Mathf.Abs(hyperboloidHeightMax)),
-                    Mathf.Abs(hyperboloidB)
+                    Mathf.Abs(hyperboloidA) * scale,
+                    maxH,
+                    Mathf.Abs(hyperboloidB) * scale
                 );
+            }
 
             case VolumeShapeType.CustomAsset:
                 return Vector3.one * 2f;

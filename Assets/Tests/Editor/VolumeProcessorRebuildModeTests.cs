@@ -2,16 +2,16 @@
 using NUnit.Framework;
 using UnityEngine;
 
-public class VolumeModelRebuildModeTests
+public class VolumeProcessorRebuildModeTests
 {
     private GameObject _gameObject;
-    private VolumeModel _model;
+    private VolumeProcessor _model;
 
     [SetUp]
     public void SetUp()
     {
-        _gameObject = new GameObject("VolumeModelRebuildModeTests");
-        _model = _gameObject.AddComponent<VolumeModel>();
+        _gameObject = new GameObject("VolumeProcessorRebuildModeTests");
+        _model = _gameObject.AddComponent<VolumeProcessor>();
     }
 
     [TearDown]
@@ -53,10 +53,10 @@ public class VolumeModelRebuildModeTests
     }
 
     [Test]
-    public void VolumeModel_RunsUpdatesInEditMode()
+    public void VolumeProcessor_RunsUpdatesInEditMode()
     {
         Assert.That(
-            System.Attribute.IsDefined(typeof(VolumeModel), typeof(ExecuteAlways)),
+            System.Attribute.IsDefined(typeof(VolumeProcessor), typeof(ExecuteAlways)),
             Is.True
         );
     }

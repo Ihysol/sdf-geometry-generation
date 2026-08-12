@@ -6,7 +6,14 @@ public class ChunkedFlatVolumeBuffer : IVolumeBuffer
     private bool _disposed;
 
     public VolumeLayout Layout { get; private set; }
-    public BufferSyncState SyncState { get; set; } = BufferSyncState.Synced;
+     public BufferSyncState SyncState { get; set; } = BufferSyncState.Synced;
+
+     public void UpdateOrigin(Vector3 newOrigin)
+     {
+         var l = Layout;
+         l.Origin = newOrigin;
+         Layout = l;
+     }
 
     public bool HasCpuAccess => true;
     public bool HasGpuAccess => DensityGpu != null || DensityCompute != null;

@@ -24,7 +24,7 @@ public class VolumeRenderOutput : MonoBehaviour
     }
 
     /// <summary>Rebuilds output via the unified volume renderer.</summary>
-    public void Rebuild(VolumeModel model)
+    public void Rebuild(VolumeProcessor model)
     {
         EnsureSetup();
         _renderer?.Rebuild(model);
@@ -36,7 +36,7 @@ public class VolumeRenderOutput : MonoBehaviour
         _renderer?.DrainPendingChunksImmediately();
     }
 
-    public bool CanBuildDirtyChunksLocally(VolumeModel model)
+    public bool CanBuildDirtyChunksLocally(VolumeProcessor model)
     {
         EnsureSetup();
         return _renderer != null && _renderer.CanBuildDirtyChunksLocally(model);

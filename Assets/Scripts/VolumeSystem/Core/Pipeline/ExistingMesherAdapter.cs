@@ -4,12 +4,12 @@ using UnityEngine;
 
 public class ExistingMesherAdapter : IVolumeMesher
 {
-    private readonly VolumeModel _model;
+    private readonly VolumeProcessor _model;
 
     public bool SupportsCpu => true;
     public bool SupportsGpu => false;
 
-    public ExistingMesherAdapter(VolumeModel model)
+    public ExistingMesherAdapter(VolumeProcessor model)
     {
         _model = model;
     }

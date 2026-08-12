@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
+public class VolumeObjectRegistry : MonoBehaviour, IScalarFieldSource
 {
     public List<VolumeObject> objects = new();
 
@@ -91,17 +91,15 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
     /// <summary>Refreshes the composition and asks the owning model to rebuild.</summary>
     public void MarkDirtyAndRebuild()
     {
-        RebuildComposition();
-
-        VolumeModel model = GetComponent<VolumeModel>();
+        VolumeProcessor model = GetComponent<VolumeProcessor>();
 
         if (model != null)
-            model.RebuildModel();
+            model.RebuildModel(); // RebuildModel() already calls RebuildComposition() internally
     }
 
     public void MarkDirtyAndRebuild(Bounds dirtyBounds)
     {
-        VolumeModel model = GetComponent<VolumeModel>();
+        VolumeProcessor model = GetComponent<VolumeProcessor>();
 
         if (model != null)
         {
@@ -115,7 +113,7 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
 
     public void MarkDirtyAndRebuild(Bounds dirtyBounds, IReadOnlyList<Bounds> dirtyBoundsParts)
     {
-        VolumeModel model = GetComponent<VolumeModel>();
+        VolumeProcessor model = GetComponent<VolumeProcessor>();
 
         if (model != null)
         {
@@ -131,25 +129,52 @@ public class VolumeSceneComposer : MonoBehaviour, IScalarFieldSource
         }
     }
 
-    /// <summary>Transform a bounds from Objects-parent-local space to world space.</summary>
+    /// <summary>Transform a bounds from Objects-parent-local space to world space (zero-alloc).</summary>
     Bounds TransformBoundsToWorld(Bounds local)
     {
-        // Objects root is a child of this composer, so parent-local == Objects-local.
-        // Use corner-based transform for accuracy with non-uniform scale / rotation.
-        Vector3[] corners = new Vector3[8];
+        Matrix4x4 m = transform.localToWorldMatrix;
         Vector3 half = local.size * 0.5f;
-        corners[0] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z - half.z));
-        corners[1] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z - half.z));
-        corners[2] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z - half.z));
-        corners[3] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z - half.z));
-        corners[4] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y - half.y, local.center.z + half.z));
-        corners[5] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y - half.y, local.center.z + half.z));
-        corners[6] = transform.TransformPoint(new Vector3(local.center.x - half.x, local.center.y + half.y, local.center.z + half.z));
-        corners[7] = transform.TransformPoint(new Vector3(local.center.x + half.x, local.center.y + half.y, local.center.z + half.z));
 
-        Bounds world = new Bounds(corners[0], Vector3.zero);
-        for (int i = 1; i < 8; i++)
-            world.Encapsulate(corners[i]);
-        return world;
+        // OBB→AABB: center + |row · half| per axis — mathematically equivalent to corner transform, zero alloc.
+        Vector3 worldCenter = new Vector3(
+            m.m00 * local.center.x + m.m01 * local.center.y + m.m02 * local.center.z + m.m03,
+            m.m10 * local.center.x + m.m11 * local.center.y + m.m12 * local.center.z + m.m13,
+            m.m20 * local.center.x + m.m21 * local.center.y + m.m22 * local.center.z + m.m23
+        );
+        Vector3 worldExtents = new Vector3(
+            Mathf.Abs(m.m00) * half.x + Mathf.Abs(m.m01) * half.y + Mathf.Abs(m.m02) * half.z,
+            Mathf.Abs(m.m10) * half.x + Mathf.Abs(m.m11) * half.y + Mathf.Abs(m.m12) * half.z,
+            Mathf.Abs(m.m20) * half.x + Mathf.Abs(m.m21) * half.y + Mathf.Abs(m.m22) * half.z
+        );
+
+        return new Bounds(worldCenter, worldExtents * 2f);
+    }
+
+    /// <summary>Union of all registered object world-space bounds (zero-alloc). Returns default if no objects.</summary>
+    public Bounds GetTotalBounds()
+    {
+        bool first = true;
+        Bounds union = default;
+
+        for (int i = 0; i < objects.Count; i++)
+        {
+            VolumeObject obj = objects[i];
+            if (obj == null) continue;
+
+            Bounds local = obj.GetEstimatedLocalBounds();
+            Bounds world = TransformBoundsToWorld(local);
+
+            if (first)
+            {
+                union = world;
+                first = false;
+            }
+            else
+            {
+                union.Encapsulate(world);
+            }
+        }
+
+        return union;
     }
 }

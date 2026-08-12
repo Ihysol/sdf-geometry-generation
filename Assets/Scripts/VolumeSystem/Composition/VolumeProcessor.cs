@@ -1,0 +1,656 @@
+using UnityEngine;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+[DisallowMultipleComponent]
+[RequireComponent(typeof(VolumeObjectRegistry))]
+public class VolumeProcessor : MonoBehaviour
+{
+    [Header("Pipeline")]
+    [SerializeField] public bool enablePipeline = true;
+    [SerializeField] public PipelineMesherType pipelineMesherType = PipelineMesherType.DualContouring;
+    [SerializeField] public ComputeBackend computeBackend = ComputeBackend.CPU;
+
+    [Header("Layout")]
+    [SerializeField] public Vector3Int resolution = new Vector3Int(128, 128, 128);
+    [SerializeField] public int chunkSize = 16;
+    [SerializeField] public float boundsExtent = 4f;
+
+   [Header("Auto Expand")]
+    [Tooltip("Automatically resize grid when objects fall outside current bounds")]
+    [SerializeField] public bool autoExpand = true;
+    [Tooltip("Padding factor around object bounds (1.0 = tight, 1.25 = 25% margin)")]
+    [SerializeField] public float expandPaddingFactor = 1.25f;
+
+    [Header("Core")]
+    [SerializeField] public float isoLevel = 0f;
+    [SerializeField] public Material surfaceMaterial;
+
+    [Header("Add Object")]
+    [SerializeField] public VolumeShapeType shapeToAdd = VolumeShapeType.Sphere;
+    [SerializeField] public VolumeOperationRole roleToAdd = VolumeOperationRole.Add;
+
+    [Header("Interaction")]
+    [SerializeField] public bool rebuildOnMoveRelease = false;
+    [SerializeField] public float moveReleaseDelaySeconds = 0.2f;
+
+    // ---- Pipeline State ----
+    private VolumePipeline _pipeline;
+    private UnityMeshOutput _meshOutput;
+    private MeshRenderer _meshRenderer;
+    private ChunkRenderManager _chunkRenderers;
+    private Transform _chunksParent;
+    private bool _initialized;
+    private int _buildVersion;
+    private Bounds _dirtyBoundsWorld;
+    private bool _hasDirtyBounds;
+    private Vector3 _lastPosition;
+    [SerializeField] private Transform _visualOutput; // ADR-001: User-facing rotation/scale wrapper (serialized for persistence)
+
+    /// <summary>VisualOutput — user rotates/scales here, not the VolumeProcessor. See ADR-001.</summary>
+    public Transform VisualOutput => EnsureVisualOutput();
+
+    private Transform EnsureVisualOutput()
+    {
+        if (_visualOutput == null)
+        {
+            GameObject voObj = new GameObject("VisualOutput");
+            voObj.transform.SetParent(transform, false);
+            _visualOutput = voObj.transform;
+        }
+        return _visualOutput;
+    }
+
+    // ---- Undo/Redo ----
+    private CommandStack _commandStack;
+
+    public CommandStack CommandStack
+    {
+        get
+        {
+            if (_commandStack == null)
+            {
+                _commandStack = new CommandStack(64);
+                _commandStack.OnStateChanged += OnUndoRedoStateChanged;
+            }
+            return _commandStack;
+        }
+    }
+
+    private void OnUndoRedoStateChanged(Bounds affectedBounds)
+    {
+        // Trigger partial rebuild for the affected region
+        if (affectedBounds.extents != Vector3.zero)
+            MarkDirtyBounds(affectedBounds);
+        else
+            RebuildModel(); // Full rebuild when bounds unknown
+    }
+
+#if UNITY_EDITOR
+    /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y.</summary>
+    public void ProcessUndoRedo()
+    {
+        if (Event.current == null) return;
+
+        if (Event.current.type == EventType.ValidateCommand && Event.current.commandName == "UndoRedoPerformed")
+        {
+            // Unity's built-in Undo already reverted the serialized state — we just need to rebuild.
+            RebuildModel();
+        }
+    }
+#endif
+
+#if UNITY_EDITOR
+    private bool _editorUpdateRegistered;
+#endif
+
+    private Transform ObjectsRoot
+    {
+        get
+        {
+            Transform existing = transform.Find("Objects");
+            if (existing != null) return existing;
+            GameObject go = new GameObject("Objects");
+            go.transform.SetParent(transform, false);
+            return go.transform;
+        }
+    }
+
+    /// <summary>Expose for Undo commands — creates if missing.</summary>
+    internal Transform GetObjectsRoot() => ObjectsRoot;
+
+    public void Initialize()
+    {
+        if (_initialized) return;
+        _initialized = true;
+        _lastPosition = transform.position;
+        if (enablePipeline) InitializePipeline();
+    }
+
+    private void InitializePipeline()
+    {
+        var oldRenderer = GetComponent<VolumeMeshRenderer>();
+        if (oldRenderer != null)
+            oldRenderer.enabled = false;
+
+        if (surfaceMaterial == null)
+            surfaceMaterial = new Material(Shader.Find("Standard"));
+
+        Bounds bounds = new Bounds(transform.position, Vector3.one * boundsExtent);
+        VolumeLayout layout = new VolumeLayout
+        {
+            Resolution = resolution,
+            CellSize = bounds.size.x / Mathf.Max(1, resolution.x),
+            Origin = bounds.min,
+            ChunkSize = chunkSize,
+            IsoLevel = isoLevel
+        };
+
+        IVolumeMesher mesher = MesherFactory.Create(pipelineMesherType);
+
+        GameObject meshObj = new GameObject("PipelineMeshOutput");
+        meshObj.transform.SetParent(transform, false);
+        var mf = meshObj.AddComponent<MeshFilter>();
+        _meshRenderer = meshObj.AddComponent<MeshRenderer>();
+
+        _meshOutput = new UnityMeshOutput(mf, _meshRenderer, surfaceMaterial);
+        _pipeline = new VolumePipeline(layout, mesher);
+        _pipeline.Initialize(_meshOutput);
+        _pipeline.SetBackend(computeBackend);
+
+        // ADR-001: Create visual output wrapper for user-facing rotation/scale.
+        // VolumeProcessor stays identity; _visualOutput handles all visual transforms.
+        GameObject voObj = new GameObject("VisualOutput");
+        voObj.transform.SetParent(transform, false);
+        _visualOutput = voObj.transform;
+
+        _chunksParent = new GameObject("Chunks").transform;
+        _chunksParent.SetParent(_visualOutput, false);
+
+        Vector3Int gridSize = _pipeline.Buffer.ChunkGridSize;
+        _chunkRenderers = new ChunkRenderManager();
+        _chunkRenderers.Initialize(_pipeline.Buffer.TotalChunks, gridSize, _chunksParent, layout);
+        _chunkRenderers.SetMaterial(surfaceMaterial);
+        _pipeline.SetChunkRenderers(_chunkRenderers);
+
+        GameObject.DestroyImmediate(meshObj);
+        _meshOutput = null;
+
+        Debug.Log($"[VolumeProcessor] Pipeline init: grid {bounds.min:F1}..{bounds.max:F1}, center={transform.position:F1}");
+    }
+
+    private void Update()
+    {
+        CheckModelTransformChanged();
+
+        if (_pipeline != null && enablePipeline)
+        {
+            // Budgeted scheduler tick in play mode — 8 chunks or 5ms budget
+            _pipeline.Scheduler.MaxChunksPerFrame = 8;
+            _pipeline.Scheduler.UseTimeBudget = true;
+
+            if (_pipeline.Scheduler.HasPendingWork)
+                _pipeline.TickScheduler();
+
+            if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
+                RebuildPipeline();
+        }
+
+        if (_chunkRenderers != null && surfaceMaterial != null)
+            _chunkRenderers.SetMaterial(surfaceMaterial);
+    }
+
+    /// <summary>Model origin moved → shift grid + full rebuild.</summary>
+    private void CheckModelTransformChanged()
+    {
+        if (!_initialized || _pipeline == null) return;
+
+        if (transform.position != _lastPosition)
+        {
+            Vector3 delta = transform.position - _lastPosition;
+            _lastPosition = transform.position;
+
+            // Grid must follow the model — shift origin by same delta.
+            _pipeline.Buffer.UpdateOrigin(_pipeline.Buffer.Layout.Origin + delta);
+
+            // Every cell is now at a different world coordinate → full rebuild.
+            _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+            _pipeline.MarkDirty();
+        }
+    }
+
+    private void RebuildPipeline()
+    {
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+        if (composer == null || _pipeline == null) return;
+
+        composer.RebuildComposition();
+
+        if (composer.objects.Count == 0)
+        {
+            Debug.LogWarning("[VolumeProcessor] RebuildPipeline: no objects — add a shape first.");
+            return;
+        }
+
+        // ADR-002: Check if all objects fit within the current grid.
+        if (!CheckBoundsFit(composer))
+            return; // Resized — _pipeline is new, next tick will rebuild
+
+        bool isPartial = _hasDirtyBounds;
+
+        if (isPartial)
+            _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
+        else
+            _pipeline.Rebuild(composer, isoLevel);
+
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+
+        // Partial: drain sync for instant feedback. Full: async via scheduler budgeting.
+        if (isPartial)
+        {
+            DrainSync();
+            Debug.Log($"[VolumeProcessor] RebuildPipeline (partial) done");
+        }
+        else
+        {
+            Debug.Log($"[VolumeProcessor] RebuildPipeline (full) queued, pending={_pipeline.Scheduler.PendingCount}");
+        }
+    }
+
+    /// <summary>ADR-002: Check whether all objects fit in the current grid; resize if needed. Returns false if resized.</summary>
+    private bool CheckBoundsFit(VolumeObjectRegistry composer)
+    {
+        Bounds total = composer.GetTotalBounds();
+        if (total.extents == Vector3.zero)
+            return true; // No objects to check
+
+        // Expand bounds by padding factor
+        total.Expand(total.size.x * (expandPaddingFactor - 1f));
+
+        // Current grid bounds in world space
+        VolumeLayout layout = _pipeline.Buffer.Layout;
+        Vector3 gridMin = layout.Origin;
+        Vector3 gridMax = layout.Origin + new Vector3(
+            layout.Resolution.x, layout.Resolution.y, layout.Resolution.z
+        ) * layout.CellSize;
+
+        // Check if total bounds fit inside grid
+        bool fits = gridMin.x <= total.min.x && gridMin.y <= total.min.y && gridMin.z <= total.min.z &&
+                     gridMax.x >= total.max.x && gridMax.y >= total.max.y && gridMax.z >= total.max.z;
+
+        if (fits)
+            return true;
+
+        if (!autoExpand)
+        {
+            Debug.LogWarning($"[VolumeProcessor] Objects exceed grid bounds; rebuild skipped to preserve existing geometry. " +
+                $"Grid: {gridMin:F1}..{gridMax:F1}, Objects: {total.min:F1}..{total.max:F1}. " +
+                $"Enable autoExpand or manually increase boundsExtent.");
+            return false;
+        }
+
+        ResizeGrid(total);
+        return true;
+    }
+
+    /// <summary>ADR-002: Allocate a new grid large enough to contain the given bounds.</summary>
+    private void ResizeGrid(Bounds requiredBounds)
+    {
+        VolumeLayout oldLayout = _pipeline.Buffer.Layout;
+
+        // Compute new layout that fits the required bounds
+        float extent = Mathf.Max(requiredBounds.size.x, Mathf.Max(requiredBounds.size.y, requiredBounds.size.z));
+        Vector3 center = requiredBounds.center;
+
+        Bounds newBounds = new Bounds(center, new Vector3(extent, extent, extent));
+        VolumeLayout newLayout = new VolumeLayout
+        {
+            Resolution = resolution,
+            CellSize = newBounds.size.x / Mathf.Max(1, resolution.x),
+            Origin = newBounds.min,
+            ChunkSize = chunkSize,
+            IsoLevel = isoLevel
+        };
+
+        Debug.Log($"[VolumeProcessor] Resizing grid: {oldLayout.Resolution} @ {oldLayout.CellSize:F4} → " +
+            $"{newLayout.Resolution} @ {newLayout.CellSize:F4}, center={center:F1}");
+
+        // Dispose old pipeline state
+        _chunkRenderers?.Dispose();
+        _pipeline?.Dispose();
+
+        // Clear orphaned chunk children from the shared parent
+        for (int i = _chunksParent.childCount - 1; i >= 0; i--)
+            GameObject.DestroyImmediate(_chunksParent.GetChild(i).gameObject);
+
+        // Rebuild pipeline with new layout
+        IVolumeMesher mesher = MesherFactory.Create(pipelineMesherType);
+        _pipeline = new VolumePipeline(newLayout, mesher);
+
+        GameObject meshObj = new GameObject("PipelineMeshOutput");
+        meshObj.transform.SetParent(transform, false);
+        var mf = meshObj.AddComponent<MeshFilter>();
+        _meshRenderer = meshObj.AddComponent<MeshRenderer>();
+
+        _meshOutput = new UnityMeshOutput(mf, _meshRenderer, surfaceMaterial);
+        _pipeline.Initialize(_meshOutput);
+        _pipeline.SetBackend(computeBackend);
+
+        Vector3Int gridSize = _pipeline.Buffer.ChunkGridSize;
+        _chunkRenderers = new ChunkRenderManager();
+        _chunkRenderers.Initialize(_pipeline.Buffer.TotalChunks, gridSize, _chunksParent, newLayout);
+        _chunkRenderers.SetMaterial(surfaceMaterial);
+        _pipeline.SetChunkRenderers(_chunkRenderers);
+
+        GameObject.DestroyImmediate(meshObj);
+        _meshOutput = null;
+
+        // The caller continues with a synchronous full rebuild on this new pipeline.
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+    }
+
+    public void Rebuild()
+    {
+        if (!_initialized) Initialize();
+        _buildVersion++;
+        RebuildPipeline();
+    }
+
+    public void Dispose()
+    {
+        _chunkRenderers?.Dispose();
+        _chunkRenderers = null;
+        _pipeline?.Dispose();
+        _pipeline = null;
+        _meshOutput?.Clear();
+        _initialized = false;
+    }
+
+    public void TickScheduler() => _pipeline?.TickScheduler();
+
+    public void ExecuteOperation(IVolumeOperation operation)
+    {
+        if (!_initialized) Initialize();
+        _pipeline?.ApplyOperation(operation);
+    }
+
+    public void AddSelectedObject() => AddObject(shapeToAdd, roleToAdd);
+
+    public void AddObject(VolumeShapeType shape, VolumeOperationRole role)
+    {
+        GameObject child = new GameObject($"VolumeObject_{shape}_{role}");
+        child.transform.SetParent(ObjectsRoot, false);
+        child.transform.localPosition = Vector3.zero;
+
+        VolumeObject vo = child.AddComponent<VolumeObject>();
+        vo.shapeType = shape;
+        vo.role = role;
+
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+        if (composer != null && !composer.objects.Contains(vo))
+            composer.objects.Add(vo);
+
+        CommandStack.Push(new AddObjectCommand(this, composer?.objects.Count - 1 ?? 0, child));
+
+        Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
+    }
+
+    public void RemoveLastObject()
+    {
+        Transform root = ObjectsRoot;
+        if (root == null || root.childCount == 0) return;
+
+        GameObject lastChild = root.GetChild(root.childCount - 1).gameObject;
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+        VolumeObject vo = lastChild.GetComponent<VolumeObject>();
+
+        // Save state for undo before destroying
+        string name = lastChild.name;
+        VolumeShapeType shape = vo?.shapeType ?? VolumeShapeType.Sphere;
+        VolumeOperationRole role = vo?.role ?? VolumeOperationRole.Add;
+        Vector3 localPos = lastChild.transform.localPosition;
+
+#if UNITY_EDITOR
+        Undo.DestroyObjectImmediate(lastChild);
+#else
+        Object.DestroyImmediate(lastChild);
+#endif
+        if (composer != null && vo != null) composer.objects.Remove(vo);
+
+        CommandStack.Push(new RemoveObjectCommand(this, name, shape, role, localPos));
+        RebuildModel();
+    }
+
+    public void ClearObjects()
+    {
+        Transform root = transform.Find("Objects");
+        if (root != null)
+            for (int i = root.childCount - 1; i >= 0; i--)
+                Object.DestroyImmediate(root.GetChild(i).gameObject);
+
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+        if (composer != null) composer.objects.Clear();
+
+        RebuildModel();
+    }
+
+    public void RebuildModel()
+    {
+        double start = Time.realtimeSinceStartup * 1000.0;
+
+        if (!_initialized) Initialize();
+        _buildVersion++;
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+
+        Debug.Log($"[VolumeProcessor] RebuildModel called");
+
+        if (!enablePipeline || _pipeline == null) return;
+
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+        if (composer == null) return;
+
+        composer.RebuildComposition();
+        if (composer.objects.Count == 0)
+        {
+            Debug.LogWarning("[VolumeProcessor] RebuildModel: no objects");
+            return;
+        }
+
+        // ADR-002: Resize grid if objects exceed current bounds.
+        if (!CheckBoundsFit(composer))
+            return;
+
+        _pipeline.Rebuild(composer, isoLevel);
+        DrainSync();
+
+        double elapsed = (Time.realtimeSinceStartup * 1000.0) - start;
+        Debug.Log($"[VolumeProcessor] RebuildModel done: {elapsed:F0}ms");
+    }
+
+    public void MarkDirtyBounds(Bounds worldBounds)
+    {
+        _hasDirtyBounds = true;
+        if (_dirtyBoundsWorld.extents == Vector3.zero)
+            _dirtyBoundsWorld = worldBounds;
+        else
+            _dirtyBoundsWorld.Encapsulate(worldBounds);
+
+        if (enablePipeline && _pipeline != null)
+            _pipeline.MarkDirty();
+    }
+
+    /// <summary>Synchronous partial rebuild using current dirty bounds.</summary>
+    public void RebuildDirty()
+    {
+        if (!_initialized) Initialize();
+        if (_pipeline == null || !enablePipeline) return;
+
+        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+        if (composer == null) return;
+
+        composer.RebuildComposition();
+
+        if (composer.objects.Count == 0)
+        {
+            _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+            return;
+        }
+
+        // ADR-002: Ensure grid is large enough before partial rebuild.
+        if (!CheckBoundsFit(composer))
+            return;
+
+        if (_hasDirtyBounds)
+            _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
+        else
+            _pipeline.Rebuild(composer, isoLevel);
+
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+        DrainSync();
+
+        Debug.Log($"[VolumeProcessor] RebuildDirty done");
+    }
+
+    /// <summary>Drain all pending meshing synchronously (bypasses frame budget).</summary>
+    private void DrainSync()
+    {
+        _pipeline.Scheduler.MaxChunksPerFrame = int.MaxValue;
+        _pipeline.Scheduler.UseTimeBudget = false;
+        _pipeline.TickScheduler();
+        _pipeline.Scheduler.UseTimeBudget = true;
+    }
+
+    public VolumePipeline Pipeline => _pipeline;
+    public bool Initialized => _initialized;
+    public int BuildVersion => _buildVersion;
+
+    // ---- Legacy stubs ----
+    public bool ShouldUseInteractionPreview() => false;
+    public bool ShouldAutoRebuildOnChange() => true;
+    public bool ShouldAutoRebuildOnTransformChange() => true;
+    public void NotifyInteractiveEdit() { }
+    public bool SupportsPreviewDepth() => false;
+    public float usePreviewDepthWhileInteracting = 1f;
+    public bool SupportsPreviewResolution() => false;
+    public Vector3Int usePreviewResolutionWhileInteracting = Vector3Int.zero;
+    public bool IsPreviewInteractionActive => false;
+    public void DrainPendingRenderChunksImmediately() { }
+    public VolumeDataStructure dataStructure => VolumeDataStructure.VoxelGrid;
+    public VoxelGridSampler voxelGridSampler => CreateVoxelGridSampler();
+    public OctreeVolumeSampler octreeSampler => null;
+    public SparseVoxelOctreeSampler sparseVoxelOctreeSampler => null;
+    public bool drawChildGizmos => true;
+
+    private VoxelGridSampler _voxelStub;
+    private VoxelGridSampler CreateVoxelGridSampler()
+    {
+        if (_voxelStub == null)
+        {
+            _voxelStub = new VoxelGridSampler();
+            int res = Mathf.Max(1, resolution.x);
+            _voxelStub.builder.gridSize = new Vector3Int(res, res, res);
+            _voxelStub.builder.gridExtent = new Vector3(boundsExtent, boundsExtent, boundsExtent);
+        }
+        return _voxelStub;
+    }
+
+    private void OnDrawGizmos()
+    {
+        // ADR-001: Draw gizmos relative to VisualOutput so they follow rotation/scale.
+        Transform vo = _visualOutput;
+        if (vo == null) return;
+
+        // ADR-002: Show actual grid bounds from pipeline, not inspector default.
+        Bounds volBounds;
+        if (_pipeline != null)
+        {
+            var layout = _pipeline.Buffer.Layout;
+            Vector3 size = new Vector3(
+                layout.Resolution.x * layout.CellSize,
+                layout.Resolution.y * layout.CellSize,
+                layout.Resolution.z * layout.CellSize
+            );
+            volBounds = new Bounds(layout.Origin + size * 0.5f, size);
+        }
+        else
+        {
+            volBounds = new Bounds(transform.position, Vector3.one * boundsExtent);
+        }
+
+        // Apply VisualOutput transform to gizmo positions
+        Gizmos.matrix = vo.localToWorldMatrix;
+        if (vo.parent != null)
+            Gizmos.matrix *= vo.parent.worldToLocalMatrix;
+
+        Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.12f);
+        Gizmos.DrawCube(volBounds.center, volBounds.size);
+        Gizmos.color = new Color(0.5f, 0.8f, 1f, 0.6f);
+        Gizmos.DrawWireCube(volBounds.center, volBounds.size);
+
+        Vector3 origin = volBounds.min;
+        Gizmos.color = new Color(1f, 0.85f, 0f, 0.9f);
+        Gizmos.DrawWireSphere(origin, volBounds.size.x * 0.04f);
+        Gizmos.matrix = Matrix4x4.identity;
+    }
+
+    /// <summary>ADR-001: Prevent accidental rotation/scale on the VolumeProcessor itself.</summary>
+    private void OnValidate()
+    {
+        // Enforce identity rotation and scale — VisualOutput owns these transforms.
+        if (transform.rotation != Quaternion.identity)
+            transform.rotation = Quaternion.identity;
+        if (transform.localScale != Vector3.one)
+            transform.localScale = Vector3.one;
+    }
+
+#if UNITY_EDITOR
+    private void OnEnable()
+    {
+        if (!Application.isPlaying && !Application.isBatchMode)
+            RegisterEditorUpdate();
+    }
+
+    private void OnDisable()
+    {
+        if (!Application.isPlaying)
+            UnregisterEditorUpdate();
+    }
+
+    private void RegisterEditorUpdate()
+    {
+        if (_editorUpdateRegistered) return;
+        EditorApplication.update += EditorTickScheduler;
+        _editorUpdateRegistered = true;
+    }
+
+    private void UnregisterEditorUpdate()
+    {
+        if (!_editorUpdateRegistered) return;
+        EditorApplication.update -= EditorTickScheduler;
+        _editorUpdateRegistered = false;
+    }
+
+    private void EditorTickScheduler()
+    {
+        if (_pipeline == null || !enablePipeline) return;
+
+        // Model origin change in editor — same as Update() path.
+        CheckModelTransformChanged();
+
+        // Budgeted ticks in editor — 8 chunks or 5ms per editor update frame
+        _pipeline.Scheduler.MaxChunksPerFrame = 8;
+        _pipeline.Scheduler.UseTimeBudget = true;
+
+        if (_pipeline.Scheduler.HasPendingWork)
+            _pipeline.TickScheduler();
+
+        if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
+            RebuildPipeline();
+
+        SceneView.RepaintAll();
+    }
+#endif
+
+    private void OnDestroy() => Dispose();
+}

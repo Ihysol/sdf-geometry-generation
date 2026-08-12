@@ -9,7 +9,7 @@ public class VoxelGridChunkMesher : IChunkMesher<VoxelGrid>
     private readonly SurfaceNetsVoxelMesher _surfaceNetsMesher = new();
 
     public void BuildChunk(
-        VolumeModel model,
+        VolumeProcessor model,
         IScalarFieldSource source,
         VoxelGrid volume,
         Bounds coreBounds,

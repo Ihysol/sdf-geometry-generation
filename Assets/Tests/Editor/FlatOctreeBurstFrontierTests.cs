@@ -17,7 +17,7 @@ public class FlatOctreeBurstFrontierTests
             sphere.role = VolumeOperationRole.Add;
             sphere.sphereRadius = 1.25f;
 
-            VolumeSceneComposer composer = root.AddComponent<VolumeSceneComposer>();
+            VolumeObjectRegistry composer = root.AddComponent<VolumeObjectRegistry>();
             composer.objects.Add(sphere);
             composer.RebuildComposition();
 
