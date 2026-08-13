@@ -518,45 +518,6 @@ public class VolumeProcessor : MonoBehaviour
             _pipeline.MarkDirty();
     }
 
-    /// <summary>
-    /// Resamples the dirty SDF region synchronously, then queues chunk meshing for
-    /// budgeted editor/runtime ticks so interaction remains responsive.
-    /// </summary>
-    public void RebuildDirty()
-    {
-        if (!_initialized) Initialize();
-        if (_pipeline == null || !enablePipeline) return;
-
-        _buildVersion++;
-
-        VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
-        if (composer == null) return;
-
-        composer.RebuildComposition();
-
-        if (composer.objects.Count == 0)
-        {
-            _hasDirtyBounds = false; _dirtyBoundsWorld = default;
-            return;
-        }
-
-        // ADR-002: Ensure grid is large enough before partial rebuild.
-        if (!CheckBoundsFit(composer))
-            return;
-
-        bool isPartial = _hasDirtyBounds;
-        if (isPartial)
-             _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld, transform);
-         else
-             _pipeline.Rebuild(composer, isoLevel, transform);
-
-        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
-        _lastRebuildWasPartial = isPartial;
-        _lastRemeshedChunkCount = 0;
-
-        Debug.Log($"[VolumeProcessor] RebuildDirty queued, pending={_pipeline.Scheduler.PendingCount}");
-    }
-
     /// <summary>Drain all pending meshing for explicit synchronous full rebuilds.</summary>
     private int DrainSync()
     {

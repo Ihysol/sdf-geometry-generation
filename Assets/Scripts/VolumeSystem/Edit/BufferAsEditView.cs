@@ -1,4 +1,5 @@
 using Unity.Collections;
+using UnityEngine;
 
 /// <summary>Thin IVolumeView over a flat buffer — Seam 1 adapter (ADR-008).
 /// Caches NativeArray reference for bulk operations. Short-lived; do not hold across frames.</summary>
