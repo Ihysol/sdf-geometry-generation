@@ -8,34 +8,57 @@ public struct EditCheckpoint
     public int operationGeneration; // Only operations with generation > this need replay
 }
 
-/// <summary>ADR-004: Replayable persistent edits applied after sampling the Authoring Composition.
-/// Seam 1 of ADR-016 migration — currently empty but present in the pipeline.</summary>
+/// <summary>ADR-004: Replayable persistent edits applied after sampling the Authoring Composition.</summary>
 public class PersistentEditLayer
 {
-    private readonly List<PersistentEditOperation> _operations = new();
-    private readonly Dictionary<ChunkCoord, EditCheckpoint> _checkpoints = new();
+    private readonly List<PersistentEditOperation> _history = new();
+    private int _undoCursor; // Index of "next" slot — operations before cursor are active
     private int _nextGeneration;
 
-    /// <summary>Total operations (including suspended).</summary>
-    public int OperationCount => _operations.Count;
+    /// <summary>Total active operations (before undo cursor).</summary>
+    public int OperationCount => _undoCursor;
 
-    /// <summary>Add an operation and assign its generation.</summary>
+    /// <summary>Can undo? (active operations exist).</summary>
+    public bool CanUndo => _undoCursor > 0;
+
+    /// <summary>Can redo? (undone operations exist after cursor).</summary>
+    public bool CanRedo => _undoCursor < _history.Count;
+
+    /// <summary>Add an operation and advance the undo cursor. Redo stack is discarded.</summary>
     public void Add(PersistentEditOperation op)
     {
+        // Discard redo history when new operation is added
+        _history.RemoveRange(_undoCursor, _history.Count - _undoCursor);
+
         op.Generation = _nextGeneration++;
-        _operations.Add(op);
+        _history.Add(op);
+        _undoCursor++;
     }
 
-    /// <summary>Replay all operations intersecting the given world region over the target view.
+    /// <summary>Undo the most recent operation. Returns the undone operation or null.</summary>
+    public PersistentEditOperation Undo()
+    {
+        if (!CanUndo) return null;
+        _undoCursor--;
+        return _history[_undoCursor];
+    }
+
+    /// <summary>Redo the last undone operation. Returns the redone operation or null.</summary>
+    public PersistentEditOperation Redo()
+    {
+        if (!CanRedo) return null;
+        var op = _history[_undoCursor];
+        _undoCursor++;
+        return op;
+    }
+
+    /// <summary>Replay all active operations intersecting the given world region over the target view.
     /// Linear scan — OK for Seam 1, replaced by spatial index later (ADR-016).</summary>
     public void ReplayRegion(IVolumeView target, Bounds worldBounds, Transform processorTransform)
     {
-        // Sort by generation to ensure deterministic order
-        _operations.Sort((a, b) => a.Generation.CompareTo(b.Generation));
-
-        for (int i = 0; i < _operations.Count; i++)
+        for (int i = 0; i < _undoCursor; i++)
         {
-            var op = _operations[i];
+            var op = _history[i];
 
             // Check if operation has a checkpoint — skip older ones
             ChunkCoord regionChunk = GetCoveringChunk(worldBounds, target.Layout);
@@ -48,14 +71,9 @@ public class PersistentEditLayer
         }
     }
 
-    /// <summary>Remove the most recent operation (undo). Returns the removed operation or null.</summary>
-    public PersistentEditOperation UndoLast()
-    {
-        if (_operations.Count == 0) return null;
-        var op = _operations[_operations.Count - 1];
-        _operations.RemoveAt(_operations.Count - 1);
-        return op;
-    }
+    /// <summary>Remove the most recent operation (legacy alias for Undo). Returns the removed operation or null.</summary>
+    [System.Obsolete("Use Undo() instead")]
+    public PersistentEditOperation UndoLast() => Undo();
 
     /// <summary>ADR-006: Create a checkpoint for the given chunk. Stub — always returns false until implemented.</summary>
     public bool CreateCheckpoint(ChunkCoord coord)
@@ -72,10 +90,11 @@ public class PersistentEditLayer
         return cp;
     }
 
-    /// <summary>Clear all operations and checkpoints (e.g., on layout migration — ADR-014).</summary>
+    /// <summary>Clear all operations, checkpoints, and undo state (e.g., on layout migration — ADR-014).</summary>
     public void Clear()
     {
-        _operations.Clear();
+        _history.Clear();
+        _undoCursor = 0;
         _checkpoints.Clear();
     }
 

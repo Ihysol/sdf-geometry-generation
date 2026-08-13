@@ -22,8 +22,37 @@ public static class VolumeCarveTool
         SceneView.duringSceneGui += OnSceneGUI;
     }
 
+    private static void HandleEditUndoRedo()
+    {
+        if (Event.current == null) return;
+        if (Event.current.type != EventType.ValidateCommand || Event.current.commandName != "UndoRedoPerformed")
+            return;
+
+        var proc = Selection.activeGameObject?.GetComponent<VolumeProcessor>();
+        if (proc?.EditLayer == null) return;
+
+        // Unity fires ValidateCommand for both undo and redo — detect via Event.rawType
+        bool isRedo = Event.current.rawType == EventType.Command;
+
+        PersistentEditOperation changedOp = null;
+        if (!isRedo && proc.EditLayer.CanUndo)
+            changedOp = proc.EditLayer.Undo();
+        else if (isRedo && proc.EditLayer.CanRedo)
+            changedOp = proc.EditLayer.Redo();
+
+        if (changedOp != null)
+        {
+            Bounds bounds = changedOp.Region;
+            proc.MarkDirtyBounds(bounds);
+            Debug.Log($"[CarveTool] Edit {(!isRedo ? "Undo" : "Redo")}: {changedOp.Type}", proc.gameObject);
+        }
+    }
+
     private static void OnSceneGUI(SceneView sceneView)
     {
+        // Handle Ctrl+Z / Ctrl+Y for edit operations (separate from CommandStack)
+        HandleEditUndoRedo();
+
         bool enabled = EditorPrefs.GetBool(EnableKey, false);
 
         // Toggle toolbar button
