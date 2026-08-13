@@ -190,7 +190,7 @@ public static class VolumeCarveTool
     private static Bounds GetCarveBounds(Vector3 start, Vector3 end)
     {
         Vector3 center = (start + end) * 0.5f;
-        Vector3 size = Vector3.Max(Vector3.Abs(end - start), new Vector3(BrushRadius * 2f, BrushRadius * 2f, BrushRadius * 2f));
+        Vector3 size = Vector3.Max(new Vector3(Mathf.Abs(end.x - start.x), Mathf.Abs(end.y - start.y), Mathf.Abs(end.z - start.z)), new Vector3(BrushRadius * 2f, BrushRadius * 2f, BrushRadius * 2f));
         return new Bounds(center, size);
     }
 
