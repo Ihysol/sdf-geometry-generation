@@ -71,7 +71,24 @@ public class VolumeScheduler
         foreach (RemeshEntry entry in entries)
         {
             int priority = ComputePriority(entry);
-            _pending.Add(new RemeshEntry(entry.Coord, priority, entry.Reason, entry.Version));
+            var fresh = new RemeshEntry(entry.Coord, priority, entry.Reason, entry.Version);
+
+            // Dedup: if same chunk already in pending with higher/equal version, skip this one.
+            // If lower version, replace it (this is the fresher copy).
+            bool replaced = false;
+            for (int i = 0; i < _pending.Count; i++)
+            {
+                if (_pending[i].Coord == entry.Coord)
+                {
+                    if (_pending[i].Version >= fresh.Version)
+                        break; // Existing is newer — discard this
+                    _pending.RemoveAt(i);
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced)
+                _pending.Add(fresh);
         }
 
         _pending.Sort((a, b) => b.Priority.CompareTo(a.Priority));

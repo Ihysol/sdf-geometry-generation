@@ -78,14 +78,8 @@ public class DirtyChunkSystem
         int idx = CoordToIndex(x, y, z);
         chunkVersion++;
 
-        // ADR-004: If already queued, just bump the version — the existing queue entry
-        // will pick up the new version when validated. No duplicate push needed.
-        if (_states[idx] == DirtyState.MeshingQueued)
-        {
-            _versions[idx] = chunkVersion;
-            return;
-        }
-
+        // ADR-004 fix: Always add a fresh queue entry. Just bumping the version leaves
+        // the old pending entry orphaned — it gets stale-skipped and the chunk is never remeshed.
         _states[idx] = DirtyState.MeshingQueued;
         _versions[idx] = chunkVersion;
         _remeshQueue.Add(new RemeshEntry(new ChunkCoord(x, y, z), 0, reason, chunkVersion));
