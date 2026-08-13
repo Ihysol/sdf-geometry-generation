@@ -107,7 +107,7 @@ public class VolumeObjectRegistry : MonoBehaviour, IScalarFieldSource
             // Transform to world-space so WorldBoundsToIntBounds targets correct cells.
             Bounds world = TransformBoundsToWorld(dirtyBounds);
             model.MarkDirtyBounds(world);
-            model.RebuildDirty(); // RebuildDirty() already calls RebuildComposition() internally
+            model.Rebuild(); // Triggers RebuildPipeline which checks _hasDirtyBounds for partial path
         }
     }
 
@@ -125,7 +125,7 @@ public class VolumeObjectRegistry : MonoBehaviour, IScalarFieldSource
                     union.Encapsulate(TransformBoundsToWorld(dirtyBoundsParts[i]));
             }
             model.MarkDirtyBounds(union);
-            model.RebuildDirty(); // RebuildDirty() already calls RebuildComposition() internally
+            model.Rebuild(); // Triggers RebuildPipeline which checks _hasDirtyBounds for partial path
         }
     }
 

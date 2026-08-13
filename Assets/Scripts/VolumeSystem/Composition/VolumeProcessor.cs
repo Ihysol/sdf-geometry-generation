@@ -632,17 +632,21 @@ public class VolumeProcessor : MonoBehaviour
 
     private void EditorTickScheduler()
     {
-        // Handle Ctrl+Z/Ctrl+Y — only when this processor is selected (avoids stealing undo from other objects)
-        if (Selection.activeGameObject == gameObject)
+        // Handle Ctrl+Z/Ctrl+Y — only when this processor is selected.
+        // We detect undo vs redo by checking our CommandStack state:
+        // if UndoRedoPerformed fires and we can undo, it's an undo operation.
+        if (Selection.activeGameObject == gameObject && Event.current != null)
         {
-            if (Event.current != null && Event.current.type == EventType.ValidateCommand && Event.current.commandName == "UndoRedoPerformed")
+            var e = Event.current;
+            if ((e.type == EventType.ValidateCommand || e.type == EventType.ExecuteCommand) &&
+                e.commandName == "UndoRedoPerformed")
             {
-                bool isRedo = Event.current.rawType == EventType.Command;
                 var stack = CommandStack;
-                if (isRedo && stack.CanRedo)
-                    stack.Redo();
-                else if (!isRedo && stack.CanUndo)
+                // Prefer undo over redo — matches user expectation (Ctrl+Z is more common)
+                if (stack.CanUndo)
                     stack.Undo();
+                else if (stack.CanRedo)
+                    stack.Redo();
             }
         }
 
