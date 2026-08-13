@@ -103,15 +103,18 @@ public class VolumeProcessor : MonoBehaviour
         }
     }
 
-    /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y.</summary>
+    /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y. Only rebuilds if the undo target is this processor.</summary>
     public void ProcessUndoRedo()
     {
         if (Event.current == null) return;
 
         if (Event.current.type == EventType.ValidateCommand && Event.current.commandName == "UndoRedoPerformed")
         {
-            // Unity's built-in Undo already reverted the serialized state — we just need to rebuild.
-            RebuildModel();
+            // Only rebuild if Unity's Undo affected this object — skip unrelated undos.
+            var undoState = UnityEditor.Undo.GetCurrentGroup();
+            var targets = UnityEditor.Undo.GetUndoTarget(undoState);
+            if (targets != null && targets == gameObject)
+                RebuildModel();
         }
     }
 #endif
