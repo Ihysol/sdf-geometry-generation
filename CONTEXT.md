@@ -36,6 +36,14 @@ _Avoid_: Savegame, full volume snapshot
 One logical user edit that may contain many ordered Persistent Edit Operations, such as all samples in a brush stroke. It is the unit committed to Edit History and reversed by a single undo action.
 _Avoid_: Frame update, individual brush sample
 
+### Edit Anchor
+The explicit coordinate owner of an Edit Transaction: World, Processor, or a stable Volume Object identity. It determines whether an edit remains fixed, follows the processor, or transforms with an object.
+_Avoid_: Implicit local space, current selection
+
+### Suspended Edit
+An Object-anchored Edit Transaction whose stable anchor cannot currently be resolved. It remains persisted and undoable but does not affect the Effective Volume until recovered or explicitly re-anchored, baked, or deleted.
+_Avoid_: Deleted edit, world-space fallback
+
 ### Edit History
 The undoable sequence of committed Edit Transactions that belongs to the Persistent Edit Layer. It is separate from Unity Undo, which owns Authoring Composition changes.
 _Avoid_: Unity Undo, command stack
@@ -68,6 +76,10 @@ _Avoid_: NativeArray buffer, job view
 A short-lived, backend-specific struct view that exposes contiguous native data required by Burst jobs or other hot paths. It is derived from a Working Buffer or active chunk cache and is not the public storage contract.
 _Avoid_: Volume buffer interface, persistent view
 
+### GPU Mirror
+A derived GPU-resident copy of CPU-authoritative Working Buffer channels used by GPU consumers. Only dirty chunks are synchronized; the mirror never independently defines the Effective Volume.
+_Avoid_: GPU source of truth, full-buffer readback
+
 ### Persistence Backend
 A storage, compression, or streaming representation that imports data into and exports data from the Working Buffer. A Sparse Voxel DAG belongs to this role and is not mutated directly by normal interactive edits.
 _Avoid_: Working buffer, meshing backend
@@ -80,6 +92,34 @@ A fixed-size sub-volume of the global SDF grid (e.g., 8×8×8 cells). The unit o
 
 ### Chunk Version
 A per-chunk monotonic counter incremented on every dirty event. Ensures that if a chunk is re-dirtied while already queued for meshing, the scheduler picks up the freshest version rather than silently processing stale data.
+
+### Build Ticket
+An immutable set of revisions attached to a pipeline work item, covering the processor, layout, Effective Volume, chunk, Meshing Mode, and Output Mode as applicable. Publication validates only the dimensions on which that result depends.
+_Avoid_: Global build number, chunk version
+
+### Staged Hot-Swap
+A non-blocking Meshing Mode or Output Mode transition in which the current representation remains visible while ticketed replacement results are prepared and published. Replacement is chunkwise by default but may be atomic when required by an output capability.
+_Avoid_: Immediate rebuild, synchronous mode switch
+
+### Pipeline Work Item
+A typed, prioritized unit of regional or chunk work carrying a Build Ticket and a budget class. Sampling, edit replay, GPU synchronization, geometry building, output publication, checkpointing, and persistence export are distinct work-item stages.
+_Avoid_: Mesh task, renderer command
+
+### Pipeline Scheduler
+The single backend-neutral orchestrator for budgeted Pipeline Work Items. Subsystems provide stage handlers but do not own competing scheduling loops.
+_Avoid_: Meshing scheduler, renderer scheduler
+
+### Latest-State Coalescing
+A scheduling policy that replaces not-yet-started derived work with newer work for the same stage and region while retaining the old visible result until a valid replacement is published. Semantic Edit Transactions are preserved; only their derived pipeline work is coalesced.
+_Avoid_: Edit squashing, process every intermediate state
+
+### Layout Migration
+A change to resolution, cell size, grid origin, chunk layout, or channel schema that creates a new layout generation. Authoring Composition and semantic Persistent Edit Operations are replayed, while layout-bound checkpoints, mirrors, geometry, and job views are discarded.
+_Avoid_: Checkpoint resampling, implicit grid conversion
+
+### Migration Seam
+A tested compatibility boundary that lets an existing pipeline responsibility remain operational while its replacement is introduced incrementally. Each seam is removed only after equivalent behavior and performance are verified.
+_Avoid_: Parallel pipeline, big-bang rewrite
 
 ### Visual Output Wrapper
 A Unity Transform node between the processor and its chunk renderers. Carries rotation and scale so that the visual mesh can be transformed without affecting the axis-aligned SDF grid below. See [ADR-001](docs/adr/001-visual-output-wrapper.md).
