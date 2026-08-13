@@ -414,6 +414,10 @@ public class VolumeProcessor : MonoBehaviour
             role != VolumeOperationRole.Intersect;
 
         Bounds affectedBounds = canRebuildPartially ? vo.GetBounds() : default;
+        #if UNITY_EDITOR
+        Undo.RegisterFullObjectHierarchyUndo(child, "Add Volume Object");
+        #endif
+
         CommandStack.Push(new AddObjectCommand(
             this,
             composer?.objects.Count - 1 ?? 0,
@@ -421,7 +425,6 @@ public class VolumeProcessor : MonoBehaviour
             affectedBounds));
 
         // Rebuild is triggered by OnUndoRedoStateChanged -> MarkDirtyBounds.
-        // Do NOT call RebuildDirty() here — that caused double rebuild with stale bounds.
 
         Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
     }
@@ -632,23 +635,9 @@ public class VolumeProcessor : MonoBehaviour
 
     private void EditorTickScheduler()
     {
-        // Handle Ctrl+Z/Ctrl+Y — only when this processor is selected.
-        // We detect undo vs redo by checking our CommandStack state:
-        // if UndoRedoPerformed fires and we can undo, it's an undo operation.
-        if (Selection.activeGameObject == gameObject && Event.current != null)
-        {
-            var e = Event.current;
-            if ((e.type == EventType.ValidateCommand || e.type == EventType.ExecuteCommand) &&
-                e.commandName == "UndoRedoPerformed")
-            {
-                var stack = CommandStack;
-                // Prefer undo over redo — matches user expectation (Ctrl+Z is more common)
-                if (stack.CanUndo)
-                    stack.Undo();
-                else if (stack.CanRedo)
-                    stack.Redo();
-            }
-        }
+        // Don't steal focus during editor interactions (mouse drag, etc.)
+        if (Event.current != null && Event.current.type == EventType.MouseDrag)
+            return;
 
         if (_pipeline == null || !enablePipeline) return;
 
@@ -659,15 +648,19 @@ public class VolumeProcessor : MonoBehaviour
         _pipeline.Scheduler.MaxChunksPerFrame = 8;
         _pipeline.Scheduler.UseTimeBudget = true;
 
+        bool didWork = false;
         if (_pipeline.Scheduler.HasPendingWork)
-            TickScheduler();
+            didWork |= TickScheduler() > 0;
 
         if (_pipeline.IsDirty && !_pipeline.Scheduler.HasPendingWork && !_pipeline.DirtyChunks.HasPendingWork)
+        {
             RebuildPipeline();
+            didWork = true;
+        }
 
-        SceneView.RepaintAll();
+        // Only repaint when we actually did something — prevents stealing drag focus
+        if (didWork)
+            SceneView.RepaintAll();
     }
 #endif
-
-    private void OnDestroy() => Dispose();
 }
