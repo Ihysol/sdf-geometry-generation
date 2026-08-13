@@ -66,6 +66,16 @@ public class VolumeProcessorEditor : Editor
         model.resolution = EditorGUILayout.Vector3IntField("Resolution", model.resolution);
         model.chunkSize = EditorGUILayout.IntField("Chunk Size", Mathf.Max(1, model.chunkSize));
         model.boundsExtent = EditorGUILayout.FloatField("Bounds Extent", Mathf.Max(0.1f, model.boundsExtent));
+        model.autoExpand = EditorGUILayout.Toggle("Auto Expand", model.autoExpand);
+        if (!model.autoExpand)
+        {
+            EditorGUILayout.HelpBox(
+                "Objects outside Bounds Extent are not rebuilt. Existing geometry is preserved until the bounds are enlarged or Auto Expand is enabled.",
+                MessageType.Info);
+        }
+        model.expandPaddingFactor = EditorGUILayout.FloatField(
+            "Expand Padding Factor",
+            Mathf.Max(1f, model.expandPaddingFactor));
 
         EditorGUILayout.Space(4);
         EditorGUILayout.LabelField("Meshing", EditorStyles.boldLabel);

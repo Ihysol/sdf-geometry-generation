@@ -14,8 +14,8 @@ public class TransformCommand : ICommand
         : this(t, oldPos, oldRot, oldScl, newPos, newRot, newScl, default)
     { }
 
-    internal TransformCommand(Transform t, Vector3 oldPos, Quaternion oldRot, Vector3 oldScl,
-                              Vector3 newPos, Quaternion newRot, Vector3 newScl, Bounds affectedBounds)
+    public TransformCommand(Transform t, Vector3 oldPos, Quaternion oldRot, Vector3 oldScl,
+                            Vector3 newPos, Quaternion newRot, Vector3 newScl, Bounds affectedBounds)
     {
         _transform = t;
         (_oldPos, _newPos) = (oldPos, newPos);

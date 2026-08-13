@@ -19,7 +19,7 @@ public class VolumeProcessor : MonoBehaviour
 
    [Header("Auto Expand")]
     [Tooltip("Automatically resize grid when objects fall outside current bounds")]
-    [SerializeField] public bool autoExpand = false;
+    [SerializeField] public bool autoExpand = true;
     [Tooltip("Padding factor around object bounds (1.0 = tight, 1.25 = 25% margin)")]
     [SerializeField] public float expandPaddingFactor = 1.25f;
 
@@ -297,14 +297,14 @@ public class VolumeProcessor : MonoBehaviour
 
         if (!autoExpand)
         {
-            Debug.LogWarning($"[VolumeProcessor] Objects exceed grid bounds! " +
+            Debug.LogWarning($"[VolumeProcessor] Objects exceed grid bounds; rebuild skipped to preserve existing geometry. " +
                 $"Grid: {gridMin:F1}..{gridMax:F1}, Objects: {total.min:F1}..{total.max:F1}. " +
                 $"Enable autoExpand or manually increase boundsExtent.");
-            return true; // Don't block rebuild — user gets warning but pipeline continues
+            return false;
         }
 
         ResizeGrid(total);
-        return false; // Pipeline was recreated — caller should defer rebuild to next tick
+        return true;
     }
 
     /// <summary>ADR-002: Allocate a new grid large enough to contain the given bounds.</summary>
@@ -359,9 +359,8 @@ public class VolumeProcessor : MonoBehaviour
         GameObject.DestroyImmediate(meshObj);
         _meshOutput = null;
 
-        // Force full rebuild
+        // The caller continues with a synchronous full rebuild on this new pipeline.
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
-        _pipeline.MarkDirty();
     }
 
     public void Rebuild()
@@ -408,7 +407,6 @@ public class VolumeProcessor : MonoBehaviour
         CommandStack.Push(new AddObjectCommand(this, composer?.objects.Count - 1 ?? 0, child));
 
         Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
-        RebuildModel();
     }
 
     public void RemoveLastObject()
@@ -419,7 +417,7 @@ public class VolumeProcessor : MonoBehaviour
         GameObject lastChild = root.GetChild(root.childCount - 1).gameObject;
         VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
         VolumeObject vo = lastChild.GetComponent<VolumeObject>();
-        
+
         // Save state for undo before destroying
         string name = lastChild.name;
         VolumeShapeType shape = vo?.shapeType ?? VolumeShapeType.Sphere;
@@ -474,7 +472,7 @@ public class VolumeProcessor : MonoBehaviour
 
         // ADR-002: Resize grid if objects exceed current bounds.
         if (!CheckBoundsFit(composer))
-            return; // Resized — next tick will rebuild with new pipeline
+            return;
 
         _pipeline.Rebuild(composer, isoLevel);
         DrainSync();
@@ -514,7 +512,7 @@ public class VolumeProcessor : MonoBehaviour
 
         // ADR-002: Ensure grid is large enough before partial rebuild.
         if (!CheckBoundsFit(composer))
-            return; // Resized — defer to next tick
+            return;
 
         if (_hasDirtyBounds)
             _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
@@ -542,6 +540,7 @@ public class VolumeProcessor : MonoBehaviour
 
     // ---- Legacy stubs ----
     public bool ShouldUseInteractionPreview() => false;
+    public bool ShouldAutoRebuildOnChange() => true;
     public bool ShouldAutoRebuildOnTransformChange() => true;
     public void NotifyInteractiveEdit() { }
     public bool SupportsPreviewDepth() => false;
