@@ -1,6 +1,6 @@
 # ADR-003: Undo/Redo via Unity's Built-in Undo API
 
-**Status:** Superseded in part by ADR-007
+**Status:** Superseded by ADR-007 (2026-08-13) — Edit Layer owns its own undo/redo. Unity Undo remains for Authoring Composition changes only. Moved to `archived/` on 2026-08-13.
 **Date:** 2026-07-24
 
 ## Context

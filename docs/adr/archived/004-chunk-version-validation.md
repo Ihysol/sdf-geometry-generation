@@ -1,6 +1,6 @@
 # ADR-004: Chunk Version Validation — Single Source of Truth
 
-**Status:** Accepted  
+**Status:** Superseded by ADR-004 (Layered Volume State, 2026-08-13) — chunk versioning is now part of the Persistent Edit Layer. Moved to `archived/` on 2026-08-13.
 **Date:** 2026-07-29  
 **Author:** Hermes Agent  
 **Tags:** pipeline, chunking, scheduler, versioning
