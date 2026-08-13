@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>Undo for adding a VolumeObject to the scene.</summary>
@@ -78,6 +79,66 @@ public class RemoveObjectCommand : ICommand
         VolumeObjectRegistry composer = _processor.GetComponent<VolumeObjectRegistry>();
         if (composer != null && !composer.objects.Contains(vo))
             composer.objects.Add(vo);
+    }
+
+    public Bounds AffectedBounds => default;
+}
+
+/// <summary>Undo for clearing all VolumeObjects at once.</summary>
+public class ClearAllCommand : ICommand
+{
+    private readonly VolumeProcessor _processor;
+    private readonly List<ObjectState> _savedStates;
+
+    private struct ObjectState
+    {
+        public string Name;
+        public VolumeShapeType Shape;
+        public VolumeOperationRole Role;
+        public Vector3 LocalPosition;
+    }
+
+    public ClearAllCommand(VolumeProcessor processor, List<VolumeObject> objects)
+    {
+        _processor = processor;
+        _savedStates = new List<ObjectState>(objects.Count);
+        foreach (var vo in objects)
+        {
+            var t = vo.transform;
+            _savedStates.Add(new ObjectState
+            {
+                Name = t.name,
+                Shape = vo.shapeType,
+                Role = vo.role,
+                LocalPosition = t.localPosition
+            });
+        }
+    }
+
+    public void Execute()
+    {
+        // Objects already destroyed — nothing to do
+    }
+
+    public void Revoke()
+    {
+        if (!_processor) return;
+        var root = _processor.GetObjectsRoot();
+        var composer = _processor.GetComponent<VolumeObjectRegistry>();
+
+        foreach (var state in _savedStates)
+        {
+            GameObject child = new GameObject(state.Name);
+            child.transform.SetParent(root, false);
+            child.transform.localPosition = state.LocalPosition;
+
+            VolumeObject vo = child.AddComponent<VolumeObject>();
+            vo.shapeType = state.Shape;
+            vo.role = state.Role;
+
+            if (composer != null && !composer.objects.Contains(vo))
+                composer.objects.Add(vo);
+        }
     }
 
     public Bounds AffectedBounds => default;

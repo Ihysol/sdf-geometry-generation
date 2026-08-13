@@ -469,14 +469,20 @@ public class VolumeProcessor : MonoBehaviour
     public void ClearObjects()
     {
         Transform root = transform.Find("Objects");
-        if (root != null)
-            for (int i = root.childCount - 1; i >= 0; i--)
-                Object.DestroyImmediate(root.GetChild(i).gameObject);
+        if (root == null) return;
 
         VolumeObjectRegistry composer = GetComponent<VolumeObjectRegistry>();
+
+        // Save state before destroying for undo
+        List<VolumeObject> saved = composer?.objects ?? new List<VolumeObject>();
+
+        for (int i = root.childCount - 1; i >= 0; i--)
+            Object.DestroyImmediate(root.GetChild(i).gameObject);
+
         if (composer != null) composer.objects.Clear();
 
-        RebuildModel();
+        CommandStack.Push(new ClearAllCommand(this, saved));
+        // Rebuild is triggered by OnUndoRedoStateChanged -> RebuildModel.
     }
 
     public void RebuildModel()
