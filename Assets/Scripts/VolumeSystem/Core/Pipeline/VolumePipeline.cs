@@ -112,10 +112,15 @@ public class VolumePipeline
         // 2. Replay persistent edits over full volume (ADR-004)
         if (EditLayer.OperationCount > 0 && processorTransform != null)
         {
-            Bounds worldBounds = new Bounds(_layout.Origin + (Vector3)_layout.Resolution * _layout.CellSize * 0.5f,
-                                             (Vector3)_layout.Resolution * _layout.CellSize);
-            BufferAsEditView view = new BufferAsEditView((ChunkedFlatVolumeBuffer)Buffer);
-            EditLayer.ReplayRegion(view, worldBounds, processorTransform);
+            var cfBuffer = Buffer as ChunkedFlatVolumeBuffer;
+            if (cfBuffer != null)
+            {
+                Bounds worldBounds = new Bounds(
+                    _layout.Origin + (Vector3)_layout.Resolution * _layout.CellSize * 0.5f,
+                    (Vector3)_layout.Resolution * _layout.CellSize);
+                BufferAsEditView view = new BufferAsEditView(cfBuffer);
+                EditLayer.ReplayRegion(view, worldBounds, processorTransform);
+            }
         }
 
         int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
@@ -190,16 +195,19 @@ public class VolumePipeline
             _builder.BuildPartial(Source, Buffer, sampleRegion);
         }
 
-        // Mark original dirty region for meshing — MarkDirty() expands ±1 chunk internally.
-        // Do NOT pass sampleRegion here (already expanded) — would double-expand neighbor coverage.
-
-        // Replay persistent edits over the dirty region (ADR-004)
+        // 2. Replay persistent edits over the dirty region (ADR-004)
         if (EditLayer.OperationCount > 0 && processorTransform != null)
         {
-            BufferAsEditView view = new BufferAsEditView((ChunkedFlatVolumeBuffer)Buffer);
-            EditLayer.ReplayRegion(view, dirtyBounds, processorTransform);
+            var cfBuffer = Buffer as ChunkedFlatVolumeBuffer;
+            if (cfBuffer != null)
+            {
+                BufferAsEditView view = new BufferAsEditView(cfBuffer);
+                EditLayer.ReplayRegion(view, dirtyBounds, processorTransform);
+            }
         }
 
+        // Mark original dirty region for meshing — MarkDirty() expands ±1 chunk internally.
+        // Do NOT pass sampleRegion here (already expanded) — would double-expand neighbor coverage.
         DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
         Debug.Log($"[VolumePipeline] Partial: dirty={dirtyRegion}, sample={sampleRegion}, chunks={DirtyChunks.QueueCount}");
 
