@@ -11,6 +11,9 @@ public class VolumePipeline
     public OperationExecutor Executor { get; private set; }
     public VolumeScheduler Scheduler { get; private set; }
 
+    /// <summary>ADR-004: Persistent edit layer — replayed after SDF sampling, before meshing.</summary>
+    public PersistentEditLayer EditLayer { get; private set; }
+
     private InitialBufferBuilder _builder;
     private VolumeLayout _layout;
     public ComputeBackend ActiveBackend { get; private set; } = ComputeBackend.CPU;
@@ -33,6 +36,7 @@ public class VolumePipeline
         Executor = new OperationExecutor(DirtyChunks, ActiveBackend);
         Scheduler = new VolumeScheduler(DirtyChunks, Buffer, _layout);
         Scheduler.SetMesher(Mesher);
+        EditLayer = new PersistentEditLayer(); // ADR-004 Seam 1
         Scheduler.SetOutput(Output);
     }
 
@@ -78,7 +82,10 @@ public class VolumePipeline
         return false;
     }
 
-    public void Rebuild(IScalarFieldSource sdfSource, float isoLevel)
+    public void Rebuild(IScalarFieldSource sdfSource, float isoLevel) => Rebuild(sdfSource, isoLevel, default, null);
+
+    /// <summary>ADR-004: Full rebuild with optional edit replay. Pass processor transform for anchor resolution.</summary>
+    public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Transform processorTransform)
     {
         if (sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
@@ -92,7 +99,7 @@ public class VolumePipeline
         _layout.IsoLevel = isoLevel;
         _dirty = false;
 
-        // Burst-compiled sampling when snapshot has only supported shapes
+        // 1. Sample Authoring Composition into buffer
         if (TryGetSnapshot(sdfSource, out var snapshot))
         {
             _builder.BuildBurst(snapshot, Buffer);
@@ -100,6 +107,15 @@ public class VolumePipeline
         else
         {
             _builder.Build(Source, Buffer);
+        }
+
+        // 2. Replay persistent edits over full volume (ADR-004)
+        if (EditLayer.OperationCount > 0 && processorTransform != null)
+        {
+            Bounds worldBounds = new Bounds(_layout.Origin + (Vector3)_layout.Resolution * _layout.CellSize * 0.5f,
+                                             (Vector3)_layout.Resolution * _layout.CellSize);
+            BufferAsEditView view = new BufferAsEditView((ChunkedFlatVolumeBuffer)Buffer);
+            EditLayer.ReplayRegion(view, worldBounds, processorTransform);
         }
 
         int cx = _layout.Resolution.x / 2, cy = _layout.Resolution.y / 2, cz = _layout.Resolution.z / 2;
@@ -113,7 +129,11 @@ public class VolumePipeline
             Buffer.SyncCpuToGpu();
     }
 
-    public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds)
+    public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds) =>
+        Rebuild(sdfSource, isoLevel, dirtyBounds, null);
+
+    /// <summary>ADR-004: Partial rebuild with optional edit replay.</summary>
+    public void Rebuild(IScalarFieldSource sdfSource, float isoLevel, Bounds dirtyBounds, Transform processorTransform)
     {
         if (sdfSource != null)
             Source = new SdfSourceAdapter(sdfSource);
@@ -172,6 +192,14 @@ public class VolumePipeline
 
         // Mark original dirty region for meshing — MarkDirty() expands ±1 chunk internally.
         // Do NOT pass sampleRegion here (already expanded) — would double-expand neighbor coverage.
+
+        // Replay persistent edits over the dirty region (ADR-004)
+        if (EditLayer.OperationCount > 0 && processorTransform != null)
+        {
+            BufferAsEditView view = new BufferAsEditView((ChunkedFlatVolumeBuffer)Buffer);
+            EditLayer.ReplayRegion(view, dirtyBounds, processorTransform);
+        }
+
         DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
         Debug.Log($"[VolumePipeline] Partial: dirty={dirtyRegion}, sample={sampleRegion}, chunks={DirtyChunks.QueueCount}");
 

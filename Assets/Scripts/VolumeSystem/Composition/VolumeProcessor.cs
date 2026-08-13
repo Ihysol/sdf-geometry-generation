@@ -133,7 +133,10 @@ public class VolumeProcessor : MonoBehaviour
     }
 
     /// <summary>Expose for Undo commands — creates if missing.</summary>
-    internal Transform GetObjectsRoot() => ObjectsRoot;
+     internal Transform GetObjectsRoot() => ObjectsRoot;
+
+     /// <summary>ADR-004: Access to the persistent edit layer. Null until pipeline initialized.</summary>
+     public PersistentEditLayer EditLayer => _pipeline?.EditLayer;
 
     public void Initialize()
     {
@@ -255,9 +258,9 @@ public class VolumeProcessor : MonoBehaviour
         bool isPartial = _hasDirtyBounds;
 
         if (isPartial)
-            _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
-        else
-            _pipeline.Rebuild(composer, isoLevel);
+             _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld, transform);
+         else
+             _pipeline.Rebuild(composer, isoLevel, transform);
 
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
 
@@ -548,9 +551,9 @@ public class VolumeProcessor : MonoBehaviour
 
         bool isPartial = _hasDirtyBounds;
         if (isPartial)
-            _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld);
-        else
-            _pipeline.Rebuild(composer, isoLevel);
+             _pipeline.Rebuild(composer, isoLevel, _dirtyBoundsWorld, transform);
+         else
+             _pipeline.Rebuild(composer, isoLevel, transform);
 
         _hasDirtyBounds = false; _dirtyBoundsWorld = default;
         _lastRebuildWasPartial = isPartial;
