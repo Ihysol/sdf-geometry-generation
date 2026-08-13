@@ -249,11 +249,9 @@ public class VolumeProcessor : MonoBehaviour
         {
             Debug.LogWarning("[VolumeProcessor] RebuildPipeline: no objects — add a shape first.");
             return;
-        }
-
-        // ADR-002: Check if all objects fit within the current grid.
+        }        // ADR-002: Check if all objects fit within the current grid.
         if (!CheckBoundsFit(composer))
-            return; // Resized — _pipeline is new, next tick will rebuild
+            return; // Skipped — autoExpand=false, objects exceed grid bounds (warning logged) — autoExpand=false, objects exceed grid bounds (warning logged)
 
         bool isPartial = _hasDirtyBounds;
 
