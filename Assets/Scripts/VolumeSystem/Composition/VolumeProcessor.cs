@@ -168,14 +168,11 @@ public class VolumeProcessor : MonoBehaviour
         _pipeline.Initialize(_meshOutput);
         _pipeline.SetBackend(computeBackend);
 
-        // ADR-001: Create visual output wrapper for user-facing rotation/scale.
-        // VolumeProcessor stays identity; _visualOutput handles all visual transforms.
-        GameObject voObj = new GameObject("VisualOutput");
-        voObj.transform.SetParent(transform, false);
-        _visualOutput = voObj.transform;
+        // ADR-001: Ensure visual output wrapper exists (lazy-init)
+        Transform vo = EnsureVisualOutput();
 
         _chunksParent = new GameObject("Chunks").transform;
-        _chunksParent.SetParent(_visualOutput, false);
+        _chunksParent.SetParent(vo, false);
 
         Vector3Int gridSize = _pipeline.Buffer.ChunkGridSize;
         _chunkRenderers = new ChunkRenderManager();
