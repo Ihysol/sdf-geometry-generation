@@ -34,20 +34,18 @@ public static class VolumeCarveTool
         var proc = Selection.activeGameObject?.GetComponent<VolumeProcessor>();
         if (proc?.EditLayer == null) return;
 
-        // Unity fires ValidateCommand for both undo and redo — detect via Event.rawType
-        bool isRedo = Event.current.rawType == EventType.Command;
-
+        // Unity fires ValidateCommand for both undo and redo — prefer undo when both available
         PersistentEditOperation changedOp = null;
-        if (!isRedo && proc.EditLayer.CanUndo)
+        if (proc.EditLayer.CanUndo)
             changedOp = proc.EditLayer.Undo();
-        else if (isRedo && proc.EditLayer.CanRedo)
+        else if (proc.EditLayer.CanRedo)
             changedOp = proc.EditLayer.Redo();
 
         if (changedOp != null)
         {
             Bounds bounds = changedOp.Region;
             proc.MarkDirtyBounds(bounds);
-            Debug.Log($"[CarveTool] Edit {(!isRedo ? "Undo" : "Redo")}: {changedOp.Type}", proc.gameObject);
+            Debug.Log($"[CarveTool] Edit Undo/Redo: {changedOp.Type}", proc.gameObject);
         }
     }
 
@@ -81,7 +79,8 @@ public static class VolumeCarveTool
 
         // Brush size slider in toolbar
         GUILayout.BeginArea(new Rect(10, 60, 200, 25));
-        BrushRadius = EditorGUILayout.Slider("Brush: " + BrushRadius.ToString("F1"), 0.1f, 5f);
+        BrushRadius = EditorGUILayout.Slider(BrushRadius, 0.1f, 5f);
+        GUILayout.Label($"Brush: {BrushRadius:F1}", EditorStyles.miniLabel);
         GUILayout.EndArea();
 
         // Draw brush preview at mouse position
@@ -116,7 +115,7 @@ public static class VolumeCarveTool
             {
                 Bounds carveBounds = GetCarveBounds(_carveStartWorld, _carveEndWorld);
                 Handles.color = new Color(1f, 0f, 0f, 0.3f);
-                Handles.DrawAAWireCube(carveBounds.center, carveBounds.size);
+                Handles.DrawWireCube(carveBounds.center, carveBounds.size);
             }
         }
     }
@@ -191,7 +190,7 @@ public static class VolumeCarveTool
     private static Bounds GetCarveBounds(Vector3 start, Vector3 end)
     {
         Vector3 center = (start + end) * 0.5f;
-        Vector3 size = Vector3.Max(Mathf.Abs(end - start), new Vector3(BrushRadius * 2f, BrushRadius * 2f, BrushRadius * 2f));
+        Vector3 size = Vector3.Max(Vector3.Abs(end - start), new Vector3(BrushRadius * 2f, BrushRadius * 2f, BrushRadius * 2f));
         return new Bounds(center, size);
     }
 
@@ -205,7 +204,7 @@ public static class VolumeCarveTool
         // Create world-anchored carve operation
         var op = new CarveOperation(
             carveBounds,
-            new EditAnchor(EditAnchorType.World),
+            new EditAnchor { type = EditAnchorType.World },
             depth: 1.0f
         );
 

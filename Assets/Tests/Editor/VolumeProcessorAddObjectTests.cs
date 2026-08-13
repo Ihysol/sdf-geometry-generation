@@ -89,7 +89,7 @@ public class VolumeProcessorAddObjectTests
         previousBounds.Encapsulate(currentBounds);
 
         _processor.MarkDirtyBounds(previousBounds);
-        _processor.RebuildDirty();
+        _processor.Rebuild();
 
         Assert.That(_processor.Pipeline, Is.SameAs(expandedPipeline),
             "A small move inside the auto-expand reserve must stay on the partial rebuild path.");
@@ -117,7 +117,7 @@ public class VolumeProcessorAddObjectTests
         dirtyBounds.Encapsulate(moving.GetEstimatedLocalBounds());
 
         _processor.MarkDirtyBounds(dirtyBounds);
-        _processor.RebuildDirty();
+        _processor.Rebuild();
 
         Assert.That(_processor.LastRemeshedChunkCount, Is.Zero,
             "Interactive rebuild must not synchronously mesh chunks.");
@@ -155,7 +155,7 @@ public class VolumeProcessorAddObjectTests
         previousBounds.Encapsulate(currentBounds);
 
         _processor.MarkDirtyBounds(previousBounds);
-        _processor.RebuildDirty();
+        _processor.Rebuild();
 
         Assert.That(_processor.Pipeline, Is.SameAs(pipeline));
         Assert.That(_processor.Pipeline.Buffer, Is.SameAs(buffer));
