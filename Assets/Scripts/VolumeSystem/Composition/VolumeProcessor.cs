@@ -463,7 +463,7 @@ public class VolumeProcessor : MonoBehaviour
         if (composer != null && vo != null) composer.objects.Remove(vo);
 
         CommandStack.Push(new RemoveObjectCommand(this, name, shape, role, localPos));
-        RebuildModel();
+        // Rebuild is triggered by OnUndoRedoStateChanged -> MarkDirtyBounds/RebuildModel.
     }
 
     public void ClearObjects()
