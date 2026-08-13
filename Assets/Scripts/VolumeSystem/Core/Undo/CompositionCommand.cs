@@ -49,15 +49,17 @@ public class RemoveObjectCommand : ICommand
     private readonly VolumeShapeType _shape;
     private readonly VolumeOperationRole _role;
     private readonly Vector3 _localPosition;
+    private readonly Bounds _affectedBounds;
 
     public RemoveObjectCommand(VolumeProcessor processor, string name, VolumeShapeType shape,
-                               VolumeOperationRole role, Vector3 localPosition)
+                               VolumeOperationRole role, Vector3 localPosition, Bounds affectedBounds = default)
     {
         _processor = processor;
         _name = name;
         _shape = shape;
         _role = role;
         _localPosition = localPosition;
+        _affectedBounds = affectedBounds;
     }
 
     public void Execute()
@@ -81,7 +83,7 @@ public class RemoveObjectCommand : ICommand
             composer.objects.Add(vo);
     }
 
-    public Bounds AffectedBounds => default;
+    public Bounds AffectedBounds => _affectedBounds;
 }
 
 /// <summary>Undo for clearing all VolumeObjects at once.</summary>
