@@ -17,6 +17,9 @@ public class DirtyChunkSystem
     /// <summary>ADR-004: Stale entries skipped during last scheduler cycle (for counter-based logging).</summary>
     public int StaleEntriesSkipped { get; private set; }
 
+    /// <summary>Increment the stale counter — called by VolumeScheduler.</summary>
+    public void AddStaleEntries(int count) => StaleEntriesSkipped += count;
+
     public void Initialize(IVolumeBuffer buffer)
     {
         _buffer = buffer;

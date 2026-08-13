@@ -63,7 +63,7 @@ public class VolumeScheduler
             }
         }
         // ADR-004: Counter-based reporting instead of per-entry Debug.LogWarning (zero-alloc hotpath)
-        _dirtyChunks.StaleEntriesSkipped += staleCount;
+        _dirtyChunks.AddStaleEntries(staleCount);
 
         if (!_dirtyChunks.HasPendingWork) return;
 
@@ -132,7 +132,7 @@ public class VolumeScheduler
         if (staleCount > 0)
         {
             Debug.LogWarning($"[Scheduler] Skipped {staleCount} stale chunk(s) this frame");
-            _dirtyChunks.StaleEntriesSkipped += staleCount;
+            _dirtyChunks.AddStaleEntries(staleCount);
         }
 
         return processed;
@@ -193,7 +193,7 @@ public class VolumeScheduler
             if (staleCount > 0)
             {
                 Debug.LogWarning($"[Scheduler] Skipped {staleCount} stale chunk(s) in full drain");
-                _dirtyChunks.StaleEntriesSkipped += staleCount;
+                _dirtyChunks.AddStaleEntries(staleCount);
             }
         }
 

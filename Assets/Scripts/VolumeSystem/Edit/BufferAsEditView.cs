@@ -25,6 +25,8 @@ public class BufferAsEditView : IVolumeView
         var r = Layout.Resolution;
         if (x < 0 || x >= r.x || y < 0 || y >= r.y || z < 0 || z >= r.z)
             return;
-        _buffer.DensityCpu[x + r.x * (y + r.y * z)] = value;
+        // NativeArray is a struct — must store reference before indexing
+        var density = _buffer.DensityCpu;
+        density[x + r.x * (y + r.y * z)] = value;
     }
 }
