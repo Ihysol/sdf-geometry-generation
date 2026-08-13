@@ -103,18 +103,25 @@ public class VolumeProcessor : MonoBehaviour
         }
     }
 
-    /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y. Only rebuilds if the undo target is this processor.</summary>
+    /// <summary>Called by Editor — handles Ctrl+Z / Ctrl+Y. Delegates to CommandStack for undo/redo.</summary>
     public void ProcessUndoRedo()
     {
         if (Event.current == null) return;
 
-        if (Event.current.type == EventType.ValidateCommand && Event.current.commandName == "UndoRedoPerformed")
+        if (Event.current.type != EventType.ValidateCommand || Event.current.commandName != "UndoRedoPerformed")
+            return;
+
+        // Detect direction: Unity fires ValidateCommand for undo, Command for redo.
+        bool isRedo = Event.current.rawType == EventType.Command;
+
+        var stack = CommandStack;
+        if (isRedo && stack.CanRedo)
         {
-            // Only rebuild if Unity's Undo affected this object — skip unrelated undos.
-            var undoState = UnityEditor.Undo.GetCurrentGroup();
-            var targets = UnityEditor.Undo.GetUndoTarget(undoState);
-            if (targets != null && targets == gameObject)
-                RebuildModel();
+            stack.Redo();  // OnStateChanged -> MarkDirtyBounds/RebuildModel
+        }
+        else if (!isRedo && stack.CanUndo)
+        {
+            stack.Undo();  // OnStateChanged -> MarkDirtyBounds/RebuildModel
         }
     }
 #endif
