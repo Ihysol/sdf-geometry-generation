@@ -14,6 +14,7 @@ public class PersistentEditLayer
     private readonly List<PersistentEditOperation> _history = new();
     private int _undoCursor; // Index of "next" slot — operations before cursor are active
     private int _nextGeneration;
+    private readonly Dictionary<ChunkCoord, EditCheckpoint> _checkpoints = new();
 
     /// <summary>Total active operations (before undo cursor).</summary>
     public int OperationCount => _undoCursor;
@@ -56,13 +57,16 @@ public class PersistentEditLayer
     /// Linear scan — OK for Seam 1, replaced by spatial index later (ADR-016).</summary>
     public void ReplayRegion(IVolumeView target, Bounds worldBounds, Transform processorTransform)
     {
+        // Hoist chunk lookup out of loop — depends only on worldBounds, not per-operation
+        ChunkCoord regionChunk = GetCoveringChunk(worldBounds, target.Layout);
+        bool hasCheckpoint = _checkpoints.TryGetValue(regionChunk, out var cp);
+
         for (int i = 0; i < _undoCursor; i++)
         {
             var op = _history[i];
 
             // Check if operation has a checkpoint — skip older ones
-            ChunkCoord regionChunk = GetCoveringChunk(worldBounds, target.Layout);
-            if (_checkpoints.TryGetValue(regionChunk, out var cp) && op.Generation <= cp.operationGeneration)
+            if (hasCheckpoint && op.Generation <= cp.operationGeneration)
                 continue;
 
             // Linear intersection test

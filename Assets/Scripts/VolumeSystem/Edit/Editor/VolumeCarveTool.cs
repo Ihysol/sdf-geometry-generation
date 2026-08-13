@@ -24,6 +24,9 @@ public static class VolumeCarveTool
 
     private static void HandleEditUndoRedo()
     {
+        if (!EditorPrefs.GetBool(EnableKey, false))
+            return; // Carve tool inactive — skip edit undo/redo
+
         if (Event.current == null) return;
         if (Event.current.type != EventType.ValidateCommand || Event.current.commandName != "UndoRedoPerformed")
             return;
