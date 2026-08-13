@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -415,7 +416,8 @@ public class VolumeProcessor : MonoBehaviour
             composer.objects.Count > 1 &&
             role != VolumeOperationRole.Intersect;
 
-        Bounds affectedBounds = canRebuildPartially ? vo.GetBounds() : default;        CommandStack.Push(new AddObjectCommand(
+        Bounds affectedBounds = canRebuildPartially ? vo.GetBounds() : default;
+        CommandStack.Push(new AddObjectCommand(
             this,
             composer?.objects.Count - 1 ?? 0,
             child,
