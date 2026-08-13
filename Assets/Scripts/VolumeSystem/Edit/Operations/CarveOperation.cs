@@ -19,20 +19,42 @@ public class CarveOperation : PersistentEditOperation
             return;
 
         var layout = target.Layout;
+        Vector3Int res = layout.Resolution;
         Vector3Int minIdx = layout.WorldToIndex(resolved.min);
         Vector3Int maxIdx = layout.WorldToIndex(resolved.max);
 
-        for (int x = Mathf.Max(0, minIdx.x); x < Mathf.Min(layout.Resolution.x, maxIdx.x + 1); x++)
+        int minX = Mathf.Max(0, minIdx.x);
+        int maxX = Mathf.Min(res.x, maxIdx.x + 1);
+        int minY = Mathf.Max(0, minIdx.y);
+        int maxY = Mathf.Min(res.y, maxIdx.y + 1);
+        int minZ = Mathf.Max(0, minIdx.z);
+        int maxZ = Mathf.Min(res.z, maxIdx.z + 1);
+
+        if (minX >= maxX || minY >= maxY || minZ >= maxZ)
+            return;
+
+        int X = res.x, Y = res.y;
+        bool fullCarve = Depth >= 1.0f;
+
+        // Linearized loop — z outermost, x innermost for cache locality on flat buffer.
+        for (int z = minZ; z < maxZ; z++)
         {
-            for (int y = Mathf.Max(0, minIdx.y); y < Mathf.Min(layout.Resolution.y, maxIdx.y + 1); y++)
+            int zBase = X * Y * z;
+            for (int y = minY; y < maxY; y++)
             {
-                for (int z = Mathf.Max(0, minIdx.z); z < Mathf.Min(layout.Resolution.z, maxIdx.z + 1); z++)
+                int xyBase = zBase + X * y;
+                if (fullCarve)
                 {
-                    float current = target.GetDensity(x, y, z);
-                    if (Depth >= 1.0f)
-                        target.SetDensity(x, y, z, float.MaxValue); // Fully carved
-                    else
+                    for (int x = minX; x < maxX; x++)
+                        target.SetDensity(x, y, z, float.MaxValue);
+                }
+                else
+                {
+                    for (int x = minX; x < maxX; x++)
+                    {
+                        float current = target.GetDensity(x, y, z);
                         target.SetDensity(x, y, z, Mathf.Max(current - Depth, float.MinValue));
+                    }
                 }
             }
         }
