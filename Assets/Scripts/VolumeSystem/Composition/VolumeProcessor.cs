@@ -214,18 +214,18 @@ public class VolumeProcessor : MonoBehaviour
     {
         if (!_initialized || _pipeline == null) return;
 
-        if (transform.position != _lastPosition)
-        {
-            Vector3 delta = transform.position - _lastPosition;
-            _lastPosition = transform.position;
+        Vector3 delta = transform.position - _lastPosition;
+        // Skip float drift — only rebuild on actual movement (> 1mm threshold)
+        if (delta.sqrMagnitude < 0.001f) return;
 
-            // Grid must follow the model — shift origin by same delta.
-            _pipeline.Buffer.UpdateOrigin(_pipeline.Buffer.Layout.Origin + delta);
+        _lastPosition = transform.position;
 
-            // Every cell is now at a different world coordinate → full rebuild.
-            _hasDirtyBounds = false; _dirtyBoundsWorld = default;
-            _pipeline.MarkDirty();
-        }
+        // Grid must follow the model — shift origin by same delta.
+        _pipeline.Buffer.UpdateOrigin(_pipeline.Buffer.Layout.Origin + delta);
+
+        // Every cell is now at a different world coordinate → full rebuild.
+        _hasDirtyBounds = false; _dirtyBoundsWorld = default;
+        _pipeline.MarkDirty();
     }
 
     private void RebuildPipeline()
