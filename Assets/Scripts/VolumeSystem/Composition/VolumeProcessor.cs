@@ -423,15 +423,14 @@ public class VolumeProcessor : MonoBehaviour
             composer.objects.Count > 1 &&
             role != VolumeOperationRole.Intersect;
 
-        Bounds affectedBounds = canRebuildPartially ? vo.GetBounds() : default;
-        CommandStack.Push(new AddObjectCommand(
+        Bounds affectedBounds = canRebuildPartially ? vo.GetBounds() : default;        CommandStack.Push(new AddObjectCommand(
             this,
             composer?.objects.Count - 1 ?? 0,
             child,
             affectedBounds));
 
-        if (canRebuildPartially)
-            RebuildDirty();
+        // Rebuild is triggered by OnUndoRedoStateChanged -> MarkDirtyBounds.
+        // Do NOT call RebuildDirty() here — that caused double rebuild with stale bounds.
 
         Debug.Log($"[VolumeProcessor] Added {shape} ({role}), total={composer.objects.Count}");
     }
