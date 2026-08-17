@@ -66,6 +66,12 @@ public class ChunkRenderer : MonoBehaviour
             _mesh.SetUVs(0, uvs);
         }
 
+        // Set explicit bounds so Unity doesn't frustum-cull empty meshes
+        if (vCount > 0)
+            _mesh.RecalculateBounds();
+        else
+            _mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1000f);
+
         Debug.Log($"[ChunkRenderer] {gameObject.name}: {vCount} verts, {iCount} indices");
     }
 
