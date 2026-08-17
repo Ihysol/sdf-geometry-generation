@@ -1,5 +1,7 @@
 # Volume Buffer Architecture Plan v10
 
+> **Status: Historical / superseded.** This document is retained as the original architecture draft. The accepted decisions in `CONTEXT.md` and `docs/adr/004` through `docs/adr/017` are authoritative; the consolidated successor is `volume_buffer_architecture_plan_v11.md`.
+
 ## Zweck des Dokuments
 
 Dieses Dokument beschreibt die Zielarchitektur für eine modulare Volume-Engine in Unity.

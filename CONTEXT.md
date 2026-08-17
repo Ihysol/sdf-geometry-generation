@@ -13,6 +13,10 @@ The aggregate that holds the authoritative list of volume objects for a given pr
 ### Volume Object
 A single signed distance field primitive (sphere, box, torus, hyperboloid) or custom asset, positioned in local space with an operation role (add, subtract, intersect). Each object contributes its own SDF to the composite. Objects may carry optional surface grid cutters.
 
+### Volume Object Identity
+A serialized stable GUID that identifies a Volume Object across save/reload, Unity Undo, and reconstruction. Controlled duplication remaps object identities and all corresponding Edit Anchors together; instance IDs, names, and hierarchy paths are not durable identities.
+_Avoid_: Unity InstanceID, object name
+
 ### SDF Snapshot
 An immutable point-in-time capture of all volume objects and their transforms. Used as the read-only input for both CPU and Burst-compiled sampling paths. A new snapshot is built on every dirty event — there is no incremental diffing.
 
@@ -24,21 +28,37 @@ _Avoid_: Source scene, object buffer
 The ordered set of replayable volume edits applied after sampling the Authoring Composition. It preserves destructive changes such as carving or painting across rebuilds of the underlying composition.
 _Avoid_: Runtime buffer, temporary edits
 
+### Volume Edit Document
+The processor-bound durable aggregate that owns Edit Transactions, Edit History, Edit Anchors, and checkpoint references independently of any Volume Pipeline instance. Pipelines consume this document but never create, replace, or dispose it.
+_Avoid_: Pipeline edit layer, volume buffer
+
+### Volume Edit Store
+The persistence boundary that loads, saves, clones, and migrates versioned Volume Edit Documents without changing pipeline contracts. Editor assets, in-memory tests, runtime savegames, and future DAG storage are separate store adapters.
+_Avoid_: Pipeline serialization, inline buffer state
+
 ### Persistent Edit Operation
-A semantic, ordered edit such as carving, filling, smoothing, or painting that can be replayed over a resampled region. Operations retain intent and form the recent, editable portion of the Persistent Edit Layer.
-_Avoid_: Scene command, mesh edit
+A semantic, ordered edit such as carving, filling, smoothing, painting, or pasting that belongs to an Edit Transaction and can be replayed over a resampled region. User-visible volume edits use this lifetime by default.
+_Avoid_: Scene command, transient buffer mutation
+
+### Transient Buffer Operation
+An explicitly non-persistent mutation used for previews, import materialization, internal conversion, or intentionally temporary runtime effects. It never enters Edit History and may be lost on rebuild unless deliberately baked.
+_Avoid_: User edit, persistent operation
 
 ### Edit Checkpoint
-A materialized per-chunk snapshot of accumulated persistent edits used to bound replay cost. Operations newer than the checkpoint are replayed in order over it.
-_Avoid_: Savegame, full volume snapshot
+A materialized Effective-Chunk snapshot that bounds persistent-edit replay cost and is valid only for its recorded layout generation, channel schema, Authoring-Base revision, and operation generation. If any required revision differs, the checkpoint is discarded and semantic operations are replayed.
+_Avoid_: Generation marker, base-independent overlay
 
 ### Edit Transaction
-One logical user edit that may contain many ordered Persistent Edit Operations, such as all samples in a brush stroke. It is the unit committed to Edit History and reversed by a single undo action.
+One logical user edit that may contain many ordered Persistent Edit Operations, such as all samples in a brush stroke. It is the unit committed to Edit History; undo or redo moves the transaction cursor and rematerializes its affected region from valid state.
 _Avoid_: Frame update, individual brush sample
 
 ### Edit Anchor
 The explicit coordinate owner of an Edit Transaction: World, Processor, or a stable Volume Object identity. It determines whether an edit remains fixed, follows the processor, or transforms with an object.
 _Avoid_: Implicit local space, current selection
+
+### Edit Replay Context
+The immutable context used to replay persistent edits, containing the target region, processor transform, stable object-anchor resolver, layout generation, and document revision. Anchors are resolved centrally through this context rather than independently by each operation.
+_Avoid_: Scene lookup, null transform
 
 ### Suspended Edit
 An Object-anchored Edit Transaction whose stable anchor cannot currently be resolved. It remains persisted and undoable but does not affect the Effective Volume until recovered or explicitly re-anchored, baked, or deleted.
@@ -71,6 +91,10 @@ _Avoid_: Save format, sparse DAG
 ### Volume View
 A storage-independent, read-only or writable view of volume channels and regions used at subsystem boundaries. It describes available data without exposing a concrete global array, GPU buffer, or persistence layout.
 _Avoid_: NativeArray buffer, job view
+
+### Volume Channel Schema
+The versioned definition of channels available in a Working Buffer. Density and MaterialId are mandatory core channels; optional channels use typed descriptors and are requested through capabilities rather than string lookups in voxel hot paths.
+_Avoid_: Per-voxel dictionary, unversioned channel list
 
 ### Volume Job View
 A short-lived, backend-specific struct view that exposes contiguous native data required by Burst jobs or other hot paths. It is derived from a Working Buffer or active chunk cache and is not the public storage contract.

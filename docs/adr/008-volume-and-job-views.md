@@ -13,9 +13,12 @@ Define storage-independent **Volume Views** for subsystem boundaries and explici
 
 The initial Chunked Flat Volume Buffer may expose a contiguous flat job view directly. A future streamed or DAG-backed cache may materialize job views only for active chunks without changing the high-level contracts.
 
+The versioned **Volume Channel Schema** defines mandatory Density (`float`) and MaterialId (`int`) core channels. Optional channels use typed descriptors. Consumers declare channel capabilities up front; inner voxel loops use resolved typed views and never perform string or dictionary lookup.
+
 ## Consequences
 
 - Storage backends can evolve without placing virtual calls inside voxel or cell loops.
 - Mesher and operation capabilities become explicit and testable.
+- Checkpoints, Build Tickets, and persistence manifests can reject incompatible channel schemas.
 - Job views have bounded lifetimes and must carry layout/version information to reject stale results.
 - The current `IVolumeBuffer` must eventually stop exposing concrete GraphicsBuffer, ComputeBuffer, and global NativeArray members as its universal contract.

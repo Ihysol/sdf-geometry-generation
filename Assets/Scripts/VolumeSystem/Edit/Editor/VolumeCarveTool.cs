@@ -13,13 +13,58 @@ public static class VolumeCarveTool
     private static Vector3 _carveStartWorld;
     private static Vector3 _carveEndWorld;
     private static VolumeProcessor _targetProcessor;
+    private static Tool _toolBeforeCarve = Tool.Move;
 
     /// <summary>Brush radius in world units.</summary>
     public static float BrushRadius { get; set; } = 1f;
 
+    public static bool IsEnabled => EditorPrefs.GetBool(EnableKey, false);
+
+    public static bool IsCarving => _carving;
+
     static VolumeCarveTool()
     {
         SceneView.duringSceneGui += OnSceneGUI;
+    }
+
+    public static void SetEnabled(bool enabled)
+    {
+        if (enabled)
+        {
+            if (!IsEnabled && Tools.current != Tool.None)
+                _toolBeforeCarve = Tools.current;
+
+            // Carving and Unity transform handles must never compete for the
+            // same mouse events. Tool.None temporarily releases those handles.
+            Tools.current = Tool.None;
+            EditorPrefs.SetBool(EnableKey, true);
+        }
+        else
+        {
+            EditorPrefs.SetBool(EnableKey, false);
+            _carving = false;
+            _targetProcessor = null;
+
+            // A toolbar toggle-off restores the tool that was active before
+            // carving. If the user already selected W/E/R, preserve that tool.
+            if (Tools.current == Tool.None && _toolBeforeCarve != Tool.None)
+                Tools.current = _toolBeforeCarve;
+        }
+
+        SceneView.RepaintAll();
+    }
+
+    public static void SynchronizeWithUnityTool()
+    {
+        if (!IsEnabled || Tools.current == Tool.None)
+            return;
+
+        // Selecting Move/Rotate/Scale is an explicit request to leave carve
+        // mode. Do not restore the previous tool over the user's new choice.
+        EditorPrefs.SetBool(EnableKey, false);
+        _carving = false;
+        _targetProcessor = null;
+        SceneView.RepaintAll();
     }
 
     private static void HandleEditUndoRedo()
@@ -51,18 +96,23 @@ public static class VolumeCarveTool
 
     private static void OnSceneGUI(SceneView sceneView)
     {
+        SynchronizeWithUnityTool();
+
         // Handle Ctrl+Z / Ctrl+Y for edit operations (separate from CommandStack)
         HandleEditUndoRedo();
 
-        bool enabled = EditorPrefs.GetBool(EnableKey, false);
+        bool enabled = IsEnabled;
 
         // Toggle toolbar button
         GUILayout.BeginArea(new Rect(10, 30, 120, 25));
-        if (GUILayout.Toggle(enabled, "Carve Tool", EditorStyles.miniButtonLeft))
-            EditorPrefs.SetBool(EnableKey, true);
-        else
-            EditorPrefs.SetBool(EnableKey, false);
+        bool requestedEnabled = GUILayout.Toggle(enabled, "Carve Tool", EditorStyles.miniButtonLeft);
         GUILayout.EndArea();
+
+        if (requestedEnabled != enabled)
+        {
+            SetEnabled(requestedEnabled);
+            enabled = requestedEnabled;
+        }
 
         if (!enabled) return;
 

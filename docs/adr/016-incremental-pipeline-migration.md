@@ -13,6 +13,8 @@ Adopt an incremental strangler migration using tested **Migration Seams**. Intro
 
 Each migration step preserves a runnable production path and must pass characterization, correctness, stale-work, and performance tests before the old seam is removed. Do not build a second competing end-to-end pipeline.
 
+Verification reports three explicit lanes: the **Core Volume Gate** for active composition, flat-buffer, scheduler, mesher, and edit behavior; the **Legacy/Adaptive Gate** for older octree and adaptive paths; and the **Package/Environment Gate** for Unity package/import health. A lane may be quarantined with named failures, but its failures must never be hidden behind an unqualified “suite green” claim.
+
 ## Consequences
 
 - Existing behavior remains available throughout the migration.
