@@ -148,6 +148,10 @@ _Avoid_: Parallel pipeline, big-bang rewrite
 ### Visual Output Wrapper
 A Unity Transform node between the processor and its chunk renderers. Carries rotation and scale so that the visual mesh can be transformed without affecting the axis-aligned SDF grid below. See [ADR-001](docs/adr/001-visual-output-wrapper.md).
 
+### Anchored Cell Size
+The cell size computed at initial layout creation (`boundsExtent / resolution.x`) and preserved across all subsequent grid resizes. When objects exceed current bounds, Resolution scales to accommodate the new extent while CellSize remains constant — ensuring that EditLayer coordinates, dirty regions, and persistent operations remain valid after expansion.
+_Avoid_: Dynamic cell size, resolution-locked grid
+
 ## Rules
 
 - The SDF grid is always axis-aligned in world space. Rotation and scale live exclusively on the Visual Output Wrapper.

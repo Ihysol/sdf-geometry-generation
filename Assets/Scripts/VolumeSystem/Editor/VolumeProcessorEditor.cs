@@ -93,14 +93,7 @@ public class VolumeProcessorEditor : Editor
 
         EditorGUILayout.Space(4);
 
-        EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("Add Sphere"))
-            ExecuteOp(model, new AddSphereOperation(_opCenter, _opRadius, _opMaterialId));
-        if (GUILayout.Button("Subtract Sphere"))
-            ExecuteOp(model, new SubtractSphereOperation(_opCenter, _opRadius));
-        EditorGUILayout.EndHorizontal();
-
-        _opSmoothIterations = EditorGUILayout.IntField("Smooth Iterations", Mathf.Max(1, _opSmoothIterations));
+         _opSmoothIterations = EditorGUILayout.IntField("Smooth Iterations", Mathf.Max(1, _opSmoothIterations));
 
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button("Smooth"))

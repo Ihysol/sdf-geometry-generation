@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -57,12 +58,22 @@ public class FPSEditModeController : MonoBehaviour
             cameraRef = GetComponentInChildren<Camera>();
 
         _processor = GameObject.FindObjectOfType<VolumeProcessor>();
-        if (_processor != null && _processor.Pipeline != null)
-            _layout = _processor.Pipeline.Buffer.Layout;
+        if (_processor != null)
+            _layout = _processor.EditLayout;
 
         // Cache input devices
         _kb = Keyboard.current;
         _mouse = Mouse.current;
+
+        // Serialized key bindings can hold legacy/out-of-range values (e.g. 308
+        // from the old KeyCode era) — Keyboard[key] throws on those and would
+        // break HandleEditing() every frame. Clamp them to the default bindings.
+        if (!IsValidKey(cellSnapToggleKey))
+            cellSnapToggleKey = Key.LeftAlt;
+        if (!IsValidKey(vertexSelectKey))
+            vertexSelectKey = Key.Q;
+        if (!IsValidKey(faceSelectKey))
+            faceSelectKey = Key.F;
 
         // Create dot cursor as a small sphere
         var go = new GameObject("DotCursor");
@@ -94,6 +105,16 @@ public class FPSEditModeController : MonoBehaviour
         HandleEditing();
     }
 
+    /// <summary>
+    /// True if a key is indexable by Keyboard[key]. The device key table holds 123
+    /// entries (InputSystem 1.x), so only values 1..123 are valid — anything else
+    /// (e.g. 308, a leftover legacy KeyCode) makes Keyboard[key] throw.
+    /// </summary>
+    private static bool IsValidKey(Key key)
+    {
+        return (int)key >= 1 && (int)key <= 123;
+    }
+
     // ---------- Mode toggle ----------
 
     private void HandleModeToggle()
@@ -123,9 +144,10 @@ public class FPSEditModeController : MonoBehaviour
         float strafe = (_kb.dKey.isPressed ? 1f : 0f) - (_kb.aKey.isPressed ? 1f : 0f);
         float vertical = (_kb.spaceKey.isPressed ? 1f : 0f) - (_kb.zKey.isPressed ? 1f : 0f);
 
-        // Use camera's actual world-space forward (including pitch for looking up/down)
-        Vector3 camForward = cameraRef.transform.forward;
-        Vector3 camRight = cameraRef.transform.right;
+        // Full flight: both forward and strafe follow camera look direction (pitch + yaw)
+        Quaternion camRot = Quaternion.Euler(_pitch, _yaw, 0f);
+        Vector3 camForward = camRot * Vector3.forward;
+        Vector3 camRight = camRot * Vector3.right;
 
         Vector3 direction = camForward * forward + camRight * strafe + Vector3.up * vertical;
 
@@ -151,45 +173,98 @@ public class FPSEditModeController : MonoBehaviour
         cameraRef.transform.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
     }
 
-    // ---------- Dot cursor positioning and projection ----------
+    // ---------- Dot cursor positioning — steps ray through grid ----------
 
     private void UpdateDotCursor()
     {
-        if (_processor == null || _processor.Pipeline == null) return;
+        if (_processor == null) return;
 
-        _layout = _processor.Pipeline.Buffer.Layout;
+        _layout = _processor.EditLayout;
+        if (_layout.CellSize <= 0f) return; // Flat pipeline not initialized yet
+
         Ray ray = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
 
-        // Clamp to min/max distance via physics raycast
-        float dist = cursorMaxDistance;
-        if (Physics.Raycast(ray, out RaycastHit hit, cursorMaxDistance))
-            dist = Mathf.Max(hit.distance, cursorMinDistance);
+        // Step along the ray to find: (1) first solid cell, (2) nearest grid cell in range
+        float step = _layout.CellSize * 0.5f;
+        float dist = cursorMinDistance;
+        Vector3Int? hitCell = null;       // First solid surface cell
+        float hitDist = 0f;
+        Vector3Int? nearestGridCell = null; // Closest cell in grid (any density)
+        float nearestDist = cursorMaxDistance + 1f;
 
-        Vector3 hitPoint = ray.GetPoint(dist);
+        while (dist <= cursorMaxDistance)
+        {
+            Vector3 point = ray.GetPoint(dist);
+            Vector3Int idx = _layout.WorldToIndex(point);
+
+            if (_layout.IsInside(idx))
+            {
+                // Track nearest grid cell (for block selection even in empty space)
+                if (dist < nearestDist)
+                {
+                    nearestGridCell = idx;
+                    nearestDist = dist;
+                }
+
+                // Mode-agnostic solid check: buffer density (flat) or SDF composition (octree)
+                if (_processor.SampleDensity(point) < _layout.IsoLevel)
+                {
+                    hitCell = idx;
+                    hitDist = dist;
+                    break; // Found surface — stop stepping
+                }
+
+                // Step to next cell boundary for efficiency
+                Vector3 frac = (_layout.WorldToCell(point) - (Vector3)idx);
+                float maxFrac = Mathf.Max(frac.x, Mathf.Max(frac.y, frac.z));
+                dist += maxFrac * _layout.CellSize;
+            }
+            else
+            {
+                dist += step;
+            }
+
+            // Safety: prevent infinite loop on tiny steps
+            if (step < 0.001f) break;
+        }
 
         if (_cellSnapMode)
         {
-            Vector3Int idx = _layout.WorldToIndex(hitPoint);
-            if (_layout.IsInside(idx))
+            // Cell snap mode: use nearest grid cell for selection (even empty space)
+            if (nearestGridCell.HasValue)
             {
-                hitPoint = _layout.IndexToWorld(idx);
-                _hoveredCell = idx;
+                _hoveredCell = nearestGridCell.Value;
+                _dotCursorObj.position = _layout.IndexToWorld(nearestGridCell.Value);
+
+                // Color: yellow if solid surface, cyan if empty but in grid
+                if (hitCell.HasValue)
+                    _dotCursorRenderer.material.color = Color.yellow;
+                else
+                    _dotCursorRenderer.material.color = Color.cyan;
             }
             else
             {
                 _hoveredCell = null;
+                _dotCursorObj.position = ray.GetPoint(cursorMaxDistance);
+                _dotCursorRenderer.material.color = Color.red;
             }
-
-            _dotCursorRenderer.material.color = Color.yellow;
         }
         else
         {
+            // Brush mode: snap to solid surface or fall back to nearest grid cell
             _hoveredCell = null;
-            _dotCursorRenderer.material.color = Color.green;
+            Vector3 hitPoint;
+            if (hitCell.HasValue)
+                hitPoint = ray.GetPoint(hitDist);
+            else if (nearestGridCell.HasValue)
+                hitPoint = _layout.IndexToWorld(nearestGridCell.Value);
+            else
+                hitPoint = ray.GetPoint(cursorMaxDistance);
+
+            _dotCursorObj.position = hitPoint;
+            _dotCursorRenderer.material.color = hitCell.HasValue ? Color.green : Color.cyan;
         }
 
-        // Position dot cursor at hit point
-        _dotCursorObj.position = hitPoint;
         _dotCursorObj.LookAt(cameraRef.transform.position);
     }
 
@@ -197,7 +272,7 @@ public class FPSEditModeController : MonoBehaviour
 
     private void HandleEditing()
     {
-        if (_processor == null || _processor.Pipeline == null) return;
+        if (_processor == null) return;
 
         // Cell snap toggle
         if (_kb[cellSnapToggleKey].wasPressedThisFrame)
@@ -235,10 +310,13 @@ public class FPSEditModeController : MonoBehaviour
             ExpandCellSelection();
         }
 
-        // Right-click drag for group move (throttled to 10Hz)
-        if (_mouse.rightButton.isPressed && _selectedCells.Count > 0 && Time.time - _lastGroupMoveTime > 0.1f)
+        // Right-click drag for group move or vertex/face drag (throttled to 10Hz)
+        if (_mouse.rightButton.isPressed && Time.time - _lastGroupMoveTime > 0.1f)
         {
-            MoveSelectedGroup();
+            if (_selectedVertices.Count > 0)
+                MoveSelectedVertices();
+            else if (_selectedCells.Count > 0)
+                MoveSelectedGroup();
             _lastGroupMoveTime = Time.time;
         }
 
@@ -255,41 +333,118 @@ public class FPSEditModeController : MonoBehaviour
     }
 
     private void SelectVertexAt(Vector3Int cellIdx)
-    {
-        Vector3 cellCenter = _layout.IndexToWorld(cellIdx);
+      {
+          Vector3 cellCenter = _layout.IndexToWorld(cellIdx);
 
-        Vector3 closestCorner = Vector3.zero;
-        float minDist = Mathf.Infinity;
+          // Pick the corner closest to the camera ray (proper projection, not arbitrary distance)
+          Ray camRay = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
+          Vector3 closestCorner = Vector3.zero;
+          float minDistSq = Mathf.Infinity;
 
-        Ray camRay = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
+          for (int x = 0; x <= 1; x++)
+              for (int y = 0; y <= 1; y++)
+                  for (int z = 0; z <= 1; z++)
+                  {
+                      Vector3 corner = cellCenter + new Vector3(
+                          (x - 0.5f) * _layout.CellSize,
+                          (y - 0.5f) * _layout.CellSize,
+                          (z - 0.5f) * _layout.CellSize
+                      );
+                      float distSq = DistanceToRaySq(corner, camRay);
+                      if (distSq < minDistSq)
+                      {
+                          minDistSq = distSq;
+                          closestCorner = corner;
+                      }
+                  }
 
-        for (int x = 0; x <= 1; x++)
-            for (int y = 0; y <= 1; y++)
-                for (int z = 0; z <= 1; z++)
-                {
-                    Vector3 corner = cellCenter + new Vector3(
-                        (x - 0.5f) * _layout.CellSize,
-                        (y - 0.5f) * _layout.CellSize,
-                        (z - 0.5f) * _layout.CellSize
-                    );
-                    float dist = Vector3.Distance(corner, camRay.GetPoint(1f));
-                    if (dist < minDist)
-                    {
-                        minDist = dist;
-                        closestCorner = corner;
-                    }
-                }
+          _selectedVertices.Clear();
+          _selectedVertices.Add(closestCorner);
+      }
 
-        _selectedVertices.Clear();
-        _selectedVertices.Add(closestCorner);
-    }
+      private void SelectFaceAt(Vector3Int cellIdx)
+      {
+          Vector3 cellCenter = _layout.IndexToWorld(cellIdx);
+          Ray camRay = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
+          float half = _layout.CellSize * 0.5f;
 
-    private void SelectFaceAt(Vector3Int cellIdx)
-    {
-        _selectedVertices.Clear();
-        foreach (Vector3 corner in GetCellCorners(cellIdx))
-            _selectedVertices.Add(corner);
-    }
+          // Find the face whose normal points most toward the camera
+          int? bestAxis = null;
+          int bestSign = 0;
+          float bestDot = Mathf.Infinity; // We want the MOST negative dot (facing camera)
+
+          for (int axis = 0; axis < 3; axis++)
+              for (int sign = -1; sign <= 1; sign += 2)
+              {
+                  Vector3 normal = Vector3.zero;
+                  normal[axis] = sign;
+                  float dot = Vector3.Dot(camRay.direction, normal);
+                  // Face pointing toward camera has negative dot with ray direction
+                  if (dot < bestDot)
+                  {
+                      bestDot = dot;
+                      bestAxis = axis;
+                      bestSign = sign;
+                  }
+              }
+
+          _selectedVertices.Clear();
+          if (bestAxis.HasValue)
+          {
+              int axis = bestAxis.Value;
+              // Collect the 4 corners of this face
+              for (int ix = -1; ix <= 1; ix += 2)
+                  for (int iy = -1; iy <= 1; iy += 2)
+                      for (int iz = -1; iz <= 1; iz += 2)
+                      {
+                          Vector3 offset = new Vector3(
+                              axis == 0 ? bestSign * half : ix * half,
+                              axis == 1 ? bestSign * half : iy * half,
+                              axis == 2 ? bestSign * half : iz * half
+                          );
+                          _selectedVertices.Add(cellCenter + offset);
+                      }
+          }
+      }
+
+      /// <summary>Squared distance from point to infinite ray.</summary>
+      private float DistanceToRaySq(Vector3 point, Ray ray)
+      {
+          Vector3 v = point - ray.origin;
+          float t = Mathf.Clamp01(Vector3.Dot(v, ray.direction));
+          Vector3 closest = ray.origin + ray.direction * t;
+          return (point - closest).sqrMagnitude;
+      }
+
+      /// <summary>Drag selected vertices/faces with right-click.</summary>
+      private void MoveSelectedVertices()
+      {
+          if (_selectedVertices.Count == 0) return;
+
+          Vector2 delta = _mouse.delta.ReadValue();
+          if (delta.magnitude < 1f) return;
+
+          // Project mouse delta into world-space movement on a plane facing the camera
+          Plane camPlane = new Plane(cameraRef.transform.forward, transform.position);
+          Ray ray0 = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f) - delta);
+          Ray ray1 = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
+
+          float dist0, dist1;
+          if (camPlane.Raycast(ray0, out dist0) && camPlane.Raycast(ray1, out dist1))
+          {
+              Vector3 move = ray1.GetPoint(dist1) - ray0.GetPoint(dist0);
+
+              foreach (var vertex in _selectedVertices)
+              {
+                  Vector3 newPos = vertex + move;
+                  // Modify density around the new position to attract/repel the surface
+                  Bounds editBounds = new Bounds(newPos, Vector3.one * _layout.CellSize * 2f);
+                  float depth = move.magnitude * 0.5f;
+                  _processor.EditVertexDrag(editBounds, -depth); // negative = fill (pull surface toward)
+                  _processor.MarkDirtyBounds(editBounds);
+              }
+          }
+      }
 
     private List<Vector3> GetCellCorners(Vector3Int idx)
     {
@@ -350,29 +505,24 @@ public class FPSEditModeController : MonoBehaviour
 
     private void ModifyBrush(float scrollDelta)
     {
-        if (_processor == null || _processor.Pipeline == null) return;
+        if (_processor == null) return;
 
-        Ray ray = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
-        float dist = cursorMaxDistance;
-        if (Physics.Raycast(ray, out RaycastHit hit, cursorMaxDistance))
-            dist = Mathf.Max(hit.distance, cursorMinDistance);
-        Vector3 hitPoint = ray.GetPoint(dist);
+        // Reuse the hit point from the dot cursor (already computed in UpdateDotCursor)
+        Vector3 hitPoint = _dotCursorObj != null ? _dotCursorObj.position : cameraRef.transform.position;
 
         float depth = Mathf.Abs(scrollDelta) * brushRadius * 0.05f;
         Bounds brushBounds = new Bounds(hitPoint, Vector3.one * brushRadius);
 
-        var op = new CarveOperation(brushBounds, new EditAnchor { type = EditAnchorType.World }, depth);
-        _processor.EditLayer.Add(op);
+        // Always carve (original flat semantics) — octree: Subtract sphere primitive
+        _processor.EditBrush(brushBounds, depth, false);
         _processor.MarkDirtyBounds(brushBounds);
     }
 
     private void ApplyCellChange(Vector3Int idx, bool fill)
     {
-        if (_processor == null || _processor.Pipeline == null) return;
+        if (_processor == null) return;
 
-        var cells = new List<Vector3Int> { idx };
-        var op = new CellOperation(cells, new EditAnchor { type = EditAnchorType.World }, fill);
-        _processor.EditLayer.Add(op);
+        _processor.EditCell(idx, fill);
 
         Vector3 worldPos = _layout.IndexToWorld(idx);
         Bounds cellBounds = new Bounds(worldPos, Vector3.one * _layout.CellSize);
@@ -400,6 +550,25 @@ public class FPSEditModeController : MonoBehaviour
             Gizmos.DrawWireCube(center, Vector3.one * _layout.CellSize * 0.95f);
         }
 
+        // Vertex/face selection gizmos (magenta)
+        if (_selectedVertices.Count > 0)
+        {
+            float halfCell = _layout.CellSize * 0.25f;
+            Gizmos.color = Color.magenta;
+            foreach (var vertex in _selectedVertices)
+                Gizmos.DrawWireSphere(vertex, halfCell);
+
+            // Draw edges connecting selected vertices (shows face outline for 4-vertex faces)
+            if (_selectedVertices.Count == 4)
+            {
+                // Sort by distance to camera ray for a clean quad loop
+                Ray camRay = cameraRef.ScreenPointToRay(new Vector2(Screen.width / 2f, Screen.height / 2f));
+                var sorted = _selectedVertices.OrderBy(v => DistanceToRaySq(v, camRay)).ToList();
+                for (int i = 0; i < sorted.Count; i++)
+                    Gizmos.DrawLine(sorted[i], sorted[(i + 1) % sorted.Count]);
+            }
+        }
+
         if (_dotCursorObj != null)
         {
             Gizmos.color = _cellSnapMode ? Color.yellow : Color.green;
@@ -420,9 +589,9 @@ public class FPSEditModeController : MonoBehaviour
         Rect box = new Rect(10, 10, 320, 80);
         GUI.Box(box, "", "box");
 
-        GUI.Label(new Rect(20, 15, 300, 20), "FPS Edit Mode | " + (_cellSnapMode ? "Cell Snap" : "Brush"), style);
+        GUI.Label(new Rect(20, 15, 300, 20), "FPS Edit Mode | " + (_cellSnapMode ? "Cell Snap" : "Brush") + " | " + (_selectedVertices.Count > 0 ? (_selectedVertices.Count == 4 ? "Face" : "Vertex") : ""), style);
         GUI.Label(new Rect(20, 35, 300, 20), "Cells: " + _selectedCells.Count + " | Vertices: " + _selectedVertices.Count, style);
-        GUI.Label(new Rect(20, 55, 300, 20), string.Format("Brush: {0:F1} | Scroll: carve/fill | Ctrl+Scroll: size", brushRadius), style);
+        GUI.Label(new Rect(20, 55, 300, 20), string.Format("Brush: {0:F1} | Q=vertex F=face | RMB drag to move", brushRadius), style);
     }
 
     void OnDestroy()
