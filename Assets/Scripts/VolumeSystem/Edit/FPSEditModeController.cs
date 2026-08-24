@@ -115,6 +115,15 @@ public class FPSEditModeController : MonoBehaviour
         return (int)key >= 1 && (int)key <= 123;
     }
 
+    /// <summary>Maps an angle to signed -180..180 (Unity eulers are 0..360).</summary>
+    private static float NormalizeAngle(float a)
+    {
+        a = a % 360f;
+        if (a > 180f) a -= 360f;
+        if (a < -180f) a += 360f;
+        return a;
+    }
+
     // ---------- Mode toggle ----------
 
     private void HandleModeToggle()
@@ -129,9 +138,17 @@ public class FPSEditModeController : MonoBehaviour
 
             if (_active)
             {
-                // Yaw goes on parent (main transform), pitch on camera child
-                _yaw = transform.eulerAngles.y;
-                _pitch = cameraRef.transform.localEulerAngles.x;
+                // Re-anchor the FPS rig from the camera's WORLD pose: parent carries
+                // yaw only, camera child carries pitch only (the model
+                // HandleMouseLook() assumes). The scene camera may carry local yaw/roll
+                // (e.g. local yaw -90 here), and zeroing those would snap the view on
+                // entry. Reconstructing from the world rotation keeps the view
+                // identical; eulers are 0..360, so normalize to signed -180..180.
+                Vector3 worldEuler = cameraRef.transform.rotation.eulerAngles;
+                _yaw = NormalizeAngle(worldEuler.y);
+                _pitch = Mathf.Clamp(NormalizeAngle(worldEuler.x), minLookAngle, maxLookAngle);
+                transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
+                cameraRef.transform.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
             }
         }
     }
