@@ -109,7 +109,11 @@ A storage, compression, or streaming representation that imports data into and e
 _Avoid_: Working buffer, meshing backend
 
 ### Dirty Region
-The minimal world-space AABB that covers geometry changes since the last rebuild. Encapsulates multiple object moves within a single frame to avoid undersampling. Translated to grid cell indices, then expanded to chunk boundaries + one-face neighbour padding before sampling.
+The minimal world-space AABB that covers geometry changes since the last rebuild. Encapsulates multiple object moves within a single frame to avoid undersampling. Translated to grid cell indices; the cells it covers (plus one chunk of neighbour padding) are the chunks that get remeshed.
+
+### Sample Region
+The grid-cell region actually resampled during a partial rebuild. Derived from the Dirty Region: expanded to chunk boundaries plus one-face neighbour padding, then further expanded by the **active mesher's declared read halo** (`IVolumeMesher.ReadHaloCells`) so that every remeshed chunk's full read range is covered. Strictly larger than the remeshed region — the extra halo serves the mesher's boundary reads, not geometry changes. The halo is a mesher contract, not a pipeline constant: DC reads a 2-cell corner probe, voxel-based meshers read 1 cell (see ADR-019). The shared `PartialRebuildPlan` produces both the sample region and the remesh chunk set from one computation so the two can never drift apart.
+_Avoid_: Dirty Region, rebuild bounds
 
 ### Chunk
 A fixed-size sub-volume of the global SDF grid (e.g., 8×8×8 cells). The unit of work for parallel meshing: each chunk is sampled, meshed, and rendered independently. Chunks carry a monotonically increasing version number to detect stale results when re-dirtied in-flight.

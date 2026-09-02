@@ -8,6 +8,10 @@ public class DualContouringMesher : IVolumeMesher, IChunkVolumeMesher
     public bool SupportsCpu => true;
     public bool SupportsGpu => false;
 
+    // ADR-019: Phase 1 reads a trailing +1 halo cell and that cell's far corner → up to
+    // 2 cells past a chunk region's max edge per axis. The sampler must cover both.
+    public int ReadHaloCells => 2;
+
     private static readonly Vector3Int[] CornerOffsets = new Vector3Int[]
     {
         new(0, 0, 0), new(1, 0, 0), new(1, 1, 0), new(0, 1, 0),

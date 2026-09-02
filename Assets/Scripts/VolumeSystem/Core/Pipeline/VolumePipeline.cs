@@ -154,36 +154,22 @@ public class VolumePipeline
 
         BoundsInt dirtyRegion = WorldBoundsToIntBounds(dirtyBounds, _layout);
 
-        // Empty region — fallback to full rebuild
+        // Empty region — no overlap with the grid. Nothing in the buffer changed, so this is
+        // a no-op, not a full rebuild (ADR-019). Previously this fell back to a full O(n^3)
+        // rebuild for a grid that provably didn't change.
         if (dirtyRegion.size.x <= 0 || dirtyRegion.size.y <= 0 || dirtyRegion.size.z <= 0)
         {
-            Debug.Log("[VolumePipeline] Partial: no overlap — fallback to full rebuild");
-
-            if (TryGetSnapshot(sdfSource, out var snapshot))
-                _builder.BuildBurst(snapshot, Buffer);
-            else
-                _builder.Build(Source, Buffer);
-
-            Scheduler.ClearPending();
-            DirtyChunks.MarkAllDirty(DirtyReason.FullRebuild);
-            if (ActiveBackend == ComputeBackend.GPU)
-                Buffer.SyncCpuToGpu();
+            Debug.LogWarning($"[VolumePipeline] Partial: dirty bounds {dirtyBounds} do not intersect the grid — no-op, nothing resampled or remeshed.");
             return;
         }
 
-        BoundsInt sampleRegion = ExpandToChunkRegions(dirtyRegion, _layout);
-
-        // Expand sampling region by ±1 cell so dual contouring at the boundary
-        // reads fresh SDF values (not stale data from before this partial rebuild).
-        Vector3Int pos = sampleRegion.position - Vector3Int.one;
-        pos.x = Mathf.Max(0, pos.x);
-        pos.y = Mathf.Max(0, pos.y);
-        pos.z = Mathf.Max(0, pos.z);
-        Vector3Int sz = sampleRegion.size + new Vector3Int(2, 2, 2);
-        sz.x = Mathf.Min(_layout.Resolution.x - pos.x, sz.x);
-        sz.y = Mathf.Min(_layout.Resolution.y - pos.y, sz.y);
-        sz.z = Mathf.Min(_layout.Resolution.z - pos.z, sz.z);
-        sampleRegion = new BoundsInt(pos, sz);
+        // ADR-019: one region policy for both stages. The plan derives the sample region
+        // (chunk-expanded remesh range + the active mesher's declared read halo) AND the
+        // remesh chunk range from the same dirty region — so sampling and remeshing can no
+        // longer drift, which is the root cause of the stale-halo corner-gap bug.
+        int readHalo = Mesher?.ReadHaloCells ?? 2;
+        PartialRebuildPlan plan = PartialRebuildPlan.Create(dirtyRegion, _layout, Buffer.ChunkGridSize, readHalo);
+        BoundsInt sampleRegion = plan.SampleRegion;
 
         // Burst-compiled partial sampling
         if (TryGetSnapshot(sdfSource, out var burstSnapshot))
@@ -206,8 +192,9 @@ public class VolumePipeline
             }
         }
 
-        // Mark original dirty region for meshing — MarkDirty() expands ±1 chunk internally.
-        // Do NOT pass sampleRegion here (already expanded) — would double-expand neighbor coverage.
+        // ADR-019: mark the dirty region for meshing. MarkDirty derives its ±1-chunk remesh
+        // range from the same PartialRebuildPlan policy used to size the sample region above,
+        // so the two stages cannot drift. (Passing sampleRegion here would double-expand it.)
         DirtyChunks.MarkDirty(dirtyRegion, DirtyReason.Operation);
         Debug.Log($"[VolumePipeline] Partial: dirty={dirtyRegion}, sample={sampleRegion}, chunks={DirtyChunks.QueueCount}");
 
@@ -256,43 +243,6 @@ public class VolumePipeline
         int sx = Mathf.Min(layout.Resolution.x, maxIndex.x + 1) - px;
         int sy = Mathf.Min(layout.Resolution.y, maxIndex.y + 1) - py;
         int sz = Mathf.Min(layout.Resolution.z, maxIndex.z + 1) - pz;
-
-        return new BoundsInt(px, py, pz, sx, sy, sz);
-    }
-
-    /// <summary>Expand a region to cover all cells in affected chunks plus their 6-face neighbors.</summary>
-    private static BoundsInt ExpandToChunkRegions(BoundsInt region, VolumeLayout layout)
-    {
-        int cs = layout.ChunkSize;
-        if (cs <= 0) return region;
-
-        // Find chunk range
-        int minCx = Mathf.FloorToInt(region.position.x / cs);
-        int minCy = Mathf.FloorToInt(region.position.y / cs);
-        int minCz = Mathf.FloorToInt(region.position.z / cs);
-        int maxCx = Mathf.FloorToInt((region.position.x + region.size.x - 1) / cs);
-        int maxCy = Mathf.FloorToInt((region.position.y + region.size.y - 1) / cs);
-        int maxCz = Mathf.FloorToInt((region.position.z + region.size.z - 1) / cs);
-
-        // Add neighbor chunks for dual contouring context
-        minCx--; minCy--; minCz--;
-        maxCx++; maxCy++; maxCz++;
-
-        // Clamp to grid — last chunk index is (res-1)/cs, ensuring cell coords stay in bounds even
-        // when resolution is not an exact multiple of chunk size.
-        Vector3Int res = layout.Resolution;
-        minCx = Mathf.Max(0, minCx); minCy = Mathf.Max(0, minCy); minCz = Mathf.Max(0, minCz);
-        maxCx = Mathf.Min((res.x - 1) / cs, maxCx);
-        maxCy = Mathf.Min((res.y - 1) / cs, maxCy);
-        maxCz = Mathf.Min((res.z - 1) / cs, maxCz);
-
-        // Convert back to cell indices
-        int px = minCx * cs;
-        int py = minCy * cs;
-        int pz = minCz * cs;
-        int sx = Mathf.Min(res.x, (maxCx + 1) * cs) - px;
-        int sy = Mathf.Min(res.y, (maxCy + 1) * cs) - py;
-        int sz = Mathf.Min(res.z, (maxCz + 1) * cs) - pz;
 
         return new BoundsInt(px, py, pz, sx, sy, sz);
     }

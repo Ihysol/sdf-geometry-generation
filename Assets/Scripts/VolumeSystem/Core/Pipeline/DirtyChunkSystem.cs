@@ -44,28 +44,26 @@ public class DirtyChunkSystem
             return;
         }
 
-        // Compute chunk range without allocations
-        int minCx = Mathf.Max(0, region.position.x / chunkSize);
-        int minCy = Mathf.Max(0, region.position.y / chunkSize);
-        int minCz = Mathf.Max(0, region.position.z / chunkSize);
-        int maxCx = Mathf.Min(_gridX - 1, (region.position.x + region.size.x - 1) / chunkSize);
-        int maxCy = Mathf.Min(_gridY - 1, (region.position.y + region.size.y - 1) / chunkSize);
-        int maxCz = Mathf.Min(_gridZ - 1, (region.position.z + region.size.z - 1) / chunkSize);
+        // ADR-019: derive the remesh range from the shared region policy so it cannot drift
+        // from the sampling side (VolumePipeline builds the same range via
+        // PartialRebuildPlan.Create). Same ±1-chunk neighbour coverage as before.
+        Vector3Int chunkGrid = new Vector3Int(_gridX, _gridY, _gridZ);
+        (Vector3Int min, Vector3Int max) = PartialRebuildPlan.RemeshRange(region, chunkGrid, chunkSize);
+        MarkDirtyRange(min, max, reason);
+    }
 
-        // Expand chunk range by 1 in each direction for neighbor coverage
-        int expMinCx = Mathf.Max(0, minCx - 1);
-        int expMinCy = Mathf.Max(0, minCy - 1);
-        int expMinCz = Mathf.Max(0, minCz - 1);
-        int expMaxCx = Mathf.Min(_gridX - 1, maxCx + 1);
-        int expMaxCy = Mathf.Min(_gridY - 1, maxCy + 1);
-        int expMaxCz = Mathf.Min(_gridZ - 1, maxCz + 1);
-
-        // Mark chunks dirty (expanded range covers affected + neighbors)
-        for (int cz = expMinCz; cz <= expMaxCz; cz++)
+    /// <summary>
+    /// ADR-019: Mark an explicit chunk range dirty, with no further expansion. Used by
+    /// <c>VolumePipeline</c> which already computed the range via <see cref="PartialRebuildPlan"/>,
+    /// so the remesh range and the sampling region are guaranteed consistent.
+    /// </summary>
+    public void MarkDirtyRange(Vector3Int min, Vector3Int max, DirtyReason reason = DirtyReason.Operation)
+    {
+        for (int cz = min.z; cz <= max.z; cz++)
         {
-            for (int cy = expMinCy; cy <= expMaxCy; cy++)
+            for (int cy = min.y; cy <= max.y; cy++)
             {
-                for (int cx = expMinCx; cx <= expMaxCx; cx++)
+                for (int cx = min.x; cx <= max.x; cx++)
                 {
                     MarkChunk(cx, cy, cz, reason);
                 }

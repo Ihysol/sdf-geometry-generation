@@ -7,6 +7,10 @@ public class VoxelMesher : IVolumeMesher, IChunkVolumeMesher
     public bool SupportsCpu => true;
     public bool SupportsGpu => false;
 
+    // ADR-019: Reads the cell, its 6 axis neighbours and face-corner cells (offset 0/1 in
+    // the face plane) → at most 1 cell past a chunk region's edge per axis.
+    public int ReadHaloCells => 1;
+
     private static readonly Vector3Int[] FaceNormals = new Vector3Int[]
     {
         new Vector3Int(1, 0, 0),   // +X
