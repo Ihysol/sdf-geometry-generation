@@ -913,7 +913,15 @@ public class VolumeProcessor : MonoBehaviour
     public bool SupportsPreviewResolution() => false;
     public Vector3Int usePreviewResolutionWhileInteracting = Vector3Int.zero;
     public bool IsPreviewInteractionActive => false;
-    public void DrainPendingRenderChunksImmediately() { }
+    /// <summary>
+    /// Drain all pending meshing synchronously. Called by VolumeObject after move-triggered
+    /// rebuilds in edit mode, where Update() (and thus the scheduler tick) does not run.
+    /// </summary>
+    public void DrainPendingRenderChunksImmediately()
+    {
+        if (_pipeline != null)
+            _lastRemeshedChunkCount = DrainSync();
+    }
     public OctreeVolumeSampler octreeSampler => null;
          public VoxelGridSampler voxelGridSampler => CreateVoxelGridSampler();
          public SparseVoxelOctreeSampler sparseVoxelOctreeSampler => null;

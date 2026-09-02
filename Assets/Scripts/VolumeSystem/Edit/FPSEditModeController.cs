@@ -129,9 +129,17 @@ public class FPSEditModeController : MonoBehaviour
 
             if (_active)
             {
-                // Yaw goes on parent (main transform), pitch on camera child
-                _yaw = transform.eulerAngles.y;
-                _pitch = cameraRef.transform.localEulerAngles.x;
+                // Capture from the camera's WORLD rotation so however the
+                // rotation is distributed across the hierarchy (pitch on
+                // parent, local yaw on camera, leftover roll) is preserved,
+                // not just "parent yaw + child local x". Normalize the pose
+                // immediately — deferring to the first mouse frame is what
+                // caused the view jump on mode entry.
+                Vector3 e = cameraRef.transform.rotation.eulerAngles;
+                _yaw = e.y;
+                _pitch = e.x > 180f ? e.x - 360f : e.x; // wrap to [-180, 180]
+                _pitch = Mathf.Clamp(_pitch, minLookAngle, maxLookAngle);
+                ApplyCameraPose();
             }
         }
     }
@@ -167,10 +175,29 @@ public class FPSEditModeController : MonoBehaviour
         _pitch -= mouseDelta.y * mouseSensitivity;
         _pitch = Mathf.Clamp(_pitch, minLookAngle, maxLookAngle);
 
+        ApplyCameraPose();
+    }
+
+    /// <summary>
+    /// Writes the canonical yaw/pitch pose. Handles both hierarchies: controller
+    /// on a parent GO with the camera as a child, or controller directly on the
+    /// camera's own GO (then a single combined write — the old two-write path
+    /// clobbered itself and dropped the yaw entirely).
+    /// </summary>
+    private void ApplyCameraPose()
+    {
+        if (ReferenceEquals(cameraRef.transform, transform))
+        {
+            transform.rotation = Quaternion.Euler(_pitch, _yaw, 0f);
+            return;
+        }
+
         // Yaw on the parent so movement (transform.Translate) follows camera direction
         transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
-        // Pitch only on the camera child
-        cameraRef.transform.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
+        // World target converted to local, so any hierarchy between controller
+        // and camera still lands on the exact same world pose
+        Quaternion worldTarget = Quaternion.Euler(_pitch, _yaw, 0f);
+        cameraRef.transform.localRotation = Quaternion.Inverse(transform.rotation) * worldTarget;
     }
 
     // ---------- Dot cursor positioning — steps ray through grid ----------
